@@ -5,7 +5,8 @@ import {
 import { useEffect, useState, type ReactNode } from 'react'
 import { LANGUAGES, useFormatDate, useT } from '../../lib/i18n.tsx'
 import { ConfirmDialog } from '../../ui/Modal.tsx'
-import { useToast } from '../../ui/toast.tsx'
+import { blurOnEnter, Field, SaveOnBlurInput } from '../../ui/fields.tsx'
+import { useCopy, useToast } from '../../ui/toast.tsx'
 import { useDevice } from '../DeviceContext.tsx'
 import { PageHeader } from '../Shell.tsx'
 import { FolderField } from '../components/folders.tsx'
@@ -62,20 +63,8 @@ function Toggle({ label, checked, onChange, disabled = false, tone = 'toggle-pri
   )
 }
 
-/** Saves on blur/Enter, and only when the value changed. */
 function TextSetting({ label, value, onSave, type = 'text', help, className = '' }: { label: string; value: string; onSave: (value: string) => void; type?: string; help?: string; className?: string }) {
-  const [draft, setDraft] = useState(value)
-  useEffect(() => setDraft(value), [value])
-  return (
-    <div className={className}>
-      <label className="floating-label block">
-        <span>{label}</span>
-        <input type={type} className="input w-full" placeholder={label} value={draft} onChange={e => setDraft(e.target.value)}
-          onBlur={() => draft !== value && onSave(draft)} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />
-      </label>
-      {help && <p className="mt-1 text-xs text-base-content/60">{help}</p>}
-    </div>
-  )
+  return <Field label={label} help={help} className={className}><SaveOnBlurInput type={type} placeholder={label} value={value} onSave={onSave} /></Field>
 }
 
 /** Write-only secret: shows whether one is saved, never its value. */
@@ -90,7 +79,7 @@ function SecretSetting({ label, isSet, onSave, help, className = '' }: { label: 
           <input type="password" autoComplete="new-password" className="input w-full" value={draft}
             placeholder={isSet ? t('settings.secretSaved') : label} onChange={e => setDraft(e.target.value)}
             onBlur={() => { if (draft) { onSave(draft); setDraft('') } }}
-            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />
+            onKeyDown={blurOnEnter} />
         </label>
         {isSet && <button type="button" className="btn join-item" onClick={() => onSave('')}>{t('settings.secretClear')}</button>}
       </div>
@@ -168,6 +157,7 @@ function AgentSection() {
   const toast = useToast()
   const run = useRun()
   const { connection } = useDevice()
+  const copy = useCopy(t('settings.agentCopied'))
   const [agent, setAgent] = useState<AgentStatusDto | null>(null)
   const [reveal, setReveal] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -176,14 +166,6 @@ function AgentSection() {
   }, [connection])
   if (!agent) return null
 
-  const copy = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-      toast(t('settings.agentCopied'), 'success')
-    } catch {
-      // Clipboard blocked; the value is still selectable.
-    }
-  }
   const change = async (patch: { enabled?: boolean; allowRemote?: boolean }) => {
     const next = await run(() => connection.call('agent.set', patch), 'settings.saveFailed')
     if (next) setAgent(next)

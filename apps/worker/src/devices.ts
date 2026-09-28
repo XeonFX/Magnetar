@@ -1,5 +1,6 @@
 import type { CloudDeviceDto, PairApproveResponse, PairingInfoDto, PairPollResponse, PairStartRequest, PairStartResponse } from '@md/protocol/cloud'
 import { randomId } from '@md/protocol/base64'
+import { RELAY_CLOSE } from '@md/protocol/relay'
 import { requireUser } from './auth.ts'
 import type { Env } from './env.ts'
 import { clientIp, error, json, limit, readJson, requireSameOrigin, sha256 } from './http.ts'
@@ -117,7 +118,7 @@ export async function handleDevices(request: Request, env: Env, path: string): P
     const device = await deviceFromToken(request, env)
     // A 401 on the upgrade looks like any network failure to the device, which would retry
     // forever; closing with 4001 tells it the pairing is gone.
-    if (!device) return closedSocket(4001, 'Device removed from the account')
+    if (!device) return closedSocket(RELAY_CLOSE.deviceRemoved, 'Device removed from the account')
     return relay(env, device.id).fetch(new Request('https://relay/device', { headers: { upgrade: 'websocket', 'x-device-id': device.id } }))
   }
 
@@ -155,7 +156,7 @@ export async function handleDevices(request: Request, env: Env, path: string): P
     if (deviceRoute[2]) {
       if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return error(426, 'WebSocket required')
       // Tell the page this device is gone for good, instead of letting it retry forever.
-      if (!device) return closedSocket(4003, 'Device not on this account')
+      if (!device) return closedSocket(RELAY_CLOSE.notOnAccount, 'Device not on this account')
       return relay(env, device.id).fetch(new Request('https://relay/browser', { headers: { upgrade: 'websocket', 'x-device-id': device.id } }))
     }
     if (!device) return error(404, 'No such device')

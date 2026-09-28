@@ -3,7 +3,6 @@ import { backoff, RpcClient } from './rpcClient.ts'
 
 /** The dashboard served by the device itself: a plain same-origin socket, loopback only. */
 export class LocalConnection extends RpcClient {
-  readonly kind = 'local'
   private socket: WebSocket | null = null
   private attempt = 0
   private closed = false

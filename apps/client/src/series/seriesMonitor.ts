@@ -1,4 +1,4 @@
-import type { ActionsForSeries } from '../api/actions.ts'
+import type { Actions } from '../api/actions.ts'
 import { logger } from '../log.ts'
 import type { SearchService } from '../search/searchService.ts'
 import type { TorrentSearchResult } from '../search/types.ts'
@@ -20,7 +20,7 @@ export class SeriesMonitor {
   constructor(
     private readonly store: SeriesStore,
     private readonly search: SearchService,
-    private readonly actions: ActionsForSeries,
+    private readonly actions: Pick<Actions, 'startFromResult'>,
   ) {}
 
   start(): void {
@@ -69,10 +69,12 @@ export class SeriesMonitor {
       // A blank query would match arbitrary torrents: never auto-download for one.
       if (!task.query.trim()) return
       log.info(`Checking series '${task.name}' for episode ${nextEpisode(task)}`)
+      // Catching up asks the same broad query for every episode; ask each site once per check.
+      const searches = new Map<string, Promise<TorrentSearchResult[]>>()
       for (let guard = 0; guard < MAX_EPISODES_PER_CHECK; guard++) {
         if (isFinished(task)) break
         const episode = nextEpisode(task)
-        const result = await this.findEpisode(task, episode)
+        const result = await this.findEpisode(task, episode, searches)
         if (!result) break
         await this.actions.startFromResult(result, { seriesTaskId: task.id, saveFolder: task.downloadFolder })
         task.lastDownloadedEpisode = episode
@@ -104,12 +106,15 @@ export class SeriesMonitor {
     }
   }
 
-  private async findEpisode(task: SeriesTask, episode: number): Promise<TorrentSearchResult | null> {
+  private async findEpisode(task: SeriesTask, episode: number, searches: Map<string, Promise<TorrentSearchResult[]>>): Promise<TorrentSearchResult | null> {
     for (const query of episodeQueries(task, episode)) {
-      const results = await this.search.search(query, task.provider, this.controller.signal)
-      const match = results
-        .filter(r => matchesEpisode(r.title, task, episode))
-        .sort((a, b) => b.seeders - a.seeders)[0]
+      let results = searches.get(query)
+      if (!results) {
+        // No relevance filter: episode matching below is stricter. Results come seeder-sorted.
+        results = this.search.collect(query, task.provider, this.controller.signal, false).then(r => r.results)
+        searches.set(query, results)
+      }
+      const match = (await results).find(r => matchesEpisode(r.title, task, episode))
       if (match) return match
     }
     return null

@@ -12,6 +12,22 @@ export const CONNECTION_ID_BYTES = 16
 /** Largest payload the relay forwards; bigger frames close the sender. */
 export const MAX_RELAY_FRAME = 1024 * 1024
 
+/** WebSocket close codes each side acts on. */
+export const RELAY_CLOSE = {
+  /** A newer device connection took over. */
+  replaced: 4000,
+  /** The device was removed from its account: it forgets its pairing. */
+  deviceRemoved: 4001,
+  /** The device dropped this browser (a revoked key, a failed handshake); the browser may retry. */
+  closedByDevice: 4002,
+  /** The device is not on this account: the browser stops retrying. */
+  notOnAccount: 4003,
+} as const
+
+/** Keepalive, answered by the relay without waking it. */
+export const RELAY_PING = '{"t":"ping"}'
+export const RELAY_PONG = '{"t":"pong"}'
+
 export type RelayToBrowser = { t: 'device'; online: boolean }
 export type RelayToDevice =
   | { t: 'open'; c: string }

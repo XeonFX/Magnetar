@@ -1,6 +1,7 @@
 import { Database } from 'bun:sqlite'
 import { existsSync } from 'node:fs'
 import type { DownloadStatus, LegacyImportResultDto, LegacyImportStatusDto } from '@md/protocol'
+import { ApiError } from '../api/errors.ts'
 import type { KeyValue } from '../db/database.ts'
 import { logger } from '../log.ts'
 import type { AppSettings, SettingsService } from '../settings.ts'
@@ -77,7 +78,7 @@ export class LegacyImporter {
 
   run(): LegacyImportResultDto {
     const path = this.legacyPath
-    if (!path || !existsSync(path)) throw new Error('No legacy MediaDownloader database was found.')
+    if (!path || !existsSync(path)) throw new ApiError('No legacy MediaDownloader database was found.')
     const legacy = new Database(path, { readonly: true })
     try {
       return this.db.transaction(() => this.copy(legacy))()

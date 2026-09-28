@@ -1,27 +1,11 @@
 import type { FailureReport } from '@md/protocol/cloud'
+import { scrub } from '@md/protocol/scrub'
 import type { App } from './app.ts'
 import { ARCH, CLOUD_URL, IS_DEV, PLATFORM, USER_AGENT, VERSION } from './config.ts'
 import { setErrorSink } from './log.ts'
 
 const MAX_PER_HOUR = 10
 const sent: number[] = []
-
-/**
- * Strips anything that could identify the user or what they download before an error leaves the
- * machine: quoted text (torrent titles), paths, URLs, e-mail addresses, IPs and long hex/base64
- * runs (hashes, tokens). What remains is the shape of the failure.
- */
-export function scrub(text: string): string {
-  return text
-    .replace(/https?:\/\/[^\s'")]+/gi, '<url>')
-    .replace(/magnet:\?[^\s'")]+/gi, '<magnet>')
-    .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '<email>')
-    .replace(/"[^"\n]*"|'[^'\n]*'|“[^”\n]*”/g, '"…"')
-    .replace(/(?:[A-Za-z]:)?(?:[\\/][^\\/\s:'"()]+)+/g, match => `…/${match.split(/[\\/]/).pop()}`)
-    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '<ip>')
-    .replace(/\b[0-9a-f]{16,}\b/gi, '<hex>')
-    .replace(/\b[A-Za-z0-9_-]{32,}\b/g, '<token>')
-}
 
 /** Error reports go to the Worker, which forwards them to CodeFusion Console. Off in development. */
 export function startTelemetry(app: App): void {

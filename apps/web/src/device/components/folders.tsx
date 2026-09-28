@@ -2,6 +2,7 @@ import type { FolderListing } from '@md/protocol'
 import { ArrowUp, Folder, FolderOpen, FolderPlus, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useT } from '../../lib/i18n.tsx'
+import { blurOnEnter } from '../../ui/fields.tsx'
 import { Modal } from '../../ui/Modal.tsx'
 import { useDevice } from '../DeviceContext.tsx'
 
@@ -114,9 +115,9 @@ export function FolderField({ label, value, placeholder, help, onChange }: {
           <span>{label}</span>
           <input className="input w-full font-mono text-sm" value={draft} placeholder={placeholder ?? label}
             onChange={e => setDraft(e.target.value)} onBlur={() => draft !== value && onChange(draft)}
-            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />
+            onKeyDown={blurOnEnter} />
         </label>
-        <button type="button" className="btn join-item" onClick={() => void browse()}><FolderOpen size={16} /><span className="hidden sm:inline">{t('common.browse')}</span></button>
+        <button type="button" className="btn join-item" aria-label={t('common.browse')} onClick={() => void browse()}><FolderOpen size={16} /><span className="hidden sm:inline">{t('common.browse')}</span></button>
       </div>
       {help && <p className="mt-1 text-xs text-base-content/60">{help}</p>}
       <FolderBrowser open={browsing} start={draft || placeholder || ''} onClose={() => setBrowsing(false)}

@@ -2,6 +2,17 @@
 
 export const DEFAULT_CLOUD_URL = 'https://mediadownloader.codefusion.cc'
 
+/** Registered with Google as the OAuth redirect URI. */
+export const GOOGLE_CALLBACK_PATH = '/api/auth/google/callback'
+
+/** `/app-config.json`: tells the one dashboard build whether the app or the website serves it. */
+export interface AppConfig {
+  mode: 'local' | 'cloud'
+  googleClientId?: string
+  /** Development-only passwordless sign-in, never enabled in production. */
+  devLogin?: boolean
+}
+
 export interface AccountDto {
   id: string
   email: string

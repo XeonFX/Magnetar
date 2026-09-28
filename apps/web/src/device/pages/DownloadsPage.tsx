@@ -1,18 +1,19 @@
 import type { DownloadDto } from '@md/protocol'
 import { formatRate } from '@md/protocol/bytes'
 import { ArrowDown, ArrowUp, CloudDownload, Info, Loader, Search, Tv, User } from 'lucide-react'
-import { useMemo, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { useT } from '../../lib/i18n.tsx'
-import { useDevice } from '../DeviceContext.tsx'
+import { Empty } from '../../ui/Empty.tsx'
+import { useSort } from '../../ui/useSort.tsx'
+import { useDevice, useDownloads } from '../DeviceContext.tsx'
 import { PageHeader } from '../Shell.tsx'
 import { DownloadActions, DownloadName, ProgressBar, Size, Speed, StatusBadge } from '../components/downloads.tsx'
 
-type SortKey = 'name' | 'progress' | 'status' | 'speed' | 'size' | 'peers' | 'series'
-
 export function DownloadsPage() {
   const t = useT()
-  const { downloads, series, basePath } = useDevice()
+  const { series, basePath } = useDevice()
+  const downloads = useDownloads()
   const [tab, setTab] = useState<'manual' | 'series'>('manual')
   const manual = downloads.filter(d => d.seriesTaskId === null)
   const automatic = downloads.filter(d => d.seriesTaskId !== null)
@@ -25,17 +26,13 @@ export function DownloadsPage() {
     <>
       <PageHeader title={t('downloads.title')} subtitle={t('downloads.subtitle')} />
       {downloads.length === 0 ? (
-        <div className="surface flex flex-col items-center gap-4 px-6 py-16 text-center">
-          <div className="grid size-18 place-items-center rounded-full border-2 border-primary text-primary"><CloudDownload size={32} /></div>
-          <div>
-            <h2 className="text-lg font-semibold">{t('downloads.emptyTitle')}</h2>
-            <p className="mt-1 max-w-md text-sm text-base-content/60">{t('downloads.emptyHint')}</p>
-          </div>
+        <Empty icon={<div className="grid size-18 place-items-center rounded-full border-2 border-primary text-primary"><CloudDownload size={32} /></div>}
+          title={t('downloads.emptyTitle')} text={t('downloads.emptyHint')}>
           <div className="flex flex-wrap justify-center gap-2">
             <Link to={`${basePath}/search`} className="btn btn-primary"><Search size={16} />{t('downloads.searchButton')}</Link>
             <Link to={`${basePath}/series`} className="btn btn-outline btn-primary"><Tv size={16} />{t('downloads.seriesButton')}</Link>
           </div>
-        </div>
+        </Empty>
       ) : (
         <>
           <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -86,28 +83,10 @@ export function DownloadList({ downloads, actions = false, seriesName }: {
   seriesName?: (d: DownloadDto) => string
 }) {
   const t = useT()
-  const [sort, setSort] = useState<{ key: SortKey; desc: boolean } | null>(null)
-  const sorted = useMemo(() => {
-    if (!sort) return downloads
-    const value = (d: DownloadDto): string | number => ({
-      name: d.name.toLowerCase(), progress: d.progress, status: d.status, speed: d.downloadSpeed,
-      size: d.totalBytes, peers: d.peers, series: seriesName?.(d) ?? '',
-    })[sort.key]
-    return [...downloads].sort((a, b) => {
-      const [x, y] = [value(a), value(b)]
-      const order = x < y ? -1 : x > y ? 1 : 0
-      return sort.desc ? -order : order
-    })
-  }, [downloads, sort, seriesName])
-
-  const header = (key: SortKey, label: string, className = '') => (
-    <th className={className}>
-      <button type="button" className="inline-flex items-center gap-1 font-semibold"
-        onClick={() => setSort(s => (s?.key === key ? { key, desc: !s.desc } : { key, desc: false }))}>
-        {label}{sort?.key === key ? (sort.desc ? ' ↓' : ' ↑') : ''}
-      </button>
-    </th>
-  )
+  const { sorted, header } = useSort(downloads, {
+    name: d => d.name.toLowerCase(), progress: d => d.progress, status: d => d.status, speed: d => d.downloadSpeed,
+    size: d => d.totalBytes, peers: d => d.peers, series: d => seriesName?.(d) ?? '',
+  })
 
   return (
     <>

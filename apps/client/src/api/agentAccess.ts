@@ -1,13 +1,14 @@
-import { randomBytes, timingSafeEqual } from 'node:crypto'
+import { timingSafeEqual } from 'node:crypto'
 import { chmodSync, renameSync, writeFileSync } from 'node:fs'
 import type { AgentStatusDto } from '@md/protocol'
+import { randomId } from '@md/protocol/base64'
 import type { SecretStore } from '../db/secrets.ts'
 import { paths } from '../paths.ts'
 import type { SettingsService } from '../settings.ts'
 
 /** 256 bits, base64url so it survives a shell or a JSON config. */
 export function generateToken(): string {
-  return randomBytes(32).toString('base64url')
+  return randomId(32)
 }
 
 /** Constant-time comparison, so timing doesn't reveal how much of a guess was right. */

@@ -1,6 +1,6 @@
 import * as cheerio from 'cheerio'
 import { parseBytes } from '@md/protocol/bytes'
-import { fetchText, fromUnixSeconds, toInt } from '../http.ts'
+import { fetchExtraPages, fetchText, fromUnixSeconds, toInt } from '../http.ts'
 import { buildMagnet, extractInfoHash } from '../magnet.ts'
 import { newResult, type TorrentSearchProvider, type TorrentSearchResult } from '../types.ts'
 
@@ -26,15 +26,7 @@ export class NyaaProvider implements TorrentSearchProvider {
   async search(query: string, signal: AbortSignal): Promise<TorrentSearchResult[]> {
     const first = parseRows(await fetchText(pageUrl(query, 1), signal))
     if (first.length < PAGE_SIZE) return first
-    const rest = await Promise.all(Array.from({ length: MAX_PAGES - 1 }, async (_, i) => {
-      try {
-        return parseRows(await fetchText(pageUrl(query, i + 2), signal))
-      } catch (error) {
-        if (signal.aborted) throw error
-        return []
-      }
-    }))
-    return [...first, ...rest.flat()]
+    return [...first, ...await fetchExtraPages(MAX_PAGES - 1, async page => parseRows(await fetchText(pageUrl(query, page), signal)), signal)]
   }
 }
 

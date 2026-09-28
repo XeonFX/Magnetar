@@ -2,7 +2,8 @@ import type {
   AppInfoDto, DownloadDto, RemoteStatusDto, SearchResultDto, SeriesTaskDto, SettingsDto, SourceDto, SourceOutcomeDto,
   UpdateStatusDto,
 } from '@md/protocol'
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { mergeByInfoHash } from '@md/protocol/merge'
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { ConnectionState, RpcClient } from '../lib/rpcClient.ts'
 
 /** What the Search page keeps while you browse other pages, like the legacy app did. */
@@ -22,7 +23,6 @@ interface DeviceState {
   connection: RpcClient
   connectionState: ConnectionState
   info: AppInfoDto | null
-  downloads: DownloadDto[]
   series: SeriesTaskDto[]
   settings: SettingsDto | null
   sources: SourceDto[]
@@ -36,23 +36,8 @@ interface DeviceState {
 }
 
 const DeviceContext = createContext<DeviceState | null>(null)
-
-/** Merges one streamed batch into the sorted, de-duplicated list, keeping the better-seeded row. */
-function mergeBatch(list: SearchResultDto[], batch: SearchResultDto[]): SearchResultDto[] {
-  const next = [...list]
-  for (const row of batch) {
-    const hash = row.infoHash?.toLowerCase()
-    if (hash) {
-      const index = next.findIndex(r => r.infoHash?.toLowerCase() === hash)
-      if (index >= 0) {
-        if (row.seeders <= next[index]!.seeders) continue
-        next.splice(index, 1)
-      }
-    }
-    next.push(row)
-  }
-  return next.sort((a, b) => b.seeders - a.seeders)
-}
+/** Separate so the once-a-second progress updates re-render only the views that show downloads. */
+const DownloadsContext = createContext<DownloadDto[]>([])
 
 export function DeviceProvider({ connection, basePath, deviceName, children }: {
   connection: RpcClient
@@ -68,8 +53,7 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
   const [sources, setSources] = useState<SourceDto[]>([])
   const [updates, setUpdates] = useState<UpdateStatusDto | null>(null)
   const [remote, setRemote] = useState<RemoteStatusDto | null>(null)
-  const [search, setSearchState] = useState<SearchState>(EMPTY_SEARCH)
-  const setSearch = useCallback((update: (state: SearchState) => SearchState) => setSearchState(update), [])
+  const [search, setSearch] = useState<SearchState>(EMPTY_SEARCH)
 
   useEffect(() => {
     const refresh = async () => {
@@ -93,7 +77,7 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
     const offState = connection.onState(state => {
       setConnectionState(state)
       if (state.status === 'open') void refresh()
-      else setSearchState(s => (s.searching ? { ...s, searching: false } : s))
+      else setSearch(s => (s.searching ? { ...s, searching: false } : s))
     })
     if (connection.state.status === 'open') void refresh()
 
@@ -108,11 +92,11 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
       connection.on('updates.changed', setUpdates),
       connection.on('remote.changed', setRemote),
       connection.on('search.results', ({ searchId, results }) =>
-        setSearchState(s => (s.searchId === searchId ? { ...s, results: mergeBatch(s.results ?? [], results) } : s))),
+        setSearch(s => (s.searchId === searchId ? { ...s, results: mergeByInfoHash([...(s.results ?? []), ...results]) } : s))),
       connection.on('search.source', ({ searchId, outcome }) =>
-        setSearchState(s => (s.searchId === searchId ? { ...s, outcomes: [...s.outcomes, outcome] } : s))),
+        setSearch(s => (s.searchId === searchId ? { ...s, outcomes: [...s.outcomes, outcome] } : s))),
       connection.on('search.done', ({ searchId }) =>
-        setSearchState(s => (s.searchId === searchId ? { ...s, searching: false } : s))),
+        setSearch(s => (s.searchId === searchId ? { ...s, searching: false } : s))),
       connection.on('notification', event => {
         if (!('Notification' in window) || Notification.permission !== 'granted') return
         try {
@@ -126,10 +110,14 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
   }, [connection])
 
   const value = useMemo<DeviceState>(() => ({
-    connection, connectionState, info, downloads, series, settings, sources, updates, remote, search, setSearch, basePath, deviceName,
-  }), [connection, connectionState, info, downloads, series, settings, sources, updates, remote, search, setSearch, basePath, deviceName])
+    connection, connectionState, info, series, settings, sources, updates, remote, search, setSearch, basePath, deviceName,
+  }), [connection, connectionState, info, series, settings, sources, updates, remote, search, basePath, deviceName])
 
-  return <DeviceContext.Provider value={value}>{children}</DeviceContext.Provider>
+  return (
+    <DeviceContext.Provider value={value}>
+      <DownloadsContext.Provider value={downloads}>{children}</DownloadsContext.Provider>
+    </DeviceContext.Provider>
+  )
 }
 
 export function useDevice(): DeviceState {
@@ -138,3 +126,7 @@ export function useDevice(): DeviceState {
   return value
 }
 
+
+export function useDownloads(): DownloadDto[] {
+  return useContext(DownloadsContext)
+}

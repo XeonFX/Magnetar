@@ -38,24 +38,34 @@ export class SecretBox {
 
 export type SecretName = 'smtpPassword' | 'telegramBotToken' | 'agentApiToken' | 'deviceToken'
 
-/** Named secrets in the `secrets` table, sealed by a SecretBox. */
+/**
+ * Named secrets in the `secrets` table, sealed by a SecretBox. Decrypted values are cached: the
+ * agent token is checked on every API request and the store is the only writer.
+ */
 export class SecretStore {
+  private readonly cache = new Map<SecretName, string>()
+
   constructor(private readonly db: Database, private readonly box: SecretBox) {}
 
   get(name: SecretName): string {
+    const cached = this.cache.get(name)
+    if (cached !== undefined) return cached
     const row = this.db.query('SELECT value FROM secrets WHERE name = ?').get(name) as { value: string } | null
-    if (!row) return ''
+    let value = ''
     try {
-      return this.box.open(row.value)
+      value = row ? this.box.open(row.value) : ''
     } catch {
-      return '' // a key file replaced underneath us: treat as unset rather than crash
+      // A key file replaced underneath us: treat as unset rather than crash.
     }
+    this.cache.set(name, value)
+    return value
   }
 
   set(name: SecretName, value: string): void {
     if (!value) this.db.query('DELETE FROM secrets WHERE name = ?').run(name)
     else this.db.query('INSERT INTO secrets (name, value) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value')
       .run(name, this.box.seal(value))
+    this.cache.set(name, value)
   }
 
   has(name: SecretName): boolean {

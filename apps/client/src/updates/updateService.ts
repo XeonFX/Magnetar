@@ -100,10 +100,6 @@ export class UpdateService {
     }
   }
 
-  get releasesPage(): string {
-    return `https://github.com/${GITHUB_REPO}/releases`
-  }
-
   async check(): Promise<UpdateStatusDto> {
     if (this.checking) return this.status()
     this.checking = true

@@ -1,4 +1,5 @@
 import type { RpcEvents } from '@md/protocol'
+import { ApiError } from '../api/errors.ts'
 import type { SecretStore } from '../db/secrets.ts'
 import type { EventBus } from '../events.ts'
 import { logger } from '../log.ts'
@@ -44,16 +45,15 @@ export class NotificationDispatcher {
     const settings = this.settings.get()
     if (event.kind === 'started' && !settings.notifyOnStart) return
     if (event.kind === 'completed' && !settings.notifyOnComplete) return
-    const failures: string[] = []
-    for (const notifier of this.notifiers) {
-      if (!notifier.isEnabled(settings, this.settings.secrets)) continue
-      try {
-        await notifier.send(event, settings, this.settings.secrets)
-      } catch (error) {
-        log.warn(`${notifier.name} notification failed`, error)
-        failures.push(`${notifier.name}: ${error instanceof Error ? error.message : String(error)}`)
-      }
-    }
-    if (throwOnFailure && failures.length) throw new Error(failures.join('; '))
+    // Channels are independent: a slow SMTP handshake must not hold up the push.
+    const enabled = this.notifiers.filter(n => n.isEnabled(settings, this.settings.secrets))
+    const outcomes = await Promise.allSettled(enabled.map(n => n.send(event, settings, this.settings.secrets)))
+    const failures = outcomes.flatMap((outcome, i) => {
+      if (outcome.status === 'fulfilled') return []
+      const error = outcome.reason as unknown
+      log.warn(`${enabled[i]!.name} notification failed`, error)
+      return [`${enabled[i]!.name}: ${error instanceof Error ? error.message : String(error)}`]
+    })
+    if (throwOnFailure && failures.length) throw new ApiError(failures.join('; '))
   }
 }

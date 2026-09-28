@@ -1,5 +1,6 @@
 import type { Server, ServerWebSocket } from 'bun'
 import type { ClientMessage } from '@md/protocol'
+import type { AppConfig } from '@md/protocol/cloud'
 import type { App } from '../app.ts'
 import { IS_DEV } from '../config.ts'
 import { logger } from '../log.ts'
@@ -38,7 +39,7 @@ function clientFacts(request: Request, peer: string | null): { loopback: boolean
 const notFound = () => Response.json({ error: 'Not found.' }, { status: 404 })
 
 export function startHttpServer(app: App, preferredPort: number): Server<SocketData> {
-  const rest = createRestApi(app.actions, app.settings)
+  const rest = createRestApi(app.agentActions)
 
   const fetch = async (request: Request, server: Server<SocketData>): Promise<Response | undefined> => {
     const url = new URL(request.url)
@@ -59,7 +60,7 @@ export function startHttpServer(app: App, preferredPort: number): Server<SocketD
         if (result !== 'disabled') log.warn(`Agent request to ${url.pathname} refused (${result})`)
         return refusal(result)
       }
-      if (url.pathname === '/mcp') return handleMcp(request, app.actions, app.settings)
+      if (url.pathname === '/mcp') return handleMcp(request, app.agentActions)
       if (url.pathname === '/openapi/v1.json') return Response.json(openApiDocument())
       return rest(request, url)
     }
@@ -75,7 +76,7 @@ export function startHttpServer(app: App, preferredPort: number): Server<SocketD
       return server.upgrade(request, { data: { session: null } }) ? undefined : new Response('Upgrade required', { status: 426 })
     }
     if (url.pathname === '/health') return Response.json({ ok: true })
-    if (url.pathname === '/app-config.json') return Response.json({ mode: 'local' }, { headers: { 'cache-control': 'no-store' } })
+    if (url.pathname === '/app-config.json') return Response.json({ mode: 'local' } satisfies AppConfig, { headers: { 'cache-control': 'no-store' } })
     return staticAsset(url.pathname)
   }
 

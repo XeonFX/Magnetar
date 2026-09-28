@@ -44,3 +44,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 export function useToast() {
   return useContext(ToastContext)
 }
+
+/** Copies text and confirms with a toast; a blocked clipboard fails quietly, the text stays selectable. */
+export function useCopy(message: string) {
+  const toast = useToast()
+  return useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      toast(message, 'success')
+    } catch {
+      // Clipboard access denied.
+    }
+  }, [toast, message])
+}

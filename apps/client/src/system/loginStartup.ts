@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { LoginStartupStatus } from '@md/protocol'
+import { ApiError } from '../api/errors.ts'
 import { macAppBundle } from '../paths.ts'
 
 const MAC_LABEL = 'cc.codefusion.mediadownloader.start-at-login'
@@ -37,7 +38,7 @@ export class LoginStartup {
 
   set(enabled: boolean): LoginStartupStatus {
     const status = this.status()
-    if (status === 'unavailable') throw new Error('Open the installed app to change login startup.')
+    if (status === 'unavailable') throw new ApiError('Open the installed app to change login startup.')
     if (process.platform === 'darwin') this.setMac(enabled)
     else this.setWindows(enabled)
     return this.status()
@@ -74,6 +75,6 @@ export class LoginStartup {
     const result = enabled
       ? run(['reg', 'add', RUN_KEY, '/v', WINDOWS_VALUE, '/t', 'REG_SZ', '/d', `"${process.execPath}"`, '/f'])
       : run(['reg', 'delete', RUN_KEY, '/v', WINDOWS_VALUE, '/f'])
-    if (result.code !== 0 && enabled) throw new Error(result.stderr.trim() || 'Could not update the Run key.')
+    if (result.code !== 0 && enabled) throw new ApiError(result.stderr.trim() || 'Could not update the Run key.')
   }
 }

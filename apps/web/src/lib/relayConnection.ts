@@ -3,7 +3,7 @@ import {
   decodeHandshake, encodeHandshake, FRAME_HANDSHAKE, FRAME_SEALED, startBrowserHandshake, type E2ESession,
   type PendingBrowserHandshake,
 } from '@md/protocol/e2e'
-import type { RelayToBrowser } from '@md/protocol/relay'
+import { RELAY_CLOSE, RELAY_PING, type RelayToBrowser } from '@md/protocol/relay'
 import type { StoredDeviceKey } from './keyStore.ts'
 import { backoff, RpcClient } from './rpcClient.ts'
 
@@ -13,7 +13,6 @@ import { backoff, RpcClient } from './rpcClient.ts'
  * so the relay forwards ciphertext it cannot read or forge.
  */
 export class RelayConnection extends RpcClient {
-  readonly kind = 'remote'
   override readonly keyId: string
   private socket: WebSocket | null = null
   private session: E2ESession | null = null
@@ -37,13 +36,13 @@ export class RelayConnection extends RpcClient {
     socket.onmessage = event => void this.onMessage(socket, event.data as string | ArrayBuffer)
     socket.onopen = () => {
       if (this.pingTimer) clearInterval(this.pingTimer)
-      this.pingTimer = setInterval(() => socket.readyState === WebSocket.OPEN && socket.send('{"t":"ping"}'), 30_000)
+      this.pingTimer = setInterval(() => socket.readyState === WebSocket.OPEN && socket.send(RELAY_PING), 30_000)
     }
     socket.onclose = event => {
       if (this.pingTimer) clearInterval(this.pingTimer)
       if (this.socket !== socket || this.closed) return
       this.session = null
-      if (event.code === 4003) {
+      if (event.code === RELAY_CLOSE.notOnAccount) {
         this.setState({ status: 'rejected', reason: 'remote.removed' })
         return
       }

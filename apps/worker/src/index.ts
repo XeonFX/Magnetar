@@ -1,4 +1,4 @@
-import type { FailureReport } from '@md/protocol/cloud'
+import type { AppConfig, FailureReport } from '@md/protocol/cloud'
 import { handleAuth } from './auth.ts'
 import { handleDevices } from './devices.ts'
 import { devLoginEnabled, type Env } from './env.ts'
@@ -35,7 +35,7 @@ async function reportFailure(request: Request, env: Env): Promise<Response> {
 async function route(request: Request, env: Env): Promise<Response> {
   const path = new URL(request.url).pathname
   if (path === '/app-config.json') {
-    return json({ mode: 'cloud', googleClientId: env.GOOGLE_CLIENT_ID || undefined, devLogin: devLoginEnabled(env) || undefined })
+    return json({ mode: 'cloud', googleClientId: env.GOOGLE_CLIENT_ID || undefined, devLogin: devLoginEnabled(env) || undefined } satisfies AppConfig)
   }
   if (path === '/api/telemetry/failure' && request.method === 'POST') return reportFailure(request, env)
   return (await handleGoogleCallback(request, env, path))

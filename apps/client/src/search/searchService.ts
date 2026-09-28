@@ -12,20 +12,16 @@ const log = logger('search')
 export class SearchService {
   constructor(readonly providers: readonly TorrentSearchProvider[], private readonly settings: SettingsService) {}
 
-  get providerNames(): string[] {
-    return this.providers.map(p => p.name)
-  }
-
   findProvider(name: string | null | undefined): TorrentSearchProvider | undefined {
     if (!name) return undefined
     return this.providers.find(p => p.name.toLowerCase() === name.toLowerCase())
   }
 
-  /** Whole-result search for series checks: no relevance filter (they match episodes themselves), merged. */
-  async search(query: string, provider: string | null, signal: AbortSignal): Promise<TorrentSearchResult[]> {
+  /** A whole search, merged, with every source's outcome. */
+  async collect(query: string, provider: string | null, signal: AbortSignal, filterRelevance = true): Promise<{ results: TorrentSearchResult[]; outcomes: SourceOutcomeDto[] }> {
     const all: TorrentSearchResult[] = []
-    await this.searchStream(query, provider, batch => void all.push(...batch), () => {}, signal, false)
-    return mergeResults(all)
+    const outcomes = await this.searchStream(query, provider, batch => void all.push(...batch), () => {}, signal, filterRelevance)
+    return { results: mergeResults(all), outcomes }
   }
 
   /**

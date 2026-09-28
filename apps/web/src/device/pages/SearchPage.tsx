@@ -1,24 +1,24 @@
 import type { SearchResultDto, SourceOutcomeDto, TorrentDetailsDto } from '@md/protocol'
 import { formatBytes } from '@md/protocol/bytes'
 import { CircleAlert, CircleCheck, CircleMinus, Copy, Download, ExternalLink, Info, SearchIcon, SearchX, Telescope } from 'lucide-react'
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useFormatDate, useT } from '../../lib/i18n.tsx'
 import { Modal } from '../../ui/Modal.tsx'
-import { useToast } from '../../ui/toast.tsx'
+import { Empty } from '../../ui/Empty.tsx'
+import { useCopy, useToast } from '../../ui/toast.tsx'
+import { useSort } from '../../ui/useSort.tsx'
 import { useDevice } from '../DeviceContext.tsx'
 import { PageHeader } from '../Shell.tsx'
 import { FolderField } from '../components/folders.tsx'
 import { useRun } from '../useRun.ts'
 
 const RESOLUTIONS = ['480p', '720p', '1080p', '2160p']
-type SortKey = 'title' | 'source' | 'size' | 'seeders' | 'leechers' | 'published'
 
 export function SearchPage() {
   const t = useT()
   const formatDate = useFormatDate()
   const { connection, sources, search, setSearch } = useDevice()
   const run = useRun()
-  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: 'seeders', desc: true })
   const [details, setDetails] = useState<SearchResultDto | null>(null)
   const [downloading, setDownloading] = useState<SearchResultDto | null>(null)
 
@@ -33,27 +33,11 @@ export function SearchPage() {
     setSearch(s => ({ ...s, searchId: started.searchId }))
   }
 
-  const results = useMemo(() => {
-    if (!search.results) return null
-    const value = (r: SearchResultDto): string | number => ({
-      title: r.title.toLowerCase(), source: r.source, size: r.sizeBytes, seeders: r.seeders, leechers: r.leechers,
-      published: r.publishedAt ?? '',
-    })[sort.key]
-    return [...search.results].sort((a, b) => {
-      const [x, y] = [value(a), value(b)]
-      const order = x < y ? -1 : x > y ? 1 : 0
-      return sort.desc ? -order : order
-    })
-  }, [search.results, sort])
-
-  const header = (key: SortKey, label: string, className = '') => (
-    <th className={className}>
-      <button type="button" className="inline-flex items-center gap-1 font-semibold"
-        onClick={() => setSort(s => (s.key === key ? { key, desc: !s.desc } : { key, desc: key === 'seeders' }))}>
-        {label}{sort.key === key ? (sort.desc ? ' ↓' : ' ↑') : ''}
-      </button>
-    </th>
-  )
+  const { sorted, header } = useSort(search.results ?? [], {
+    title: r => r.title.toLowerCase(), source: r => r.source, size: r => r.sizeBytes, seeders: r => r.seeders,
+    leechers: r => r.leechers, published: r => r.publishedAt ?? '',
+  }, { key: 'seeders', desc: true })
+  const results = search.results ? sorted : null
 
   return (
     <>
@@ -88,9 +72,9 @@ export function SearchPage() {
       {search.outcomes.length > 0 && <Outcomes outcomes={search.outcomes} />}
 
       {results === null ? (
-        <Empty icon={<Telescope size={36} />} text={t('search.emptyPrompt')} />
+        <Empty icon={<Telescope size={36} className="text-base-content/50" />} text={t('search.emptyPrompt')} />
       ) : results.length === 0 ? (
-        search.searching ? null : <Empty icon={<SearchX size={36} />} title={t('search.noResults')} text={t('search.noResultsHint')} />
+        search.searching ? null : <Empty icon={<SearchX size={36} className="text-base-content/50" />} title={t('search.noResults')} text={t('search.noResultsHint')} />
       ) : (
         <>
           <div className="surface hidden overflow-x-auto md:block">
@@ -100,7 +84,7 @@ export function SearchPage() {
                   {header('title', t('search.colTitle'))}
                   {header('source', t('search.colSource'))}
                   {header('size', t('search.colSize'))}
-                  {header('seeders', t('search.colSeeds'))}
+                  {header('seeders', t('search.colSeeds'), '', true)}
                   {header('leechers', t('search.colLeech'), 'hidden xl:table-cell')}
                   {header('published', t('search.colPublished'), 'hidden xl:table-cell')}
                   <th />
@@ -153,15 +137,6 @@ export function SearchPage() {
   )
 }
 
-function Empty({ icon, title, text }: { icon: ReactNode; title?: string; text: string }) {
-  return (
-    <div className="surface flex flex-col items-center gap-2 px-6 py-16 text-center text-base-content/60">
-      {icon}
-      {title && <h2 className="text-lg font-semibold text-base-content">{title}</h2>}
-      <p className="text-sm">{text}</p>
-    </div>
-  )
-}
 
 /**
  * One chip per source. A site that failed, or answered but had everything filtered out, would
@@ -194,7 +169,7 @@ function Outcomes({ outcomes }: { outcomes: SourceOutcomeDto[] }) {
 function TorrentInfoDialog({ result, onClose, onDownload }: { result: SearchResultDto | null; onClose: () => void; onDownload: (r: SearchResultDto) => void }) {
   const t = useT()
   const formatDate = useFormatDate()
-  const toast = useToast()
+  const copy = useCopy(t('info.copied'))
   const { connection } = useDevice()
   const [details, setDetails] = useState<TorrentDetailsDto | null>(null)
   const [loading, setLoading] = useState(false)
@@ -213,15 +188,6 @@ function TorrentInfoDialog({ result, onClose, onDownload }: { result: SearchResu
 
   if (!result) return <Modal open={false} title="" onClose={onClose}>{null}</Modal>
   const row = details?.result ?? result
-  const copy = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-      toast(t('info.copied'), 'success')
-    } catch {
-      // Clipboard can be blocked; the magnet stays selectable.
-    }
-  }
-
   return (
     <Modal open title={t('info.title')} icon={<Info size={20} />} onClose={onClose} wide
       actions={<>

@@ -5,6 +5,7 @@ import { Link } from 'react-router'
 import { cloud } from '../lib/cloudApi.ts'
 import { useFormatDate, useT } from '../lib/i18n.tsx'
 import { forgetDeviceKey, listDeviceKeys } from '../lib/keyStore.ts'
+import { Empty } from '../ui/Empty.tsx'
 import { ConfirmDialog } from '../ui/Modal.tsx'
 import { useToast } from '../ui/toast.tsx'
 import { CloudFrame } from './CloudFrame.tsx'
@@ -40,12 +41,9 @@ export function DevicesPage() {
       {devices === null ? (
         <div className="flex justify-center py-16"><span className="loading loading-spinner loading-lg text-primary" /></div>
       ) : devices.length === 0 ? (
-        <div className="surface flex flex-col items-center gap-3 px-6 py-12 text-center">
-          <MonitorSmartphone size={40} className="text-primary" />
-          <h2 className="text-lg font-semibold">{t('devices.emptyTitle')}</h2>
-          <p className="max-w-md text-sm text-base-content/60">{t('devices.emptyHint')}</p>
+        <Empty icon={<MonitorSmartphone size={40} className="text-primary" />} title={t('devices.emptyTitle')} text={t('devices.emptyHint')}>
           <a className="link link-primary text-sm" href="https://github.com/XeonFX/MediaDownloader/releases/latest" target="_blank" rel="noreferrer noopener">{t('devices.download')}</a>
-        </div>
+        </Empty>
       ) : (
         <ul className="flex flex-col gap-2">
           {devices.map(device => {

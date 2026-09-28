@@ -1,21 +1,9 @@
 import type { FailureReport } from '@md/protocol/cloud'
+import { scrub } from '@md/protocol/scrub'
 
 const MAX_PER_PAGE_LOAD = 5
 let sent = 0
 let installed = false
-
-/**
- * Masks anything identifying before an error leaves the browser: quoted text (torrent titles),
- * URLs and query strings, e-mail addresses and long ids.
- */
-export function scrub(text: string): string {
-  return text
-    .replace(/https?:\/\/[^\s'")]+/gi, '<url>')
-    .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '<email>')
-    .replace(/"[^"\n]*"|'[^'\n]*'/g, '"…"')
-    .replace(/\b[0-9a-f]{16,}\b/gi, '<hex>')
-    .replace(/\b[A-Za-z0-9_-]{32,}\b/g, '<id>')
-}
 
 function client(): string {
   const ua = navigator.userAgent

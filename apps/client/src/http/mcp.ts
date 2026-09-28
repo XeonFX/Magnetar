@@ -5,7 +5,6 @@ import { z } from 'zod'
 import type { Actions } from '../api/actions.ts'
 import { ApiError } from '../api/errors.ts'
 import { VERSION } from '../config.ts'
-import type { SettingsService } from '../settings.ts'
 
 type ToolResult = { content: { type: 'text'; text: string }[]; structuredContent?: Record<string, unknown>; isError?: boolean }
 
@@ -21,7 +20,7 @@ async function run(action: () => unknown): Promise<ToolResult> {
   }
 }
 
-function createServer(actions: Actions, settings: SettingsService, signal: AbortSignal): McpServer {
+function createServer(actions: Actions, signal: AbortSignal): McpServer {
   const server = new McpServer({ name: 'mediadownloader', version: VERSION })
   const read = { readOnlyHint: true, destructiveHint: false }
 
@@ -44,15 +43,12 @@ function createServer(actions: Actions, settings: SettingsService, signal: Abort
     description: 'Resolve the description and magnet for a result returned by search_torrents. Some sources fetch a detail page lazily.',
     inputSchema: { resultId: z.string().describe('Opaque result id returned by search_torrents.') },
     annotations: { ...read, openWorldHint: true },
-  }, ({ resultId }) => run(() => actions.details(resultId, 'agent', signal)))
+  }, ({ resultId }) => run(() => actions.details(resultId, signal)))
 
   server.registerTool('get_settings', {
     description: 'Read the default download folder and post-download behavior. Secret and notification settings are never exposed.',
     annotations: read,
-  }, () => run(() => {
-    const s = settings.get()
-    return { downloadFolder: s.downloadFolder, postDownloadAction: s.postDownloadAction }
-  }))
+  }, () => run(() => actions.agentSettings()))
 
   server.registerTool('start_download', {
     description: 'Queue a torrent download. Prefer a resultId from search_torrents because lazy sources cannot always be started from a magnet alone.',
@@ -62,7 +58,7 @@ function createServer(actions: Actions, settings: SettingsService, signal: Abort
       folder: z.string().optional().describe('Optional save folder override; must be inside the configured download folder.'),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-  }, input => run(() => actions.startDownload(input, 'agent', signal)))
+  }, input => run(() => actions.startDownload(input, signal)))
 
   server.registerTool('list_downloads', {
     description: 'List downloads with current progress, speeds, peers, and status.',
@@ -83,20 +79,18 @@ function createServer(actions: Actions, settings: SettingsService, signal: Abort
     description: 'Remove a download from MediaDownloader. deleteFiles defaults to false. Setting it true permanently erases downloaded data from disk.',
     inputSchema: { ...downloadId, deleteFiles: z.boolean().optional().describe('False keeps downloaded files. True permanently erases them.') },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
-  }, ({ id, deleteFiles }) => run(async () => {
-    await actions.deleteDownload(id, deleteFiles ?? false)
-    return { success: true, message: deleteFiles ? 'Download and its files deleted.' : 'Download removed; files kept.' }
-  }))
+  }, ({ id, deleteFiles }) => run(() => actions.deleteDownload(id, deleteFiles ?? false)))
 
+  // Null clears a field, as in REST PATCH; omitting it keeps the current value.
   const seriesFields = {
-    titleFilter: z.string().optional().describe('Extra text that must appear in a result title.'),
-    provider: z.string().optional().describe('Restrict to one source, or omit for all.'),
-    season: z.number().int().optional().describe('Season number; when set only SxxEyy-style titles match.'),
+    titleFilter: z.string().nullable().optional().describe('Extra text that must appear in a result title; null clears it.'),
+    provider: z.string().nullable().optional().describe('Restrict to one source; null searches all.'),
+    season: z.number().int().nullable().optional().describe('Season number; when set only SxxEyy-style titles match. Null clears it.'),
     startEpisode: z.number().int().optional().describe('First episode to look for.'),
-    endEpisode: z.number().int().optional().describe('Last episode; the rule disables itself once it is downloaded.'),
+    endEpisode: z.number().int().nullable().optional().describe('Last episode; the rule disables itself once it is downloaded. Null means no end.'),
     checkIntervalMinutes: z.number().int().optional().describe('How often to check, in minutes.'),
     enabled: z.boolean().optional().describe('False pauses the rule without deleting it.'),
-    downloadFolder: z.string().optional().describe('Must be inside the configured download folder.'),
+    downloadFolder: z.string().nullable().optional().describe('Must be inside the configured download folder; null uses the default.'),
   }
   server.registerTool('list_series_tasks', {
     description: 'List automatic series download rules and their next episode/check state.', annotations: read,
@@ -105,32 +99,29 @@ function createServer(actions: Actions, settings: SettingsService, signal: Abort
     description: 'Create an automatic rule that searches for and downloads new episodes.',
     inputSchema: { name: z.string(), query: z.string().describe('Search query, e.g. "One Piece 1080p".'), ...seriesFields },
     annotations: { readOnlyHint: false, destructiveHint: false },
-  }, input => run(() => actions.createSeries(input, 'agent')))
+  }, input => run(() => actions.createSeries(input)))
   server.registerTool('update_series_task', {
     description: 'Change one or more fields of an automatic series rule. Anything you leave out keeps its current value, so pass only what should change.',
     inputSchema: { id: z.number().int().describe('Series task id from list_series_tasks.'), name: z.string().optional(), query: z.string().optional(), ...seriesFields },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-  }, ({ id, ...patch }) => run(() => actions.updateSeries(id, patch, 'agent')))
+  }, ({ id, ...patch }) => run(() => actions.updateSeries(id, patch)))
   server.registerTool('delete_series_task', {
     description: 'Delete an automatic series rule. Existing downloads and their files are kept.',
     inputSchema: { id: z.number().int() },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
-  }, ({ id }) => run(() => {
-    actions.deleteSeries(id)
-    return { success: true, message: 'Series task deleted; its downloads were kept.' }
-  }))
+  }, ({ id }) => run(() => actions.deleteSeries(id)))
   server.registerTool('check_series_task_now', {
     description: 'Run one series rule immediately. This can queue one or more matching episode downloads.',
     inputSchema: { id: z.number().int() },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-  }, ({ id }) => run(() => actions.checkSeriesNow(id, 'agent')))
+  }, ({ id }) => run(() => actions.checkSeriesNow(id)))
 
   return server
 }
 
 /** Stateless Streamable HTTP: a fresh server and transport per request, as the SDK recommends. */
-export async function handleMcp(request: Request, actions: Actions, settings: SettingsService): Promise<Response> {
-  const server = createServer(actions, settings, request.signal)
+export async function handleMcp(request: Request, actions: Actions): Promise<Response> {
+  const server = createServer(actions, request.signal)
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
   await server.connect(transport)
   try {

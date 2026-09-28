@@ -3,7 +3,7 @@ import QRCode from 'qrcode'
 import { useEffect, useState } from 'react'
 import { useFormatDate, useT } from '../../lib/i18n.tsx'
 import { ConfirmDialog, Modal } from '../../ui/Modal.tsx'
-import { useToast } from '../../ui/toast.tsx'
+import { useCopy } from '../../ui/toast.tsx'
 import { useDevice } from '../DeviceContext.tsx'
 import { Section } from '../pages/SettingsPage.tsx'
 import { useRun } from '../useRun.ts'
@@ -16,7 +16,7 @@ import { useRun } from '../useRun.ts'
 export function RemoteAccessSection() {
   const t = useT()
   const formatDate = useFormatDate()
-  const toast = useToast()
+  const copy = useCopy(t('info.copied'))
   const run = useRun()
   const { connection, remote } = useDevice()
   const [name, setName] = useState('')
@@ -43,15 +43,6 @@ export function RemoteAccessSection() {
     if (!minted) return
     setLink({ url: minted.url, qr: await QRCode.toDataURL(minted.url, { margin: 1, width: 280, errorCorrectionLevel: 'M' }) })
     setLabel('')
-  }
-
-  const copy = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-      toast(t('info.copied'), 'success')
-    } catch {
-      // Clipboard blocked; the link is still selectable.
-    }
   }
 
   return (

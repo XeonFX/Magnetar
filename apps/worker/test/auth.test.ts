@@ -61,7 +61,7 @@ describe('Google ID tokens', () => {
 describe('sign-in return URLs', () => {
   const env = { ORIGIN: 'https://mediadownloader.codefusion.cc', APP_ENV: 'production' } as Env
   const state = (origin: string, path: string) =>
-    `${'a'.repeat(32)}.${btoa(JSON.stringify([origin, path])).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '')}`
+    `${'a'.repeat(32)}.${toBase64Url(new TextEncoder().encode(JSON.stringify([origin, path])))}`
 
   test('only our own login page', () => {
     expect(signInReturnUrl(state(env.ORIGIN, '/login?next=%2Fd%2Fx'), env)?.href).toBe('https://mediadownloader.codefusion.cc/login?next=%2Fd%2Fx')

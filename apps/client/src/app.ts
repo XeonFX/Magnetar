@@ -1,9 +1,8 @@
 import type { Database } from 'bun:sqlite'
-import { randomBytes } from 'node:crypto'
 import type { SearchResultDto } from '@md/protocol'
+import { randomId } from '@md/protocol/base64'
 import { Actions } from './api/actions.ts'
 import { AgentAccess } from './api/agentAccess.ts'
-import { ApiError } from './api/errors.ts'
 import { RateLimiter } from './api/rateLimiter.ts'
 import { ARCH, PLATFORM, VERSION } from './config.ts'
 import { KeyValue, openDatabase } from './db/database.ts'
@@ -53,7 +52,10 @@ export class App {
   readonly downloads: DownloadManager
   readonly series: SeriesStore
   readonly monitor: SeriesMonitor
+  /** For the dashboard. */
   readonly actions: Actions
+  /** For REST and MCP: rate limited and confined to the download folder. */
+  readonly agentActions: Actions
   readonly updates: UpdateService
   readonly startup = new LoginStartup()
   readonly agent: AgentAccess
@@ -76,6 +78,7 @@ export class App {
     this.actions = new Actions(this.search, this.downloads, this.series, this.settings, this.cache, new RateLimiter())
     this.monitor = new SeriesMonitor(this.series, this.search, this.actions)
     this.actions.seriesMonitor = this.monitor
+    this.agentActions = this.actions.as('agent')
     this.updates = new UpdateService(this.events, this.notifications)
     this.agent = new AgentAccess(this.settings, this.secrets)
     this.remote = new RemoteService(this.kv, this.secrets, new BrowserKeyStore(this.db, box), this.events)
@@ -116,14 +119,13 @@ export class App {
         platform: PLATFORM,
         arch: ARCH,
         dataDirectory: DATA_DIR,
-        local: ctx.local,
         nativeFolderPicker: ctx.local && process.platform === 'darwin',
       }),
       'sources.list': () => a.sources(),
 
       'search.start': ({ query, source }, ctx) => {
         a.requireAvailableSource(source)
-        const searchId = randomBytes(6).toString('hex')
+        const searchId = randomId(6)
         const controller = new AbortController()
         ctx.searches.set(searchId, controller)
         const signal = AbortSignal.any([controller.signal, ctx.signal])
@@ -142,10 +144,10 @@ export class App {
         ctx.searches.get(searchId)?.abort()
         return null
       },
-      'search.details': ({ resultId }, ctx) => a.details(resultId, 'user', ctx.signal),
+      'search.details': ({ resultId }, ctx) => a.details(resultId, ctx.signal),
 
       'downloads.list': () => a.listDownloads(),
-      'downloads.start': (input, ctx) => a.startDownload(input, 'user', ctx.signal),
+      'downloads.start': (input, ctx) => a.startDownload(input, ctx.signal),
       'downloads.pause': ({ id }) => a.pause(id),
       'downloads.resume': ({ id }) => a.resume(id),
       'downloads.delete': async ({ id, deleteFiles }) => {
@@ -154,13 +156,13 @@ export class App {
       },
 
       'series.list': () => a.listSeries(),
-      'series.create': input => a.createSeries(input, 'user'),
-      'series.update': ({ id, patch }) => a.updateSeries(id, patch, 'user'),
+      'series.create': input => a.createSeries(input),
+      'series.update': ({ id, patch }) => a.updateSeries(id, patch),
       'series.delete': ({ id }) => {
         a.deleteSeries(id)
         return null
       },
-      'series.checkNow': ({ id }) => a.checkSeriesNow(id, 'user'),
+      'series.checkNow': ({ id }) => a.checkSeriesNow(id),
 
       'settings.get': () => this.settings.toDto(),
       'settings.update': patch => this.settings.applyPatch(patch),
@@ -182,29 +184,23 @@ export class App {
       },
 
       'startup.status': () => ({ status: this.startup.status() }),
-      'startup.set': ({ enabled }) => {
-        try {
-          return { status: this.startup.set(enabled) }
-        } catch (error) {
-          throw new ApiError(error instanceof Error ? error.message : String(error))
-        }
-      },
+      'startup.set': ({ enabled }) => ({ status: this.startup.set(enabled) }),
 
       'agent.status': () => this.agent.status(),
       'agent.set': change => this.agent.set(change),
       'agent.regenerateToken': () => this.agent.regenerate(),
 
       'remote.status': () => this.remote.status(),
-      'remote.pair': ({ deviceName }) => wrap(() => this.remote.pair(deviceName)),
+      'remote.pair': ({ deviceName }) => this.remote.pair(deviceName),
       'remote.cancelPairing': () => this.remote.cancelPairing(),
       'remote.unpair': () => this.remote.unpair(),
-      'remote.rename': ({ deviceName }) => wrap(() => this.remote.rename(deviceName)),
-      'remote.linkBrowser': ({ label }) => wrap(async () => this.remote.linkBrowser(label)),
+      'remote.rename': ({ deviceName }) => this.remote.rename(deviceName),
+      'remote.linkBrowser': ({ label }) => this.remote.linkBrowser(label),
       'remote.revokeBrowser': ({ keyId }) => this.remote.revokeBrowser(keyId),
 
       'legacy.status': () => this.legacy.status(),
       'legacy.import': () => {
-        const result = wrapSync(() => this.legacy.run())
+        const result = this.legacy.run()
         this.downloads.loadNew()
         this.series.changed()
         return result
@@ -213,23 +209,6 @@ export class App {
   }
 }
 
-async function wrap<T>(run: () => Promise<T>): Promise<T> {
-  try {
-    return await run()
-  } catch (error) {
-    if (error instanceof ApiError) throw error
-    throw new ApiError(error instanceof Error ? error.message : String(error))
-  }
-}
-
-function wrapSync<T>(run: () => T): T {
-  try {
-    return run()
-  } catch (error) {
-    log.warn('Legacy import failed', error)
-    throw new ApiError(error instanceof Error ? error.message : String(error))
-  }
-}
 
 export function openInBrowser(url: string): void {
   const command = process.platform === 'darwin' ? ['/usr/bin/open', url]

@@ -1,11 +1,12 @@
 import { hostname } from 'node:os'
 import type { ClientMessage, RemoteStatusDto } from '@md/protocol'
+import { ApiError } from '../api/errors.ts'
 import type { PairPollResponse, PairStartResponse } from '@md/protocol/cloud'
 import { toBase64Url } from '@md/protocol/base64'
 import {
   acceptBrowserHandshake, decodeHandshake, encodeHandshake, FRAME_HANDSHAKE, FRAME_SEALED, linkFragment, type E2ESession,
 } from '@md/protocol/e2e'
-import { MAX_RELAY_FRAME, unwrapFromDevice, wrapForDevice, type RelayToDevice } from '@md/protocol/relay'
+import { MAX_RELAY_FRAME, RELAY_CLOSE, RELAY_PING, unwrapFromDevice, wrapForDevice, type RelayToDevice } from '@md/protocol/relay'
 import { CLOUD_URL, PLATFORM, USER_AGENT, VERSION } from '../config.ts'
 import type { KeyValue } from '../db/database.ts'
 import type { SecretStore } from '../db/secrets.ts'
@@ -87,7 +88,7 @@ export class RemoteService {
    * and receives its key in the link fragment — so it is linked the moment pairing completes.
    */
   async pair(deviceName?: string): Promise<RemoteStatusDto> {
-    if (this.deviceId) throw new Error('This device is already connected. Disconnect it first.')
+    if (this.deviceId) throw new ApiError('This device is already connected. Disconnect it first.')
     this.cancelPairing()
     if (deviceName) this.kv.set('remote.deviceName', deviceName)
     const response = await cloudFetch('/api/pair/start', {
@@ -178,7 +179,7 @@ export class RemoteService {
 
   linkBrowser(label: string | undefined): { url: string; keyId: string } {
     const deviceId = this.deviceId
-    if (!deviceId) throw new Error('Connect this device to your account first.')
+    if (!deviceId) throw new ApiError('Connect this device to your account first.')
     const { keyId, key } = this.keys.mint(label?.trim() || 'Linked browser')
     this.changed()
     return { url: `${CLOUD_URL}/link#${linkFragment(deviceId, keyId, key)}`, keyId }
@@ -222,7 +223,7 @@ export class RemoteService {
       socket.send(JSON.stringify({ t: 'hello', version: VERSION, name: this.deviceName }))
       // Keeps NAT mappings and proxies from dropping an idle socket; the relay answers without waking.
       if (this.pingTimer) clearInterval(this.pingTimer)
-      this.pingTimer = setInterval(() => socket.readyState === WebSocket.OPEN && socket.send('{"t":"ping"}'), 30_000)
+      this.pingTimer = setInterval(() => socket.readyState === WebSocket.OPEN && socket.send(RELAY_PING), 30_000)
       log.info('Connected to the relay')
       this.changed()
     })
@@ -232,7 +233,7 @@ export class RemoteService {
       if (this.socket === socket) this.socket = null
       this.connected = false
       for (const id of this.connections.keys()) this.dropConnection(id, false)
-      if (event.code === 4001) {
+      if (event.code === RELAY_CLOSE.deviceRemoved) {
         log.warn('The server no longer accepts this device; forgetting the pairing')
         this.lastError = 'This device was removed from your account.'
         this.forget()
@@ -342,11 +343,16 @@ function defaultDeviceName(): string {
 }
 
 async function cloudFetch(path: string, init: RequestInit): Promise<Response> {
-  const response = await fetch(`${CLOUD_URL}${path}`, {
-    ...init,
-    headers: { 'content-type': 'application/json', 'user-agent': USER_AGENT, ...(init.headers as Record<string, string>) },
-    signal: AbortSignal.timeout(15_000),
-  })
+  let response: Response
+  try {
+    response = await fetch(`${CLOUD_URL}${path}`, {
+      ...init,
+      headers: { 'content-type': 'application/json', 'user-agent': USER_AGENT, ...(init.headers as Record<string, string>) },
+      signal: AbortSignal.timeout(15_000),
+    })
+  } catch {
+    throw new ApiError(`Could not reach ${new URL(CLOUD_URL).host}. Check the internet connection.`)
+  }
   if (!response.ok) {
     let message = `HTTP ${response.status}`
     try {
@@ -354,7 +360,7 @@ async function cloudFetch(path: string, init: RequestInit): Promise<Response> {
     } catch {
       // Not JSON; keep the status.
     }
-    throw new Error(message)
+    throw new ApiError(message)
   }
   return response
 }

@@ -1,12 +1,7 @@
-import type { Env } from './env.ts'
-import { allowedOrigins } from './env.ts'
-
-export const GOOGLE_CALLBACK_PATH = '/api/auth/google/callback'
-const MAX_BODY = 16 * 1024
-
-function fromBase64Url(value: string): string {
-  return atob(value.replaceAll('-', '+').replaceAll('_', '/'))
-}
+import { fromBase64Url } from '@md/protocol/base64'
+import { GOOGLE_CALLBACK_PATH } from '@md/protocol/cloud'
+import { allowedOrigins, type Env } from './env.ts'
+import { json, MAX_BODY } from './http.ts'
 
 /**
  * Where a sign-in started, read from its state: `<random>.<base64url JSON [origin, path]>`. The
@@ -18,7 +13,7 @@ export function signInReturnUrl(state: string | null, env: Env): URL | null {
   const [random, encoded, ...rest] = state.split('.')
   if (rest.length || !random || !/^[A-Za-z0-9_-]{32}$/.test(random) || !/^[A-Za-z0-9_-]+$/.test(encoded ?? '')) return null
   try {
-    const [origin, path, ...extra] = JSON.parse(fromBase64Url(encoded!)) as unknown[]
+    const [origin, path, ...extra] = JSON.parse(new TextDecoder().decode(fromBase64Url(encoded!))) as unknown[]
     if (extra.length || typeof origin !== 'string' || typeof path !== 'string') return null
     if (!allowedOrigins(env).includes(origin)) return null
     if (path !== '/login' && !path.startsWith('/login?')) return null
@@ -74,7 +69,7 @@ async function bounce(request: Request, env: Env): Promise<Response> {
   if (credential) fragment.set('google_id_token', credential)
   else fragment.set('google_error', failure && /^[a-z_]{1,64}$/.test(failure) ? failure : 'no_credential')
   target.hash = fragment.toString()
-  return Response.json({ location: target.href }, { headers: { 'cache-control': 'no-store' } })
+  return json({ location: target.href })
 }
 
 export async function handleGoogleCallback(request: Request, env: Env, path: string): Promise<Response | null> {

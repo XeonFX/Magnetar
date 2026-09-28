@@ -1,4 +1,5 @@
-import { randomId } from '@md/protocol/base64'
+import { randomId, toBase64Url } from '@md/protocol/base64'
+import { GOOGLE_CALLBACK_PATH } from '@md/protocol/cloud'
 
 /**
  * "Sign in with Google" by full-page redirect (OpenID Connect, `id_token` in the fragment). The
@@ -7,17 +8,14 @@ import { randomId } from '@md/protocol/base64'
  * Worker then verifies it, including the nonce it bound to this browser with a cookie.
  */
 const AUTHORIZATION_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth'
-export const GOOGLE_CALLBACK_PATH = '/api/auth/google/callback'
 const PENDING_KEY = 'md-google-sign-in'
 const MAX_AGE_MS = 10 * 60_000
-
-const base64Url = (text: string) => btoa(text).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '')
 
 export function startGoogleSignIn(clientId: string, nonce: string, returnPath: string, locale?: string): void {
   if (!returnPath.startsWith('/') || returnPath.startsWith('//')) throw new Error('Sign-in must return to a same-origin path')
   // A random value plus where to come back to; the callback reads the destination from it and
   // this page accepts only the exact state it stored.
-  const state = `${randomId(24)}.${base64Url(JSON.stringify([location.origin, `/login?next=${encodeURIComponent(returnPath)}`]))}`
+  const state = `${randomId(24)}.${toBase64Url(new TextEncoder().encode(JSON.stringify([location.origin, `/login?next=${encodeURIComponent(returnPath)}`])))}`
   sessionStorage.setItem(PENDING_KEY, JSON.stringify({ state, createdAt: Date.now() }))
   const url = new URL(AUTHORIZATION_ENDPOINT)
   url.search = new URLSearchParams({

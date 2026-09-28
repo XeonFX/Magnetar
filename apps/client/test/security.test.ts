@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { resolveAgentFolder } from '../src/api/saveFolderPolicy.ts'
 import { evaluateAgentRequest, isAllowedLoopbackOrigin, type AgentRequestFacts } from '../src/http/agentAuth.ts'
-import { scrub } from '../src/telemetry.ts'
+import { scrub } from '@md/protocol/scrub'
 
 describe('agent API policy', () => {
   const base: AgentRequestFacts = {

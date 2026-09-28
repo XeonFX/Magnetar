@@ -6,7 +6,6 @@ import { DOWNLOAD_STATUSES, SeriesTaskInput } from '@md/protocol'
 import { z } from 'zod'
 import type { DownloadManager } from '../downloads/downloadManager.ts'
 import { logger } from '../log.ts'
-import { mergeResults } from '../search/merge.ts'
 import { toResultDto, type SearchResultCache } from '../search/resultCache.ts'
 import type { SearchService } from '../search/searchService.ts'
 import { needsResolution, type TorrentSearchResult } from '../search/types.ts'
@@ -27,15 +26,12 @@ const MAX_SEARCH_LIMIT = 200
  */
 export type Caller = 'agent' | 'user'
 
-export interface ActionsForSeries {
-  startFromResult(result: TorrentSearchResult, options: { seriesTaskId?: number | null; saveFolder?: string | null; signal?: AbortSignal }): Promise<DownloadDto>
-}
-
 /**
  * Everything that can be done to the app, in one place. The dashboard RPC, REST and MCP are thin
- * wrappers over this, so the surfaces cannot drift apart or enforce different rules.
+ * wrappers over this, so the surfaces cannot drift apart or enforce different rules. Each surface
+ * gets an instance bound to its caller (see `as`), so agent limits can't be forgotten per method.
  */
-export class Actions implements ActionsForSeries {
+export class Actions {
   seriesMonitor: SeriesMonitor | null = null
 
   constructor(
@@ -45,7 +41,25 @@ export class Actions implements ActionsForSeries {
     private readonly settings: SettingsService,
     readonly cache: SearchResultCache,
     private readonly limiter: RateLimiter,
+    readonly caller: Caller = 'user',
   ) {}
+
+  /** The same actions on behalf of another caller. */
+  as(caller: Caller): Actions {
+    const bound = new Actions(this.searchService, this.downloads, this.series, this.settings, this.cache, this.limiter, caller)
+    bound.seriesMonitor = this.seriesMonitor
+    return bound
+  }
+
+  /** Agents only: spends one allowance of outbound traffic to the torrent sites. */
+  private limit(operation: string): void {
+    if (this.caller === 'agent') this.limiter.ensureAllowed(operation)
+  }
+
+  /** Agents only: confines a chosen folder to the download folder. */
+  private folder(requested: string | null | undefined): string | null {
+    return this.caller === 'agent' ? resolveAgentFolder(requested, this.settings.get().downloadFolder) : requested?.trim() || null
+  }
 
   sources(): SourceDto[] {
     return this.searchService.providers.map(p => ({ name: p.name, enabled: this.settings.isProviderEnabled(p.name) }))
@@ -54,12 +68,10 @@ export class Actions implements ActionsForSeries {
   /** One-shot search for agents: merged, de-duplicated, truncated to `limit`. */
   async search(query: string, source: string | null, limit: number | undefined, signal: AbortSignal): Promise<SearchResponse> {
     if (!query.trim()) throw new ApiError('A search query is required.')
-    this.limiter.ensureAllowed('search')
+    this.limit('search')
     this.requireAvailableSource(source)
     const take = Math.min(Math.max(limit ?? DEFAULT_SEARCH_LIMIT, 1), MAX_SEARCH_LIMIT)
-    const collected: TorrentSearchResult[] = []
-    const outcomes = await this.searchService.searchStream(query, source, batch => void collected.push(...batch), () => {}, signal)
-    const merged = mergeResults(collected)
+    const { results: merged, outcomes } = await this.searchService.collect(query, source, signal)
     return {
       results: merged.slice(0, take).map(r => toResultDto(r, this.cache.add(r))),
       sources: outcomes,
@@ -68,24 +80,22 @@ export class Actions implements ActionsForSeries {
     }
   }
 
-  async details(resultId: string, caller: Caller, signal: AbortSignal): Promise<TorrentDetailsDto> {
-    if (caller === 'agent') this.limiter.ensureAllowed('detail')
+  async details(resultId: string, signal: AbortSignal): Promise<TorrentDetailsDto> {
+    this.limit('detail')
     const result = this.cache.get(resultId)
     await this.searchService.ensureDetails(result, signal)
     return { result: toResultDto(result, resultId), description: result.description, magnetUri: result.magnetUri || null }
   }
 
-  async startDownload(input: StartDownloadInput, caller: Caller, signal: AbortSignal): Promise<DownloadDto> {
-    const folder = caller === 'agent'
-      ? resolveAgentFolder(input.folder, this.settings.get().downloadFolder)
-      : input.folder?.trim() || null
+  async startDownload(input: StartDownloadInput, signal: AbortSignal): Promise<DownloadDto> {
+    const folder = this.folder(input.folder)
     if (input.resultId?.trim()) {
       const result = this.cache.get(input.resultId)
       return this.startFromResult(result, { saveFolder: folder, signal })
     }
     if (input.magnet?.trim()) {
       if (!input.magnet.toLowerCase().startsWith('magnet:')) throw new ApiError('`magnet` must be a magnet: URI.')
-      const item = this.downloads.add({ name: '', magnetUri: input.magnet.trim(), source: caller === 'agent' ? 'Agent' : 'Magnet', saveFolder: folder })
+      const item = this.downloads.add({ name: '', magnetUri: input.magnet.trim(), source: this.caller === 'agent' ? 'Agent' : 'Magnet', saveFolder: folder })
       log.info(`Started download from a supplied magnet: ${item.name}`)
       return item
     }
@@ -129,10 +139,11 @@ export class Actions implements ActionsForSeries {
   }
 
   /** `deleteFiles` erases what was downloaded — the one irreversible action, so it defaults to false everywhere. */
-  async deleteDownload(id: number, deleteFiles: boolean): Promise<void> {
+  async deleteDownload(id: number, deleteFiles: boolean): Promise<{ success: true; message: string }> {
     const item = this.downloads.get(id)
     log.info(`Deleting download '${item.name}' (deleteFiles: ${deleteFiles})`)
     await this.downloads.delete(id, deleteFiles)
+    return { success: true, message: deleteFiles ? 'Download and its files deleted.' : 'Download removed; files kept.' }
   }
 
   listSeries(): SeriesTaskDto[] {
@@ -143,51 +154,46 @@ export class Actions implements ActionsForSeries {
     return toSeriesDto(this.series.get(id))
   }
 
-  createSeries(input: z.input<typeof SeriesTaskInput>, caller: Caller): SeriesTaskDto {
+  createSeries(input: z.input<typeof SeriesTaskInput>): SeriesTaskDto {
     const parsed = parseInput(input)
     this.requireAvailableSource(parsed.provider)
-    const folder = caller === 'agent' ? resolveAgentFolder(parsed.downloadFolder, this.settings.get().downloadFolder) : parsed.downloadFolder
-    return toSeriesDto(this.series.create({ ...parsed, downloadFolder: folder }))
+    return toSeriesDto(this.series.create({ ...parsed, downloadFolder: this.folder(parsed.downloadFolder) }))
   }
 
   /**
    * Changes only the fields supplied, then validates the merged result so a patch can't leave the
    * rule in a state a create would reject. A replace is just a patch that names every field.
    */
-  updateSeries(id: number, patch: SeriesTaskPatch, caller: Caller): SeriesTaskDto {
+  updateSeries(id: number, patch: SeriesTaskPatch): SeriesTaskDto {
     const task = this.series.get(id)
-    const merged = parseInput({
-      name: patch.name ?? task.name,
-      query: patch.query ?? task.query,
-      provider: patch.provider !== undefined ? patch.provider : task.provider,
-      titleFilter: patch.titleFilter !== undefined ? patch.titleFilter : task.titleFilter,
-      season: patch.season !== undefined ? patch.season : task.season,
-      startEpisode: patch.startEpisode ?? task.startEpisode,
-      endEpisode: patch.endEpisode !== undefined ? patch.endEpisode : task.endEpisode,
-      checkIntervalMinutes: patch.checkIntervalMinutes ?? task.checkIntervalMinutes,
-      enabled: patch.enabled ?? task.enabled,
-      downloadFolder: patch.downloadFolder !== undefined ? patch.downloadFolder : task.downloadFolder,
-    })
+    const { id: _id, lastDownloadedEpisode: _last, lastCheckedAt: _checked, createdAt: _created, ...current } = task
+    // Omitted keys are absent from a parsed patch, so a spread keeps the current values for them.
+    const merged = parseInput({ ...current, ...patch })
     if (patch.provider !== undefined) this.requireAvailableSource(merged.provider)
     // Only re-check the folder when the patch names one: an existing rule may point somewhere the
     // user chose in the dashboard, and renaming it must not fail.
-    const folder = patch.downloadFolder === undefined
-      ? task.downloadFolder
-      : caller === 'agent' ? resolveAgentFolder(merged.downloadFolder, this.settings.get().downloadFolder) : merged.downloadFolder
+    const folder = patch.downloadFolder === undefined ? task.downloadFolder : this.folder(merged.downloadFolder)
     return toSeriesDto(this.series.save({ ...task, ...merged, downloadFolder: folder }))
   }
 
-  deleteSeries(id: number): void {
+  deleteSeries(id: number): { success: true; message: string } {
     this.series.delete(id)
+    return { success: true, message: 'Series task deleted; its downloads were kept.' }
   }
 
   /** Can queue downloads, so it is a write even though it reads like a refresh. */
-  async checkSeriesNow(id: number, caller: Caller): Promise<SeriesTaskDto> {
-    if (caller === 'agent') this.limiter.ensureAllowed('series check')
+  async checkSeriesNow(id: number): Promise<SeriesTaskDto> {
+    this.limit('series check')
     const task = this.series.get(id)
     this.requireAvailableSource(task.provider)
     if (!this.seriesMonitor) throw new ApiError('The series monitor is not running.', 'internal')
     return toSeriesDto(await this.seriesMonitor.checkNow(id))
+  }
+
+  /** The settings an agent may know about: nothing secret, nothing about notifications. */
+  agentSettings(): { downloadFolder: string; postDownloadAction: string } {
+    const s = this.settings.get()
+    return { downloadFolder: s.downloadFolder, postDownloadAction: s.postDownloadAction }
   }
 
   /** Rejects a named source a search would silently skip, and an installation with no sources at all. */

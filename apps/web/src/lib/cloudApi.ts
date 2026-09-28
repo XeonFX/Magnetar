@@ -1,11 +1,6 @@
-import type { AccountDto, CloudDeviceDto, PairApproveResponse, PairingInfoDto } from '@md/protocol/cloud'
+import type { AccountDto, AppConfig, CloudDeviceDto, PairApproveResponse, PairingInfoDto } from '@md/protocol/cloud'
 
-export interface AppConfig {
-  mode: 'local' | 'cloud'
-  googleClientId?: string
-  /** Development-only passwordless sign-in, never enabled in production. */
-  devLogin?: boolean
-}
+export type { AppConfig }
 
 export async function loadAppConfig(): Promise<AppConfig> {
   const response = await fetch('/app-config.json', { cache: 'no-store' })

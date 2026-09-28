@@ -1,4 +1,4 @@
-import { fetchText, fromUnixSeconds, toInt, toNumber } from '../http.ts'
+import { fetchExtraPages, fetchText, fromUnixSeconds, toInt, toNumber } from '../http.ts'
 import { matchesQuery } from '../relevance.ts'
 import { newResult, type TorrentSearchProvider, type TorrentSearchResult } from '../types.ts'
 
@@ -20,15 +20,8 @@ export class EztvProvider implements TorrentSearchProvider {
     const matches = first.torrents.filter(t => matchesQuery(query, t.title))
     const morePages = Math.min(MAX_PAGES, Math.ceil(first.totalCount / PAGE_SIZE)) - 1
     if (matches.length < MAX_RESULTS && first.torrents.length > 0 && morePages > 0) {
-      const rest = await Promise.all(Array.from({ length: morePages }, async (_, i) => {
-        try {
-          return parsePage(await fetchText(pageUrl(i + 2), signal)).torrents
-        } catch (error) {
-          if (signal.aborted) throw error
-          return []
-        }
-      }))
-      matches.push(...rest.flat().filter(t => matchesQuery(query, t.title)))
+      const rest = await fetchExtraPages(morePages, async page => parsePage(await fetchText(pageUrl(page), signal)).torrents, signal)
+      matches.push(...rest.filter(t => matchesQuery(query, t.title)))
     }
     return matches.slice(0, MAX_RESULTS)
   }

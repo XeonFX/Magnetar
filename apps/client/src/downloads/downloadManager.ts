@@ -78,6 +78,8 @@ export class DownloadManager {
   private readonly items = new Map<number, Item>()
   private timer: ReturnType<typeof setInterval> | null = null
   private ticks = 0
+  /** Runtime stats last sent to dashboards, so an idle tick sends nothing. */
+  private lastStats = ''
   private shuttingDown = false
   private changedPending = false
 
@@ -125,7 +127,7 @@ export class DownloadManager {
   async stop(): Promise<void> {
     this.shuttingDown = true
     if (this.timer) clearInterval(this.timer)
-    for (const item of this.items.values()) this.persist(item)
+    this.persistAll(this.items.values())
     // Closing every peer and DHT socket can take seconds; progress is already saved.
     if (this.engine) await Promise.race([this.engine.destroy(), Bun.sleep(3000)])
   }
@@ -337,10 +339,15 @@ export class DownloadManager {
       item.peers = handle.peers
       if (handle.totalBytes) item.totalBytes = handle.totalBytes
     }
-    if (anyActive) this.changed()
-    if (++this.ticks % PERSIST_EVERY_TICKS === 0) {
-      for (const item of this.items.values()) if (item.handle) this.persist(item)
+    if (anyActive) {
+      const stats = [...this.items.values()].filter(i => i.handle)
+        .map(i => `${i.id}:${i.progress}:${i.downloadSpeed}:${i.uploadSpeed}:${i.peers}:${i.totalBytes}`).join(',')
+      if (stats !== this.lastStats) {
+        this.lastStats = stats
+        this.changed()
+      }
     }
+    if (++this.ticks % PERSIST_EVERY_TICKS === 0) this.persistAll([...this.items.values()].filter(i => i.handle))
   }
 
   /** Coalesces change notifications to at most one per event-loop turn. */
@@ -351,6 +358,13 @@ export class DownloadManager {
       this.changedPending = false
       this.events.emit('downloads.changed', this.list())
     })
+  }
+
+  /** One transaction, so a periodic save is one commit rather than one per download. */
+  private persistAll(items: Iterable<Item>): void {
+    this.db.transaction(() => {
+      for (const item of items) this.persist(item)
+    })()
   }
 
   private persist(item: Item): void {

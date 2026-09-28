@@ -1,6 +1,9 @@
 import { DurableObject } from 'cloudflare:workers'
 import { randomId } from '@md/protocol/base64'
-import { MAX_RELAY_FRAME, unwrapFromDevice, wrapForDevice, type DeviceToRelay, type RelayToBrowser, type RelayToDevice } from '@md/protocol/relay'
+import {
+  MAX_RELAY_FRAME, RELAY_CLOSE, RELAY_PING, RELAY_PONG, unwrapFromDevice, wrapForDevice, type DeviceToRelay, type RelayToBrowser,
+  type RelayToDevice,
+} from '@md/protocol/relay'
 import type { Env } from './env.ts'
 
 const MAX_BROWSERS = 16
@@ -15,7 +18,7 @@ type Attachment = { role: 'device' } | { role: 'browser'; connectionId: string }
 export class DeviceRelay extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
-    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('{"t":"ping"}', '{"t":"pong"}'))
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(RELAY_PING, RELAY_PONG))
   }
 
   private device(): WebSocket | undefined {
@@ -38,7 +41,7 @@ export class DeviceRelay extends DurableObject<Env> {
 
     if (role === 'device') {
       // A reconnecting device replaces its old socket.
-      for (const old of this.ctx.getWebSockets('device')) old.close(4000, 'Replaced by a newer connection')
+      for (const old of this.ctx.getWebSockets('device')) old.close(RELAY_CLOSE.replaced, 'Replaced by a newer connection')
       this.ctx.acceptWebSocket(server, ['device'])
       server.serializeAttachment({ role: 'device' } satisfies Attachment)
       await this.ctx.storage.put('deviceId', deviceId)
@@ -80,7 +83,7 @@ export class DeviceRelay extends DurableObject<Env> {
         return
       }
       if (control.t === 'close') {
-        for (const browser of this.ctx.getWebSockets(`b:${control.c}`)) browser.close(4002, 'Closed by the device')
+        for (const browser of this.ctx.getWebSockets(`b:${control.c}`)) browser.close(RELAY_CLOSE.closedByDevice, 'Closed by the device')
       } else if (control.t === 'hello') {
         const deviceId = await this.ctx.storage.get<string>('deviceId')
         if (deviceId && typeof control.version === 'string') {
@@ -103,7 +106,7 @@ export class DeviceRelay extends DurableObject<Env> {
     const attachment = ws.deserializeAttachment() as Attachment
     if (attachment.role === 'device') {
       // A replaced socket closing must not mark the device offline.
-      if (code === 4000 || this.ctx.getWebSockets('device').some(other => other !== ws)) return
+      if (code === RELAY_CLOSE.replaced || this.ctx.getWebSockets('device').some(other => other !== ws)) return
       for (const browser of this.ctx.getWebSockets('browser')) this.sendJson(browser, { t: 'device', online: false })
       const deviceId = await this.ctx.storage.get<string>('deviceId')
       if (deviceId) await this.setOnline(deviceId, false)
@@ -121,9 +124,9 @@ export class DeviceRelay extends DurableObject<Env> {
   async revoke(): Promise<void> {
     for (const device of this.ctx.getWebSockets('device')) {
       this.sendJson(device, { t: 'revoked' })
-      device.close(4001, 'Device removed from the account')
+      device.close(RELAY_CLOSE.deviceRemoved, 'Device removed from the account')
     }
-    for (const browser of this.ctx.getWebSockets('browser')) browser.close(4003, 'Device removed from the account')
+    for (const browser of this.ctx.getWebSockets('browser')) browser.close(RELAY_CLOSE.notOnAccount, 'Device removed from the account')
     await this.ctx.storage.deleteAll()
   }
 

@@ -12,7 +12,7 @@ export const json = (body: unknown, init: ResponseInit = {}) =>
 
 export const error = (status: number, message: string) => json({ error: message }, { status })
 
-const MAX_BODY = 16 * 1024
+export const MAX_BODY = 16 * 1024
 
 export async function readJson<T>(request: Request): Promise<T> {
   if (!request.headers.get('content-type')?.startsWith('application/json')) throw new HttpError(415, 'Expected JSON')
@@ -56,6 +56,6 @@ export function cookie(request: Request, name: string): string | null {
   return null
 }
 
-export function setCookie(name: string, value: string, maxAge: number, path = '/'): string {
-  return `${name}=${value}; Path=${path}; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Lax`
+export function setCookie(name: string, value: string, maxAge: number): string {
+  return `${name}=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Lax`
 }

@@ -26,9 +26,12 @@ const CALL_TIMEOUT_MS = 120_000
  * device, whether it is the local socket or an end-to-end encrypted relay channel.
  */
 export abstract class RpcClient {
-  abstract readonly kind: 'local' | 'remote'
   /** The key this browser uses through the relay; null on the local dashboard. */
   readonly keyId: string | null = null
+
+  get kind(): 'local' | 'remote' {
+    return this.keyId === null ? 'local' : 'remote'
+  }
   private nextId = 1
   private readonly pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>()
   private readonly eventHandlers = new Map<string, Set<(data: unknown) => void>>()

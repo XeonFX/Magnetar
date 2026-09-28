@@ -5,7 +5,7 @@ import { USER_AGENT } from '../config.ts'
  * the wait on a slow host at ~1.5s. apibay.org takes ~16s on an uncached query, so shorter than
  * this would fail searches that were merely slow.
  */
-export const SEARCH_TIMEOUT_MS = 15_000
+const SEARCH_TIMEOUT_MS = 15_000
 
 export class HttpError extends Error {
   constructor(readonly status: number, url: string) {
@@ -15,18 +15,30 @@ export class HttpError extends Error {
 }
 
 /** GET a page as text, failing on non-2xx, a timeout, or the caller's abort. */
-export async function fetchText(url: string, signal: AbortSignal, timeoutMs = SEARCH_TIMEOUT_MS): Promise<string> {
+export async function fetchText(url: string, signal: AbortSignal): Promise<string> {
   const response = await fetch(url, {
     headers: { 'user-agent': USER_AGENT, accept: 'text/html,application/json;q=0.9,*/*;q=0.8' },
-    signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
+    signal: AbortSignal.any([signal, AbortSignal.timeout(SEARCH_TIMEOUT_MS)]),
     redirect: 'follow',
   })
   if (!response.ok) throw new HttpError(response.status, url)
   return response.text()
 }
 
-export async function fetchJson<T>(url: string, signal: AbortSignal): Promise<T> {
-  return JSON.parse(await fetchText(url, signal)) as T
+/**
+ * Fetches pages 2..count+1 concurrently for providers that page their results. A failed extra page
+ * is dropped rather than losing the page-1 rows already in hand; only a cancelled search throws.
+ */
+export async function fetchExtraPages<T>(count: number, page: (number: number) => Promise<T[]>, signal: AbortSignal): Promise<T[]> {
+  const pages = await Promise.all(Array.from({ length: Math.max(0, count) }, async (_, i) => {
+    try {
+      return await page(i + 2)
+    } catch (error) {
+      if (signal.aborted) throw error
+      return []
+    }
+  }))
+  return pages.flat()
 }
 
 /** A short, user-facing reason a provider failed. */

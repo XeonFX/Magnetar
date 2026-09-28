@@ -271,7 +271,5 @@ export interface AppInfoDto {
   platform: 'macos' | 'windows' | 'linux'
   arch: string
   dataDirectory: string
-  /** True when this connection is to the device's own local dashboard, not through the relay. */
-  local: boolean
   nativeFolderPicker: boolean
 }

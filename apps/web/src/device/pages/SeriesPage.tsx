@@ -1,10 +1,12 @@
 import type { SeriesTaskDto, SeriesTaskPatch } from '@md/protocol'
 import { Plus, RefreshCw, Trash2, Tv } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { useFormatDate, useT } from '../../lib/i18n.tsx'
+import { Empty } from '../../ui/Empty.tsx'
+import { blurOnEnter, Field, SaveOnBlurInput } from '../../ui/fields.tsx'
 import { ConfirmDialog, Modal } from '../../ui/Modal.tsx'
 import { useToast } from '../../ui/toast.tsx'
-import { useDevice } from '../DeviceContext.tsx'
+import { useDevice, useDownloads } from '../DeviceContext.tsx'
 import { PageHeader } from '../Shell.tsx'
 import { FolderField } from '../components/folders.tsx'
 import { useRun } from '../useRun.ts'
@@ -20,14 +22,10 @@ export function SeriesPage() {
     <>
       <PageHeader title={t('series.title')} subtitle={t('series.subtitle')} action={series.length > 0 && add} />
       {series.length === 0 ? (
-        <div className="surface flex flex-col items-center gap-4 px-6 py-16 text-center">
-          <div className="grid size-18 place-items-center rounded-full border-2 border-primary text-primary"><Tv size={32} /></div>
-          <div>
-            <h2 className="text-lg font-semibold">{t('series.emptyTitle')}</h2>
-            <p className="mt-1 text-sm text-base-content/60">{t('series.emptyHint')}</p>
-          </div>
+        <Empty icon={<div className="grid size-18 place-items-center rounded-full border-2 border-primary text-primary"><Tv size={32} /></div>}
+          title={t('series.emptyTitle')} text={t('series.emptyHint')}>
           {add}
-        </div>
+        </Empty>
       ) : (
         <div className="flex flex-col gap-3">
           {series.map(task => <SeriesCard key={task.id} task={task} />)}
@@ -43,7 +41,8 @@ function SeriesCard({ task }: { task: SeriesTaskDto }) {
   const formatDate = useFormatDate()
   const toast = useToast()
   const run = useRun()
-  const { connection, downloads, sources, settings } = useDevice()
+  const { connection, sources, settings } = useDevice()
+  const downloads = useDownloads()
   const [checking, setChecking] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const taskDownloads = downloads.filter(d => d.seriesTaskId === task.id)
@@ -120,16 +119,8 @@ function SeriesCard({ task }: { task: SeriesTaskDto }) {
   )
 }
 
-/** A text input that saves when it loses focus (or on Enter) and only when it changed. */
 function Text({ label, help, value, onSave, className = '' }: { label: string; help?: string; value: string; onSave: (value: string) => void; className?: string }) {
-  const [draft, setDraft] = useState(value)
-  useEffect(() => setDraft(value), [value])
-  return (
-    <Field label={label} help={help} className={className}>
-      <input className="input w-full" value={draft} placeholder={label} onChange={e => setDraft(e.target.value)}
-        onBlur={() => draft !== value && onSave(draft)} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />
-    </Field>
-  )
+  return <Field label={label} help={help} className={className}><SaveOnBlurInput value={value} placeholder={label} onSave={onSave} /></Field>
 }
 
 function NumberField({ label, value, min, optional = false, onSave, className = '' }: {
@@ -146,27 +137,21 @@ function NumberField({ label, value, min, optional = false, onSave, className = 
   return (
     <Field label={label} className={className}>
       <input type="number" inputMode="numeric" min={min} className="input w-full" value={draft} placeholder={label}
-        onChange={e => setDraft(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />
+        onChange={e => setDraft(e.target.value)} onBlur={commit} onKeyDown={blurOnEnter} />
     </Field>
   )
 }
 
-function Field({ label, help, className = '', children }: { label: string; help?: string; className?: string; children: ReactNode }) {
-  return (
-    <div className={className}>
-      <label className="floating-label block"><span>{label}</span>{children}</label>
-      {help && <p className="mt-1 text-xs text-base-content/60">{help}</p>}
-    </div>
-  )
-}
+
+const EMPTY_FORM = { name: '', query: '', provider: '', titleFilter: '', season: '', startEpisode: '1', endEpisode: '', checkIntervalMinutes: '60' }
 
 function CreateSeriesDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useT()
   const run = useRun()
   const { connection, sources } = useDevice()
-  const [form, setForm] = useState({ name: '', query: '', provider: '', titleFilter: '', season: '', startEpisode: '1', endEpisode: '', checkIntervalMinutes: '60' })
+  const [form, setForm] = useState(EMPTY_FORM)
   useEffect(() => {
-    if (open) setForm({ name: '', query: '', provider: '', titleFilter: '', season: '', startEpisode: '1', endEpisode: '', checkIntervalMinutes: '60' })
+    if (open) setForm(EMPTY_FORM)
   }, [open])
   const set = (key: keyof typeof form) => (e: { target: { value: string } }) => setForm(f => ({ ...f, [key]: e.target.value }))
   const number = (v: string) => (v.trim() === '' ? null : Number(v))

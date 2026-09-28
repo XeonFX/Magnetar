@@ -1,4 +1,4 @@
-import { fetchText, fromUnixSeconds, toInt, toNumber } from '../http.ts'
+import { fetchExtraPages, fetchText, fromUnixSeconds, toInt, toNumber } from '../http.ts'
 import { buildMagnet } from '../magnet.ts'
 import { newResult, type TorrentDetails, type TorrentSearchProvider, type TorrentSearchResult } from '../types.ts'
 
@@ -19,15 +19,7 @@ export class RarbgProvider implements TorrentSearchProvider {
   async search(query: string, signal: AbortSignal): Promise<TorrentSearchResult[]> {
     const first = parsePage(await fetchText(searchUrl(query, 1), signal))
     if (first.results.length < PAGE_SIZE || first.total <= PAGE_SIZE) return first.results
-    const rest = await Promise.all(Array.from({ length: MAX_PAGES - 1 }, async (_, i) => {
-      try {
-        return parsePage(await fetchText(searchUrl(query, i + 2), signal)).results
-      } catch (error) {
-        if (signal.aborted) throw error
-        return [] // a failed extra page shouldn't lose page 1
-      }
-    }))
-    return [...first.results, ...rest.flat()]
+    return [...first.results, ...await fetchExtraPages(MAX_PAGES - 1, async page => parsePage(await fetchText(searchUrl(query, page), signal)).results, signal)]
   }
 
   async getDetails(result: TorrentSearchResult, signal: AbortSignal): Promise<TorrentDetails> {
