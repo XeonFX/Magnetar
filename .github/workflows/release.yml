@@ -1,0 +1,66 @@
+name: Release
+
+# Tag after CI is green on main: git tag v2.1.0 && git push origin v2.1.0
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    strategy:
+      matrix:
+        include:
+          # macOS bundles are signed with codesign, so they build on macOS.
+          - { runner: macos-14, target: bun-darwin-arm64 }
+          - { runner: macos-14, target: bun-darwin-x64 }
+          - { runner: ubuntu-latest, target: bun-windows-x64 }
+          - { runner: ubuntu-latest, target: bun-windows-arm64 }
+          - { runner: ubuntu-latest, target: bun-linux-x64 }
+          - { runner: ubuntu-latest, target: bun-linux-arm64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - name: Build
+        run: bun run --cwd apps/client build --target ${{ matrix.target }} --version ${GITHUB_REF_NAME#v}
+      - name: Collect the release asset
+        shell: bash
+        run: |
+          mkdir -p out
+          cd apps/client/dist
+          if ls *.zip >/dev/null 2>&1; then cp *.zip ../../../out/; else cp MediaDownloader-* ../../../out/; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: out/*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Checksums and signature
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          cd assets && sha256sum MediaDownloader-* > SHA256SUMS.txt && cd ..
+          bun scripts/sign-release.ts assets
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: assets/*
+          generate_release_notes: true

@@ -241,7 +241,7 @@
     "remote.disconnect": "Desconectar da conta",
     "remote.linkTitle": "Vincular outro navegador",
     "remote.linkHint": "Escaneie este código com o telefone ou abra o link em outro navegador conectado à mesma conta.",
-    "remote.linkWarning": "O link contém a chave do navegador. Abra-o apenas nos seus próprios dispositivos.",
+    "remote.linkWarning": "Quem abrir este link conectado à sua conta poderá controlar este dispositivo. Abra-o apenas nos seus próprios dispositivos.",
     "remote.disconnectTitle": "Desconectar este dispositivo?",
     "remote.disconnectConfirm": "Ele sairá da sua conta e todos os navegadores vinculados perderão o acesso. Você pode conectá-lo de novo depois.",
     "remote.revokeTitle": "Revogar este navegador?",

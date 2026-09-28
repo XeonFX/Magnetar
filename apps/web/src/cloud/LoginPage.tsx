@@ -78,7 +78,7 @@ export function LoginPage() {
             <p className="mb-2 text-xs text-warning">{t('cloud.devLogin')}</p>
             <div className="join w-full">
               <input className="input join-item w-full" value={devEmail} onChange={e => setDevEmail(e.target.value)} aria-label="Email" />
-              <button type="button" className="btn btn-warning join-item" disabled={busy} onClick={() => void devSignIn()}><KeyRound size={16} /></button>
+              <button type="button" className="btn btn-warning join-item" aria-label="Sign in" disabled={busy} onClick={() => void devSignIn()}><KeyRound size={16} /></button>
             </div>
           </div>
         )}

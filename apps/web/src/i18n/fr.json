@@ -241,7 +241,7 @@
     "remote.disconnect": "Dissocier du compte",
     "remote.linkTitle": "Associer un autre navigateur",
     "remote.linkHint": "Scannez ce code avec votre téléphone, ou ouvrez le lien dans un autre navigateur connecté au même compte.",
-    "remote.linkWarning": "Le lien contient la clé du navigateur. Ne l’ouvrez que sur vos propres appareils.",
+    "remote.linkWarning": "Toute personne qui ouvre ce lien en étant connectée à votre compte peut contrôler cet appareil. Ne l’ouvrez que sur vos propres appareils.",
     "remote.disconnectTitle": "Dissocier cet appareil ?",
     "remote.disconnectConfirm": "Il disparaîtra de votre compte et tous les navigateurs associés perdront l’accès. Vous pourrez le reconnecter plus tard.",
     "remote.revokeTitle": "Révoquer ce navigateur ?",

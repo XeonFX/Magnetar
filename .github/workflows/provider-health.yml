@@ -1,0 +1,21 @@
+name: Provider health
+
+# Parsers are tested against captured pages; this catches a site changing its markup or blocking us.
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: MD_LIVE_TESTS=1 bun test apps/client/test/live.test.ts

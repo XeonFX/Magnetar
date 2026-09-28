@@ -126,7 +126,8 @@ export class DownloadManager {
     this.shuttingDown = true
     if (this.timer) clearInterval(this.timer)
     for (const item of this.items.values()) this.persist(item)
-    await this.engine?.destroy()
+    // Closing every peer and DHT socket can take seconds; progress is already saved.
+    if (this.engine) await Promise.race([this.engine.destroy(), Bun.sleep(3000)])
   }
 
   list(): DownloadDto[] {

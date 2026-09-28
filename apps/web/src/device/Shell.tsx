@@ -35,7 +35,7 @@ export function Shell({ headerStart, headerEnd }: { headerStart?: ReactNode; hea
           {headerStart}
           <div className="min-w-0 flex-1">
             <div className="truncate font-semibold">{deviceName}</div>
-            {connection.kind === 'remote' && <div className="text-xs text-base-content/60">{t('remote.viaRelay')}</div>}
+            {connection.kind === 'remote' && <div className="truncate text-xs text-base-content/60">{t('remote.viaRelay')}</div>}
           </div>
           {headerEnd}
           <button type="button" className="btn btn-ghost btn-square btn-sm" onClick={toggleTheme}

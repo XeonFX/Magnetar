@@ -241,7 +241,7 @@
     "remote.disconnect": "Vom Konto trennen",
     "remote.linkTitle": "Anderen Browser verknüpfen",
     "remote.linkHint": "Scanne diesen Code mit dem Handy oder öffne den Link in einem anderen Browser, der mit demselben Konto angemeldet ist.",
-    "remote.linkWarning": "Der Link enthält den Schlüssel des Browsers. Öffne ihn nur auf deinen eigenen Geräten.",
+    "remote.linkWarning": "Wer diesen Link mit deinem Konto angemeldet öffnet, kann dieses Gerät steuern. Öffne ihn nur auf deinen eigenen Geräten.",
     "remote.disconnectTitle": "Dieses Gerät trennen?",
     "remote.disconnectConfirm": "Es verschwindet aus deinem Konto und alle verknüpften Browser verlieren den Zugriff. Du kannst es später erneut verbinden.",
     "remote.revokeTitle": "Diesen Browser widerrufen?",

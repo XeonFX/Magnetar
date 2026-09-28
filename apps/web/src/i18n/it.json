@@ -241,7 +241,7 @@
     "remote.disconnect": "Scollega dall’account",
     "remote.linkTitle": "Collega un altro browser",
     "remote.linkHint": "Scansiona questo codice con il telefono o apri il link in un altro browser con lo stesso account.",
-    "remote.linkWarning": "Il link contiene la chiave del browser. Aprilo solo sui tuoi dispositivi.",
+    "remote.linkWarning": "Chi apre questo link con il tuo account può controllare questo dispositivo. Aprilo solo sui tuoi dispositivi.",
     "remote.disconnectTitle": "Scollegare questo dispositivo?",
     "remote.disconnectConfirm": "Sparirà dal tuo account e tutti i browser collegati perderanno l’accesso. Potrai ricollegarlo in seguito.",
     "remote.revokeTitle": "Revocare questo browser?",

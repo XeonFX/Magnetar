@@ -241,7 +241,7 @@
     "remote.disconnect": "Odłącz od konta",
     "remote.linkTitle": "Połącz inną przeglądarkę",
     "remote.linkHint": "Zeskanuj ten kod telefonem albo otwórz link w innej przeglądarce zalogowanej na to samo konto.",
-    "remote.linkWarning": "Link zawiera klucz przeglądarki. Otwieraj go tylko na własnych urządzeniach.",
+    "remote.linkWarning": "Każdy, kto otworzy ten link będąc zalogowanym na Twoje konto, może sterować tym urządzeniem. Otwieraj go tylko na własnych urządzeniach.",
     "remote.disconnectTitle": "Odłączyć to urządzenie?",
     "remote.disconnectConfirm": "Zniknie z Twojego konta, a wszystkie połączone przeglądarki stracą dostęp. Możesz je później połączyć ponownie.",
     "remote.revokeTitle": "Odebrać dostęp tej przeglądarce?",

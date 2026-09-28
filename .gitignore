@@ -1,9 +1,9 @@
-node_modules/
-dist/
-.wrangler/
-.dev.vars
 *.log
 .DS_Store
-coverage/
+.dev.vars
+.wrangler/
 apps/client/src/generated/
 apps/web/dist/
+coverage/
+dist/
+node_modules/
