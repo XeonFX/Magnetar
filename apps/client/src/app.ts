@@ -31,16 +31,6 @@ import { UpdateService } from './updates/updateService.ts'
 
 const log = logger('app')
 
-export const LANGUAGES = [
-  { code: 'en', name: 'English' },
-  { code: 'pl', name: 'Polski' },
-  { code: 'de', name: 'Deutsch' },
-  { code: 'fr', name: 'Français' },
-  { code: 'es', name: 'Español' },
-  { code: 'it', name: 'Italiano' },
-  { code: 'pt', name: 'Português' },
-  { code: 'ru', name: 'Русский' },
-]
 
 export interface AppOptions {
   databasePath?: string
@@ -128,7 +118,6 @@ export class App {
         dataDirectory: DATA_DIR,
         local: ctx.local,
         nativeFolderPicker: ctx.local && process.platform === 'darwin',
-        languages: LANGUAGES,
       }),
       'sources.list': () => a.sources(),
 

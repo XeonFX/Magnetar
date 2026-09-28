@@ -44,10 +44,10 @@ export class RelayConnection extends RpcClient {
       if (this.socket !== socket || this.closed) return
       this.session = null
       if (event.code === 4003) {
-        this.setState({ status: 'rejected', reason: 'This device is no longer on your account.' })
+        this.setState({ status: 'rejected', reason: 'remote.removed' })
         return
       }
-      this.setState({ status: 'reconnecting', reason: 'Lost the connection to the relay' })
+      this.setState({ status: 'reconnecting' })
       this.timer = setTimeout(() => this.connect(), backoff(this.attempt++))
     }
   }
@@ -76,7 +76,7 @@ export class RelayConnection extends RpcClient {
     if (frame[0] === FRAME_HANDSHAKE) {
       const message = decodeHandshake(frame)
       if (message.t === 'reject') {
-        this.setState({ status: 'rejected', reason: message.reason === 'unknown-key' ? 'This browser is no longer linked to the device.' : 'The device refused the connection.' })
+        this.setState({ status: 'rejected', reason: message.reason === 'unknown-key' ? 'remote.rejectedKey' : 'remote.rejectedRefused' })
         this.closed = true
         socket.close()
         return
@@ -87,8 +87,8 @@ export class RelayConnection extends RpcClient {
           this.handshake = null
           this.attempt = 0
           this.setState({ status: 'open' })
-        } catch (error) {
-          this.setState({ status: 'rejected', reason: error instanceof Error ? error.message : 'Handshake failed' })
+        } catch {
+          this.setState({ status: 'rejected', reason: 'remote.handshakeFailed' })
           this.closed = true
           socket.close()
         }

@@ -31,7 +31,7 @@ export class LocalConnection extends RpcClient {
     socket.onclose = () => {
       if (this.socket !== socket || this.closed) return
       // The app restarts after an update; keep trying until it is back.
-      this.setState({ status: 'reconnecting', reason: 'The app is not responding' })
+      this.setState({ status: 'reconnecting' })
       this.timer = setTimeout(() => this.connect(), backoff(this.attempt++))
     }
   }

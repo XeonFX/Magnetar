@@ -282,6 +282,13 @@
     "devices.notLinkedTitle": "Ce navigateur n’est pas associé à l’appareil",
     "devices.notLinkedHint": "Seuls les navigateurs associés détiennent la clé d’un appareil. Dans le tableau de bord de l’appareil (ou un navigateur associé), ouvrez Réglages → Accès à distance → Associer un téléphone ou un autre navigateur, puis scannez le code QR.",
     "devices.back": "Tous les appareils",
-    "devices.device": "Appareil"
+    "devices.device": "Appareil",
+    "nav.menu": "Menu",
+    "nav.closeMenu": "Fermer le menu",
+    "cloud.devSignIn": "Se connecter",
+    "remote.rejectedKey": "Ce navigateur n’est plus associé à l’appareil.",
+    "remote.rejectedRefused": "L’appareil a refusé la connexion.",
+    "remote.removed": "Cet appareil n’est plus associé à votre compte.",
+    "remote.handshakeFailed": "L’appareil n’a pas pu prouver son identité. La connexion n’a pas été ouverte."
   }
 }

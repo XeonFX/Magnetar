@@ -31,7 +31,7 @@ export function Shell({ headerStart, headerEnd }: { headerStart?: ReactNode; hea
       <input id="md-drawer" type="checkbox" className="drawer-toggle" checked={drawerOpen} onChange={e => setDrawerOpen(e.target.checked)} />
       <div className="drawer-content flex min-h-screen flex-col">
         <header className="navbar sticky top-0 z-30 gap-2 border-b border-base-300 bg-base-100/90 px-3 backdrop-blur sm:px-4">
-          <label htmlFor="md-drawer" className="btn btn-ghost btn-square btn-sm lg:hidden" aria-label="Menu"><Menu size={20} /></label>
+          <label htmlFor="md-drawer" className="btn btn-ghost btn-square btn-sm lg:hidden" aria-label={t('nav.menu')}><Menu size={20} /></label>
           {headerStart}
           <div className="min-w-0 flex-1">
             <div className="truncate font-semibold">{deviceName}</div>
@@ -49,7 +49,7 @@ export function Shell({ headerStart, headerEnd }: { headerStart?: ReactNode; hea
         </main>
       </div>
       <div className="drawer-side z-40">
-        <label htmlFor="md-drawer" aria-label="Close menu" className="drawer-overlay" />
+        <label htmlFor="md-drawer" aria-label={t('nav.closeMenu')} className="drawer-overlay" />
         <aside className="flex min-h-full w-64 flex-col border-r border-base-300 bg-base-200">
           <div className="flex items-center gap-3 px-5 py-5">
             <div className="grid size-9 place-items-center rounded-full bg-primary text-primary-content"><Download size={18} /></div>
@@ -86,7 +86,7 @@ function ConnectionBanner() {
 
   const [tone, icon, text] =
     connectionState.status === 'device-offline' ? ['alert-warning', <CloudOff key="i" size={18} />, t('remote.deviceOffline')]
-    : connectionState.status === 'rejected' ? ['alert-error', <ShieldAlert key="i" size={18} />, connectionState.reason]
+    : connectionState.status === 'rejected' ? ['alert-error', <ShieldAlert key="i" size={18} />, t(connectionState.reason)]
     : connectionState.status === 'reconnecting' ? ['alert-warning', <WifiOff key="i" size={18} />, t('connection.reconnecting')]
     : ['alert-info', <Loader key="i" size={18} className="animate-spin" />, t('connection.connecting')]
   return (

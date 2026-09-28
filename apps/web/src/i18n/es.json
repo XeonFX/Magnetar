@@ -282,6 +282,13 @@
     "devices.notLinkedTitle": "Este navegador no está vinculado al dispositivo",
     "devices.notLinkedHint": "Solo los navegadores vinculados tienen la clave de un dispositivo. En el panel del dispositivo (o un navegador vinculado) abre Ajustes → Acceso remoto → Vincular un teléfono u otro navegador y escanea el código QR.",
     "devices.back": "Todos los dispositivos",
-    "devices.device": "Dispositivo"
+    "devices.device": "Dispositivo",
+    "nav.menu": "Menú",
+    "nav.closeMenu": "Cerrar menú",
+    "cloud.devSignIn": "Iniciar sesión",
+    "remote.rejectedKey": "Este navegador ya no está vinculado al dispositivo.",
+    "remote.rejectedRefused": "El dispositivo rechazó la conexión.",
+    "remote.removed": "Este dispositivo ya no está en tu cuenta.",
+    "remote.handshakeFailed": "El dispositivo no pudo demostrar su identidad. No se abrió la conexión."
   }
 }

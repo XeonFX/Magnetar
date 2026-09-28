@@ -1,5 +1,6 @@
 import { CircleAlert, CircleCheck, Info, X } from 'lucide-react'
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { useT } from '../lib/i18n.tsx'
 
 type Tone = 'success' | 'error' | 'info'
 interface Toast {
@@ -13,8 +14,9 @@ const ToastContext = createContext<(message: string, tone?: Tone) => void>(() =>
 let nextId = 1
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const t = useT()
   const [toasts, setToasts] = useState<Toast[]>([])
-  const dismiss = useCallback((id: number) => setToasts(list => list.filter(t => t.id !== id)), [])
+  const dismiss = useCallback((id: number) => setToasts(list => list.filter(item => item.id !== id)), [])
   const show = useCallback((message: string, tone: Tone = 'info') => {
     const id = nextId++
     setToasts(list => [...list.slice(-3), { id, tone, message }])
@@ -29,7 +31,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div key={toast.id} className={`alert shadow-lg ${toast.tone === 'success' ? 'alert-success' : toast.tone === 'error' ? 'alert-error' : 'alert-info'}`}>
             {toast.tone === 'success' ? <CircleCheck size={18} /> : toast.tone === 'error' ? <CircleAlert size={18} /> : <Info size={18} />}
             <span className="break-release text-sm">{toast.message}</span>
-            <button type="button" className="btn btn-ghost btn-xs btn-circle" aria-label="Dismiss" onClick={() => dismiss(toast.id)}>
+            <button type="button" className="btn btn-ghost btn-xs btn-circle" aria-label={t('common.close')} onClick={() => dismiss(toast.id)}>
               <X size={14} />
             </button>
           </div>

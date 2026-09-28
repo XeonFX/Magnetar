@@ -28,7 +28,7 @@ const MAX_SEARCH_LIMIT = 200
 export type Caller = 'agent' | 'user'
 
 export interface ActionsForSeries {
-  startFromResult(result: TorrentSearchResult, options: { seriesTaskId?: number | null; saveFolder?: string | null }): Promise<DownloadDto>
+  startFromResult(result: TorrentSearchResult, options: { seriesTaskId?: number | null; saveFolder?: string | null; signal?: AbortSignal }): Promise<DownloadDto>
 }
 
 /**
@@ -81,8 +81,7 @@ export class Actions implements ActionsForSeries {
       : input.folder?.trim() || null
     if (input.resultId?.trim()) {
       const result = this.cache.get(input.resultId)
-      if (needsResolution(result)) await this.searchService.ensureDetails(result, signal)
-      return this.startFromResult(result, { saveFolder: folder })
+      return this.startFromResult(result, { saveFolder: folder, signal })
     }
     if (input.magnet?.trim()) {
       if (!input.magnet.toLowerCase().startsWith('magnet:')) throw new ApiError('`magnet` must be a magnet: URI.')
@@ -93,8 +92,12 @@ export class Actions implements ActionsForSeries {
     throw new ApiError('Provide either `resultId` (from a search) or `magnet`. For sources that resolve magnets lazily, only `resultId` works.')
   }
 
-  async startFromResult(result: TorrentSearchResult, options: { seriesTaskId?: number | null; saveFolder?: string | null }): Promise<DownloadDto> {
-    if (needsResolution(result)) await this.searchService.ensureDetails(result, AbortSignal.timeout(30_000))
+  async startFromResult(result: TorrentSearchResult, options: { seriesTaskId?: number | null; saveFolder?: string | null; signal?: AbortSignal }): Promise<DownloadDto> {
+    if (needsResolution(result)) {
+      const timeout = AbortSignal.timeout(30_000)
+      await this.searchService.ensureDetails(result, options.signal ? AbortSignal.any([options.signal, timeout]) : timeout)
+      options.signal?.throwIfAborted()
+    }
     if (!result.magnetUri) throw new ApiError(`Could not resolve a magnet link for "${result.title}" from ${result.source}.`)
     return this.downloads.add({
       name: result.title,

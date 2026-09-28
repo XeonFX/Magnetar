@@ -274,5 +274,4 @@ export interface AppInfoDto {
   /** True when this connection is to the device's own local dashboard, not through the relay. */
   local: boolean
   nativeFolderPicker: boolean
-  languages: { code: string; name: string }[]
 }

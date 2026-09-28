@@ -120,7 +120,14 @@ export class LegacyImporter {
 
     const seriesMap = new Map<number, number>()
     const series = legacy.query('SELECT * FROM "SeriesTasks" ORDER BY "Id"').all() as Record<string, unknown>[]
+    let seriesTasks = 0
     for (const row of series) {
+      // A re-import maps to the task it created last time instead of adding it again.
+      const existing = this.db.query('SELECT id FROM series_tasks WHERE name = ? AND query = ?').get(row.Name as string, row.Query as string) as { id: number } | null
+      if (existing) {
+        seriesMap.set(row.Id as number, existing.id)
+        continue
+      }
       const inserted = this.db.query(`INSERT INTO series_tasks (name, query, provider, title_filter, season, start_episode, end_episode,
         download_folder, last_downloaded_episode, check_interval_minutes, enabled, last_checked_at, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`).get(
@@ -130,6 +137,7 @@ export class LegacyImporter {
         row.Enabled as number, legacyDate(row.LastCheckedAt as string | null), legacyDate(row.CreatedAt as string) ?? new Date().toISOString(),
       ) as { id: number }
       seriesMap.set(row.Id as number, inserted.id)
+      seriesTasks++
     }
 
     let downloads = 0
@@ -153,7 +161,7 @@ export class LegacyImporter {
     }
 
     this.kv.set(IMPORTED_KEY, new Date().toISOString())
-    log.info(`Imported ${downloads} downloads and ${series.length} series tasks from the legacy app`)
-    return { downloads, seriesTasks: series.length, settings: settingsRow !== null, secretsToReenter }
+    log.info(`Imported ${downloads} downloads and ${seriesTasks} series tasks from the legacy app`)
+    return { downloads, seriesTasks, settings: settingsRow !== null, secretsToReenter }
   }
 }

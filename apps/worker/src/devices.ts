@@ -32,6 +32,14 @@ export async function deviceFromToken(request: Request, env: Env): Promise<Devic
   return env.DB.prepare('SELECT * FROM devices WHERE token_hash = ?').bind(await sha256(match[1]!)).first<DeviceRow>()
 }
 
+/** Completes a WebSocket upgrade only to close it with a code the other side acts on. */
+function closedSocket(code: number, reason: string): Response {
+  const pair = new WebSocketPair()
+  pair[1].accept()
+  pair[1].close(code, reason)
+  return new Response(null, { status: 101, webSocket: pair[0] })
+}
+
 function relay(env: Env, deviceId: string) {
   return env.RELAY.getByName(deviceId)
 }
@@ -105,9 +113,11 @@ export async function handleDevices(request: Request, env: Env, path: string): P
   // ---- The device itself, authenticated by its token ----
 
   if (path === '/api/device/connect') {
-    const device = await deviceFromToken(request, env)
-    if (!device) return error(401, 'Unknown device')
     if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return error(426, 'WebSocket required')
+    const device = await deviceFromToken(request, env)
+    // A 401 on the upgrade looks like any network failure to the device, which would retry
+    // forever; closing with 4001 tells it the pairing is gone.
+    if (!device) return closedSocket(4001, 'Device removed from the account')
     return relay(env, device.id).fetch(new Request('https://relay/device', { headers: { upgrade: 'websocket', 'x-device-id': device.id } }))
   }
 
@@ -144,13 +154,8 @@ export async function handleDevices(request: Request, env: Env, path: string): P
     const device = await env.DB.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').bind(deviceRoute[1], user.id).first<DeviceRow>()
     if (deviceRoute[2]) {
       if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return error(426, 'WebSocket required')
-      if (!device) {
-        // Tell the page this device is gone for good, instead of letting it retry forever.
-        const pair = new WebSocketPair()
-        pair[1].accept()
-        pair[1].close(4003, 'Device not on this account')
-        return new Response(null, { status: 101, webSocket: pair[0] })
-      }
+      // Tell the page this device is gone for good, instead of letting it retry forever.
+      if (!device) return closedSocket(4003, 'Device not on this account')
       return relay(env, device.id).fetch(new Request('https://relay/browser', { headers: { upgrade: 'websocket', 'x-device-id': device.id } }))
     }
     if (!device) return error(404, 'No such device')

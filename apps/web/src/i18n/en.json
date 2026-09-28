@@ -285,6 +285,13 @@
     "devices.notLinkedTitle": "This browser isn’t linked to the device",
     "devices.notLinkedHint": "Only linked browsers hold the key to talk to a device. On the device’s dashboard (or a linked browser) open Settings → Remote access → Link a phone or another browser, and scan the QR code.",
     "devices.back": "All devices",
-    "devices.device": "Device"
+    "devices.device": "Device",
+    "nav.menu": "Menu",
+    "nav.closeMenu": "Close menu",
+    "cloud.devSignIn": "Sign in",
+    "remote.rejectedKey": "This browser is no longer linked to the device.",
+    "remote.rejectedRefused": "The device refused the connection.",
+    "remote.removed": "This device is no longer on your account.",
+    "remote.handshakeFailed": "The device could not prove its identity. The connection was not opened."
   }
 }

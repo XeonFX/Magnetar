@@ -157,8 +157,12 @@ export class DownloadManager {
     const item = fromRow(result)
     this.items.set(item.id, item)
     if (this.engine) {
-      this.attach(item)
-      this.sendStartNotification(item)
+      try {
+        this.attach(item)
+        this.sendStartNotification(item)
+      } catch (error) {
+        this.fail(item, error instanceof Error ? error.message : String(error))
+      }
     }
     this.changed()
     return toDto(item)

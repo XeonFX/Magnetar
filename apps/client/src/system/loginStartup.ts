@@ -29,7 +29,7 @@ export class LoginStartup {
       return new RegExp(`"${MAC_LABEL.replaceAll('.', '\\.')}"\\s*=>\\s*(true|disabled)`).test(overrides) ? 'requiresApproval' : 'enabled'
     }
     if (process.platform === 'win32') {
-      if (!process.execPath.toLowerCase().endsWith('mediadownloader.exe')) return 'unavailable'
+      if (!/[\\/]mediadownloader[^\\/]*\.exe$/i.test(process.execPath)) return 'unavailable'
       return run(['reg', 'query', RUN_KEY, '/v', WINDOWS_VALUE]).code === 0 ? 'enabled' : 'disabled'
     }
     return 'unavailable'

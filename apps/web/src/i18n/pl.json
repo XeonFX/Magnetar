@@ -282,6 +282,13 @@
     "devices.notLinkedTitle": "Ta przeglądarka nie jest połączona z urządzeniem",
     "devices.notLinkedHint": "Tylko połączone przeglądarki mają klucz do urządzenia. W panelu urządzenia (lub w połączonej przeglądarce) otwórz Ustawienia → Dostęp zdalny → Połącz telefon lub inną przeglądarkę i zeskanuj kod QR.",
     "devices.back": "Wszystkie urządzenia",
-    "devices.device": "Urządzenie"
+    "devices.device": "Urządzenie",
+    "nav.menu": "Menu",
+    "nav.closeMenu": "Zamknij menu",
+    "cloud.devSignIn": "Zaloguj",
+    "remote.rejectedKey": "Ta przeglądarka nie jest już połączona z urządzeniem.",
+    "remote.rejectedRefused": "Urządzenie odrzuciło połączenie.",
+    "remote.removed": "To urządzenie nie jest już przypisane do Twojego konta.",
+    "remote.handshakeFailed": "Urządzenie nie potwierdziło swojej tożsamości. Połączenie nie zostało otwarte."
   }
 }

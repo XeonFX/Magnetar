@@ -5,10 +5,10 @@ import type {
 export type ConnectionState =
   | { status: 'connecting' }
   | { status: 'open' }
-  | { status: 'reconnecting'; reason: string }
+  | { status: 'reconnecting' }
   /** Relay only: signed in and linked, but the device isn't connected to the relay right now. */
   | { status: 'device-offline' }
-  /** Relay only: this browser's key isn't accepted by the device any more. */
+  /** Relay only: refused for good; `reason` is a translation key. */
   | { status: 'rejected'; reason: string }
   | { status: 'closed' }
 

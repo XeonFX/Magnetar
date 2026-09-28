@@ -282,6 +282,13 @@
     "devices.notLinkedTitle": "Dieser Browser ist nicht mit dem Gerät verknüpft",
     "devices.notLinkedHint": "Nur verknüpfte Browser haben den Schlüssel für ein Gerät. Öffne im Dashboard des Geräts (oder in einem verknüpften Browser) Einstellungen → Fernzugriff → Handy oder anderen Browser verknüpfen und scanne den QR-Code.",
     "devices.back": "Alle Geräte",
-    "devices.device": "Gerät"
+    "devices.device": "Gerät",
+    "nav.menu": "Menü",
+    "nav.closeMenu": "Menü schließen",
+    "cloud.devSignIn": "Anmelden",
+    "remote.rejectedKey": "Dieser Browser ist nicht mehr mit dem Gerät verknüpft.",
+    "remote.rejectedRefused": "Das Gerät hat die Verbindung abgelehnt.",
+    "remote.removed": "Dieses Gerät gehört nicht mehr zu deinem Konto.",
+    "remote.handshakeFailed": "Das Gerät konnte seine Identität nicht nachweisen. Die Verbindung wurde nicht geöffnet."
   }
 }

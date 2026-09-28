@@ -1,5 +1,6 @@
 import { X } from 'lucide-react'
 import { useEffect, useRef, type ReactNode } from 'react'
+import { useT } from '../lib/i18n.tsx'
 
 /** A native <dialog>: focus trapping, Escape and the backdrop come from the browser. */
 export function Modal({ open, title, icon, onClose, children, actions, wide = false }: {
@@ -11,6 +12,7 @@ export function Modal({ open, title, icon, onClose, children, actions, wide = fa
   actions?: ReactNode
   wide?: boolean
 }) {
+  const t = useT()
   const ref = useRef<HTMLDialogElement>(null)
   useEffect(() => {
     const dialog = ref.current
@@ -26,13 +28,13 @@ export function Modal({ open, title, icon, onClose, children, actions, wide = fa
           <div className="flex items-center gap-2 border-b border-base-300 px-5 py-4">
             {icon}
             <h3 className="flex-1 text-lg font-semibold">{title}</h3>
-            <button type="button" className="btn btn-ghost btn-sm btn-circle" aria-label="Close" onClick={onClose}><X size={18} /></button>
+            <button type="button" className="btn btn-ghost btn-sm btn-circle" aria-label={t('common.close')} onClick={onClose}><X size={18} /></button>
           </div>
           <div className="max-h-[70vh] overflow-y-auto px-5 py-4">{children}</div>
           {actions && <div className="modal-action mt-0 flex-wrap border-t border-base-300 px-5 py-3">{actions}</div>}
         </div>
       )}
-      <form method="dialog" className="modal-backdrop"><button type="submit">close</button></form>
+      <form method="dialog" className="modal-backdrop"><button type="submit">{t('common.close')}</button></form>
     </dialog>
   )
 }

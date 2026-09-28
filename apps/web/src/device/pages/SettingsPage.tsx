@@ -52,11 +52,12 @@ function useSave() {
   return (patch: SettingsPatch) => void run(() => connection.call('settings.update', patch), 'settings.saveFailed')
 }
 
-function Toggle({ label, checked, onChange, disabled = false, tone = 'toggle-primary' }: { label?: string; checked: boolean; onChange: (value: boolean) => void; disabled?: boolean; tone?: string }) {
+/** `hideLabel` for switches in a section header, where the title already says what they do. */
+function Toggle({ label, checked, onChange, disabled = false, tone = 'toggle-primary', hideLabel = false }: { label?: string; checked: boolean; onChange: (value: boolean) => void; disabled?: boolean; tone?: string; hideLabel?: boolean }) {
   return (
     <label className="flex cursor-pointer items-center gap-3">
       <input type="checkbox" className={`toggle ${tone}`} checked={checked} disabled={disabled} onChange={e => onChange(e.target.checked)} aria-label={label} />
-      {label && <span className="text-sm">{label}</span>}
+      {label && !hideLabel && <span className="text-sm">{label}</span>}
     </label>
   )
 }
@@ -192,7 +193,7 @@ function AgentSection() {
 
   return (
     <Section icon={<Bot size={20} />} title={t('settings.agentAccess')} hint={t('settings.agentHint')}
-      toggle={<Toggle label={t('settings.agentAccess')} checked={agent.enabled} onChange={enabled => void change({ enabled })} />}>
+      toggle={<Toggle hideLabel label={t('settings.agentAccess')} checked={agent.enabled} onChange={enabled => void change({ enabled })} />}>
       {agent.enabled && (
         <div className="flex flex-col gap-4">
           <div role="alert" className="alert alert-info alert-outline text-sm">{t('settings.agentLoopbackHint')}</div>
@@ -277,9 +278,9 @@ function NotificationSections({ settings: s }: { settings: SettingsDto }) {
   return (
     <>
       <Section icon={<Bell size={20} />} title={t('settings.desktop')} hint={t('settings.desktopHint')}
-        toggle={<Toggle label={t('settings.desktop')} checked={s.desktopEnabled} onChange={desktopEnabled => save({ desktopEnabled })} />} />
+        toggle={<Toggle hideLabel label={t('settings.desktop')} checked={s.desktopEnabled} onChange={desktopEnabled => save({ desktopEnabled })} />} />
       <Section icon={<Mail size={20} />} title={t('settings.email')}
-        toggle={<Toggle label={t('settings.email')} checked={s.emailEnabled} onChange={emailEnabled => save({ emailEnabled })} />}>
+        toggle={<Toggle hideLabel label={t('settings.email')} checked={s.emailEnabled} onChange={emailEnabled => save({ emailEnabled })} />}>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
           <TextSetting className="sm:col-span-5" label={t('settings.smtpHost')} value={s.smtpHost} onSave={smtpHost => save({ smtpHost })} />
           <TextSetting className="sm:col-span-2" type="number" label={t('settings.port')} value={String(s.smtpPort)}
@@ -292,14 +293,14 @@ function NotificationSections({ settings: s }: { settings: SettingsDto }) {
         </div>
       </Section>
       <Section icon={<Smartphone size={20} />} title={t('settings.push')}
-        toggle={<Toggle label={t('settings.push')} checked={s.pushEnabled} onChange={pushEnabled => save({ pushEnabled })} />}>
+        toggle={<Toggle hideLabel label={t('settings.push')} checked={s.pushEnabled} onChange={pushEnabled => save({ pushEnabled })} />}>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <TextSetting label={t('settings.ntfyServer')} value={s.ntfyServer} onSave={ntfyServer => save({ ntfyServer: ntfyServer.trim() })} />
           <TextSetting label={t('settings.topic')} help={t('settings.topicHint')} value={s.ntfyTopic} onSave={ntfyTopic => save({ ntfyTopic })} />
         </div>
       </Section>
       <Section icon={<Send size={20} />} title={t('settings.telegram')}
-        toggle={<Toggle label={t('settings.telegram')} checked={s.telegramEnabled} onChange={telegramEnabled => save({ telegramEnabled })} />}>
+        toggle={<Toggle hideLabel label={t('settings.telegram')} checked={s.telegramEnabled} onChange={telegramEnabled => save({ telegramEnabled })} />}>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <SecretSetting label={t('settings.botToken')} help={t('settings.botTokenHint')} isSet={s.telegramBotTokenSet} onSave={telegramBotToken => save({ telegramBotToken })} />
           <TextSetting label={t('settings.chatId')} help={t('settings.chatIdHint')} value={s.telegramChatId} onSave={telegramChatId => save({ telegramChatId })} />

@@ -34,15 +34,20 @@ export async function acquireInstanceLock(): Promise<{
   publish(url: string): void
   release(): void
 }> {
-  if (existsSync(paths.lock)) {
+  // An owner that is alive but hasn't published its URL yet is still starting: give it a moment.
+  for (let attempt = 0; attempt < 20 && existsSync(paths.lock); attempt++) {
+    let other: LockContents
     try {
-      const other = JSON.parse(readFileSync(paths.lock, 'utf8')) as LockContents
-      if (other.pid !== process.pid && alive(other.pid) && other.dashboardUrl && (await answers(other.dashboardUrl))) {
-        return { acquired: false, dashboardUrl: other.dashboardUrl, publish() {}, release() {} }
-      }
+      other = JSON.parse(readFileSync(paths.lock, 'utf8')) as LockContents
     } catch {
-      // Unreadable lock: treat as stale.
+      break // unreadable lock: stale
     }
+    if (other.pid === process.pid || !alive(other.pid)) break
+    if (other.dashboardUrl) {
+      if (await answers(other.dashboardUrl)) return { acquired: false, dashboardUrl: other.dashboardUrl, publish() {}, release() {} }
+      break
+    }
+    await Bun.sleep(500)
   }
   const write = (dashboardUrl: string | null) => writeFileSync(paths.lock, JSON.stringify({ pid: process.pid, dashboardUrl } satisfies LockContents))
   write(null)

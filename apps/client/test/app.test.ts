@@ -154,4 +154,10 @@ describe('legacy import', () => {
     expect(downloads.some((d: { name: string }) => d.name === 'Private')).toBe(false)
     expect((await call('legacy.status')).imported).toBe(true)
   })
+
+  test('importing again adds nothing that is already there', async () => {
+    const { call } = connect()
+    expect(await call('legacy.import')).toMatchObject({ downloads: 0, seriesTasks: 0 })
+    expect((await call('series.list')).filter((s: { name: string }) => s.name === 'Frieren')).toHaveLength(1)
+  })
 })
