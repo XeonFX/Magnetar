@@ -44,6 +44,10 @@ export interface AgentRequestFacts {
   allowRemote: boolean
   token: string
   clientIsLoopback: boolean
+  /** The request came through a reverse proxy on this machine (X-Forwarded-For from a loopback peer). */
+  forwarded: boolean
+  /** Host name the request was addressed to. */
+  hostname: string
   isHttps: boolean
   origin: string | null
   host: string | null
@@ -53,13 +57,16 @@ export interface AgentRequestFacts {
 /**
  * Whether a request may use the agent API. In order:
  * 1. feature off → 404, as if the endpoints didn't exist;
- * 2. a cross-origin `Origin` header → 403, token or not: otherwise any web page could POST to
- *    localhost and queue downloads, and a DNS-rebound page still sends its own Origin;
- * 3. loopback → allowed without a token;
- * 4. remote access off → 404; remote plaintext → 426; remote HTTPS → the bearer token must match.
+ * 2. a direct request addressed to anything but a loopback host name → 403: a DNS-rebound page
+ *    (evil.example → 127.0.0.1) sends no Origin on its same-origin GETs, so only the Host shows it;
+ * 3. a cross-origin `Origin` header → 403, token or not: otherwise any web page could POST to
+ *    localhost and queue downloads;
+ * 4. loopback → allowed without a token;
+ * 5. remote access off → 404; remote plaintext → 426; remote HTTPS → the bearer token must match.
  */
 export function evaluateAgentRequest(f: AgentRequestFacts): AgentAuthResult {
   if (!f.enabled) return 'disabled'
+  if (!f.forwarded && !isLoopbackHostname(f.hostname)) return 'forbiddenOrigin'
   if (f.origin && !isAllowedLoopbackOrigin(f.origin, f.host)) return 'forbiddenOrigin'
   if (f.clientIsLoopback) return 'allowed'
   if (!f.allowRemote) return 'remoteDisabled'

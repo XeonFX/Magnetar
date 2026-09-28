@@ -1,4 +1,5 @@
 import { fetchExtraPages, fetchText, fromUnixSeconds, toInt, toNumber } from '../http.ts'
+import { buildMagnet } from '../magnet.ts'
 import { matchesQuery } from '../relevance.ts'
 import { newResult, type TorrentSearchProvider, type TorrentSearchResult } from '../types.ts'
 
@@ -44,7 +45,8 @@ export function parsePage(json: string): { torrents: TorrentSearchResult[]; tota
       title: typeof row.title === 'string' ? row.title : '',
       source: NAME,
       infoHash: hash,
-      magnetUri: typeof row.magnet_url === 'string' ? row.magnet_url : '',
+      // Only a magnet; anything else from the site (an http URL, a path) is rebuilt from the hash.
+      magnetUri: typeof row.magnet_url === 'string' && row.magnet_url.startsWith('magnet:?') ? row.magnet_url : buildMagnet(hash, typeof row.title === 'string' ? row.title : hash),
       sizeBytes: toNumber(row.size_bytes),
       seeders: toInt(row.seeds),
       leechers: toInt(row.peers),

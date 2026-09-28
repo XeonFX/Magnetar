@@ -51,6 +51,8 @@ export function startHttpServer(app: App, preferredPort: number): Server<SocketD
         allowRemote: app.agent.allowRemote,
         token: app.agent.token,
         clientIsLoopback: facts.loopback,
+        forwarded: facts.forwarded,
+        hostname: url.hostname,
         isHttps: facts.https,
         origin: request.headers.get('origin'),
         host: request.headers.get('host'),

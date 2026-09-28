@@ -8,8 +8,8 @@ import { scrub } from '@md/protocol/scrub'
 
 describe('agent API policy', () => {
   const base: AgentRequestFacts = {
-    enabled: true, allowRemote: false, token: 'secret-token', clientIsLoopback: true, isHttps: false,
-    origin: null, host: 'localhost:47820', authorization: null,
+    enabled: true, allowRemote: false, token: 'secret-token', clientIsLoopback: true, forwarded: false, hostname: 'localhost',
+    isHttps: false, origin: null, host: 'localhost:47820', authorization: null,
   }
 
   test('off means absent', () => expect(evaluateAgentRequest({ ...base, enabled: false })).toBe('disabled'))
@@ -21,13 +21,20 @@ describe('agent API policy', () => {
   test('a DNS-rebound origin matching its own Host is still refused', () => {
     expect(evaluateAgentRequest({ ...base, origin: 'http://evil.example:47820', host: 'evil.example:47820' })).toBe('forbiddenOrigin')
   })
+  test('a DNS-rebound name is refused even without an Origin (same-origin GET)', () => {
+    expect(evaluateAgentRequest({ ...base, hostname: 'evil.example', host: 'evil.example:47820' })).toBe('forbiddenOrigin')
+    // Through a TLS proxy on this machine the public host name is expected.
+    expect(evaluateAgentRequest({ ...base, forwarded: true, clientIsLoopback: false, allowRemote: true, isHttps: true,
+      hostname: 'mini.example', authorization: 'Bearer secret-token' })).toBe('allowed')
+  })
+
   test('the app’s own loopback origin is fine', () => {
     expect(evaluateAgentRequest({ ...base, origin: 'http://localhost:47820' })).toBe('allowed')
     expect(isAllowedLoopbackOrigin('http://127.0.0.1:47820', '127.0.0.1:47820')).toBe(true)
     expect(isAllowedLoopbackOrigin('http://localhost:5173', 'localhost:47820')).toBe(false)
   })
   test('remote callers', () => {
-    const remote = { ...base, clientIsLoopback: false }
+    const remote = { ...base, clientIsLoopback: false, forwarded: true, hostname: 'mini.example' }
     expect(evaluateAgentRequest(remote)).toBe('remoteDisabled')
     expect(evaluateAgentRequest({ ...remote, allowRemote: true })).toBe('insecureTransport')
     expect(evaluateAgentRequest({ ...remote, allowRemote: true, isHttps: true })).toBe('unauthorized')
