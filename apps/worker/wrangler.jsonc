@@ -1,0 +1,68 @@
+// mediadownloader.codefusion.cc: the website, Google sign-in, device pairing, and the relay that
+// joins browsers to devices. The relay only ever sees end-to-end encrypted frames.
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "mediadownloader",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // Production answers only on its own domain: no workers.dev or preview hostnames.
+  "routes": [{ "pattern": "mediadownloader.codefusion.cc", "custom_domain": true }],
+  "workers_dev": false,
+  "preview_urls": false,
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/app-config.json"]
+  },
+  "d1_databases": [
+    // Create with `wrangler d1 create mediadownloader` and paste its id here.
+    { "binding": "DB", "database_name": "mediadownloader", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "RELAY", "class_name": "DeviceRelay" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DeviceRelay"] }],
+  "ratelimits": [
+    { "name": "PAIR_LIMITER", "namespace_id": "3101", "simple": { "limit": 10, "period": 60 } },
+    { "name": "AUTH_LIMITER", "namespace_id": "3102", "simple": { "limit": 20, "period": 60 } },
+    { "name": "TELEMETRY_LIMITER", "namespace_id": "3103", "simple": { "limit": 10, "period": 60 } }
+  ],
+  "observability": { "enabled": true, "head_sampling_rate": 1, "logs": { "invocation_logs": false } },
+  // CodeFusion Console: one trace per invocation, and browser/desktop failures via AppTelemetry.
+  "tail_consumers": [{ "service": "codefusion-console" }],
+  "services": [{ "binding": "CONSOLE_TELEMETRY", "service": "codefusion-console", "entrypoint": "AppTelemetry" }],
+  "vars": {
+    "APP_ID": "mediadownloader",
+    "APP_ENV": "production",
+    "ORIGIN": "https://mediadownloader.codefusion.cc",
+    // The OAuth client created for this app in Google Cloud Console.
+    "GOOGLE_CLIENT_ID": ""
+  },
+  "env": {
+    // `wrangler dev --env dev`: a passwordless dev sign-in, local D1, no console.
+    "dev": {
+      "routes": [],
+      "workers_dev": true,
+      "d1_databases": [
+        { "binding": "DB", "database_name": "mediadownloader", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
+      ],
+      "durable_objects": { "bindings": [{ "name": "RELAY", "class_name": "DeviceRelay" }] },
+      "ratelimits": [
+        { "name": "PAIR_LIMITER", "namespace_id": "3101", "simple": { "limit": 100, "period": 60 } },
+        { "name": "AUTH_LIMITER", "namespace_id": "3102", "simple": { "limit": 100, "period": 60 } },
+        { "name": "TELEMETRY_LIMITER", "namespace_id": "3103", "simple": { "limit": 100, "period": 60 } }
+      ],
+      "tail_consumers": [],
+      "services": [],
+      "vars": {
+        "APP_ID": "mediadownloader",
+        "APP_ENV": "development",
+        "ORIGIN": "http://localhost:8790",
+        "GOOGLE_CLIENT_ID": "",
+        "DEV_LOGIN": "enabled"
+      }
+    }
+  }
+}

@@ -39,6 +39,7 @@ export class RemoteService {
   private readonly connections = new Map<string, Connection>()
   private lastError: string | null = null
   private stopped = false
+  private pingTimer: ReturnType<typeof setInterval> | null = null
   rpc: RpcServer | null = null
 
   constructor(
@@ -197,7 +198,7 @@ export class RemoteService {
     this.kv.set('remote.accountEmail', null)
     this.secrets.set('deviceToken', '')
     this.keys.revokeAll()
-    for (const id of [...this.connections.keys()]) this.dropConnection(id, false)
+    for (const id of this.connections.keys()) this.dropConnection(id, false)
     const socket = this.socket
     this.socket = null
     socket?.close(1000, 'unpaired')
@@ -219,14 +220,18 @@ export class RemoteService {
       this.backoff = 1000
       this.lastError = null
       socket.send(JSON.stringify({ t: 'hello', version: VERSION, name: this.deviceName }))
+      // Keeps NAT mappings and proxies from dropping an idle socket; the relay answers without waking.
+      if (this.pingTimer) clearInterval(this.pingTimer)
+      this.pingTimer = setInterval(() => socket.readyState === WebSocket.OPEN && socket.send('{"t":"ping"}'), 30_000)
       log.info('Connected to the relay')
       this.changed()
     })
     socket.addEventListener('message', event => void this.onMessage(socket, event.data as string | ArrayBuffer))
     socket.addEventListener('close', event => {
+      if (this.pingTimer) clearInterval(this.pingTimer)
       if (this.socket === socket) this.socket = null
       this.connected = false
-      for (const id of [...this.connections.keys()]) this.dropConnection(id, false)
+      for (const id of this.connections.keys()) this.dropConnection(id, false)
       if (event.code === 4001) {
         log.warn('The server no longer accepts this device; forgetting the pairing')
         this.lastError = 'This device was removed from your account.'

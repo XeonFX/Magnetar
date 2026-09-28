@@ -21,6 +21,7 @@ export class RelayConnection extends RpcClient {
   private attempt = 0
   private closed = false
   private timer: ReturnType<typeof setTimeout> | null = null
+  private pingTimer: ReturnType<typeof setInterval> | null = null
 
   constructor(private readonly deviceId: string, private readonly deviceKey: StoredDeviceKey) {
     super()
@@ -34,7 +35,12 @@ export class RelayConnection extends RpcClient {
     this.socket = socket
     this.session = null
     socket.onmessage = event => void this.onMessage(socket, event.data as string | ArrayBuffer)
+    socket.onopen = () => {
+      if (this.pingTimer) clearInterval(this.pingTimer)
+      this.pingTimer = setInterval(() => socket.readyState === WebSocket.OPEN && socket.send('{"t":"ping"}'), 30_000)
+    }
     socket.onclose = event => {
+      if (this.pingTimer) clearInterval(this.pingTimer)
       if (this.socket !== socket || this.closed) return
       this.session = null
       if (event.code === 4003) {
@@ -49,7 +55,12 @@ export class RelayConnection extends RpcClient {
   private async onMessage(socket: WebSocket, data: string | ArrayBuffer): Promise<void> {
     if (socket !== this.socket) return
     if (typeof data === 'string') {
-      const status = JSON.parse(data) as RelayToBrowser
+      let status: RelayToBrowser
+      try {
+        status = JSON.parse(data) as RelayToBrowser
+      } catch {
+        return
+      }
       if (status.t === 'device') {
         if (!status.online) {
           this.session = null
@@ -115,6 +126,7 @@ export class RelayConnection extends RpcClient {
   close(): void {
     this.closed = true
     if (this.timer) clearTimeout(this.timer)
+    if (this.pingTimer) clearInterval(this.pingTimer)
     this.socket?.close()
     this.setState({ status: 'closed' })
   }
