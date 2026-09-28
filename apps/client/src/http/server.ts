@@ -75,6 +75,7 @@ export function startHttpServer(app: App, preferredPort: number): Server<SocketD
       return server.upgrade(request, { data: { session: null } }) ? undefined : new Response('Upgrade required', { status: 426 })
     }
     if (url.pathname === '/health') return Response.json({ ok: true })
+    if (url.pathname === '/app-config.json') return Response.json({ mode: 'local' }, { headers: { 'cache-control': 'no-store' } })
     return staticAsset(url.pathname)
   }
 
