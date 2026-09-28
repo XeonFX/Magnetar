@@ -1,0 +1,8 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": ["**/dist/**", "**/node_modules/**", "**/.wrangler/**", "apps/client/src/generated/**", "**/worker-configuration.d.ts"],
+  "rules": {
+    "no-unused-vars": "error",
+    "eqeqeq": ["error", "smart"]
+  }
+}

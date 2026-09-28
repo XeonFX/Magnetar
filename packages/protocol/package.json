@@ -1,0 +1,19 @@
+{
+  "name": "@md/protocol",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./e2e": "./src/e2e.ts",
+    "./relay": "./src/relay.ts",
+    "./cloud": "./src/cloud.ts",
+    "./bytes": "./src/bytes.ts",
+    "./base64": "./src/base64.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  }
+}

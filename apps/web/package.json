@@ -1,0 +1,1 @@
+{"name":"@md/web","private":true,"type":"module","scripts":{"typecheck":"tsc -p ."}}

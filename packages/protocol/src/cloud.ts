@@ -1,0 +1,64 @@
+/** Shapes of the Worker's HTTP API at mediadownloader.codefusion.cc. */
+
+export const DEFAULT_CLOUD_URL = 'https://mediadownloader.codefusion.cc'
+
+export interface AccountDto {
+  id: string
+  email: string
+  name: string | null
+  picture: string | null
+}
+
+export interface CloudDeviceDto {
+  id: string
+  name: string
+  platform: string
+  version: string
+  online: boolean
+  lastSeenAt: string | null
+  createdAt: string
+}
+
+/** Device → Worker: begin pairing. */
+export interface PairStartRequest {
+  name: string
+  platform: string
+  version: string
+}
+
+export interface PairStartResponse {
+  pairingId: string
+  /** Proves to the Worker, on poll, that this is the device that started the pairing. */
+  pollSecret: string
+  expiresAt: string
+}
+
+/** What the website shows before the signed-in user approves a pairing. */
+export interface PairingInfoDto {
+  pairingId: string
+  name: string
+  platform: string
+  version: string
+  expiresAt: string
+  state: 'pending' | 'approved' | 'expired'
+}
+
+export interface PairApproveResponse {
+  deviceId: string
+}
+
+export type PairPollResponse =
+  | { state: 'pending' }
+  | { state: 'expired' }
+  | { state: 'approved'; deviceId: string; deviceToken: string; accountEmail: string }
+
+/** Error report forwarded to CodeFusion Console. Scrubbed by the sender. */
+export interface FailureReport {
+  source: 'error' | 'rejection' | 'render'
+  name: string
+  message: string
+  stack: string | null
+  page: string
+  version: string
+  client: string
+}
