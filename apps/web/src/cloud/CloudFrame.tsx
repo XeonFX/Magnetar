@@ -1,9 +1,10 @@
-import { Download, LogOut, Moon, Sun } from 'lucide-react'
+import { LogOut, Moon, Sun } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { useT } from '../lib/i18n.tsx'
 import { useTheme } from '../ui/theme.ts'
 import { useAccount } from './CloudApp.tsx'
+import { BrandMark } from '../ui/BrandMark.tsx'
 
 /** The website's own pages (sign-in, device list, pairing): a slim header over a centred column. */
 export function CloudFrame({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
@@ -16,7 +17,7 @@ export function CloudFrame({ children, wide = false }: { children: ReactNode; wi
       <header className="sticky top-0 z-30 border-b border-base-300 bg-base-100/90 backdrop-blur">
         <div className={`mx-auto flex h-14 w-full items-center gap-2 px-4 ${wide ? 'max-w-5xl' : 'max-w-3xl'}`}>
           <Link to="/" className="flex flex-1 items-center gap-2.5">
-            <span className="grid size-8 place-items-center rounded-[0.625rem] bg-primary text-primary-content"><Download size={17} strokeWidth={2.5} /></span>
+            <BrandMark />
             <span className="font-semibold tracking-tight">MediaDownloader</span>
           </Link>
           {account && <AccountMenu />}

@@ -4,6 +4,7 @@ import { NavLink, Outlet } from 'react-router'
 import { useT } from '../lib/i18n.tsx'
 import { useDevice, useDownloads } from './DeviceContext.tsx'
 import { isActive } from './components/downloads.tsx'
+import { BrandMark } from '../ui/BrandMark.tsx'
 
 /**
  * The dashboard frame. Wide screens get a sidebar with the device's status; phones get a slim top
@@ -75,7 +76,7 @@ export function Shell({ headerStart, headerEnd }: { headerStart?: ReactNode; hea
 function Brand() {
   return (
     <div className="flex min-w-0 items-center gap-2.5">
-      <span className="grid size-8 shrink-0 place-items-center rounded-[0.625rem] bg-primary text-primary-content"><Download size={17} strokeWidth={2.5} /></span>
+      <BrandMark />
       <span className="truncate font-semibold tracking-tight">MediaDownloader</span>
     </div>
   )
