@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import type { AppConfig } from '../lib/cloudApi.ts'
 import { cloud } from '../lib/cloudApi.ts'
 import { browserLanguage, I18nProvider } from '../lib/i18n.tsx'
+import { useToast } from '../ui/toast.tsx'
 import { DevicesPage } from './DevicesPage.tsx'
 import { LinkPage } from './LinkPage.tsx'
 import { LoginPage } from './LoginPage.tsx'
@@ -36,10 +37,17 @@ function RequireAccount({ children }: { children: ReactNode }) {
 export default function CloudApp({ config }: { config: AppConfig }) {
   const [account, setAccount] = useState<AccountDto | null | undefined>(undefined)
   const refresh = useCallback(async () => setAccount(await cloud.me().catch(() => null)), [])
+  const toast = useToast()
+  // Only look signed out once the server has ended the session: on a shared computer a silent
+  // failure would leave the account open behind a signed-out page.
   const signOut = useCallback(async () => {
-    await cloud.signOut().catch(() => {})
-    setAccount(null)
-  }, [])
+    try {
+      await cloud.signOut()
+      setAccount(null)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 'error')
+    }
+  }, [toast])
   useEffect(() => void refresh(), [refresh])
 
   if (account === undefined) return <div className="grid min-h-screen place-items-center"><span className="loading loading-spinner loading-lg text-primary" /></div>
