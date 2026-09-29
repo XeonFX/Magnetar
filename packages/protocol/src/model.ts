@@ -143,6 +143,37 @@ export interface SeriesTaskDto {
 
 export type SeriesResolution = '720p' | '1080p' | '2160p'
 
+/** A release a watch found. */
+export interface FoundReleaseDto {
+  title: string
+  magnetUri: string
+  sizeBytes: number
+  seeders: number
+  source: string
+  foundAt: string
+}
+
+/**
+ * Waiting for a release of something (a film in 4K, an album): checked on a schedule, it reports
+ * the first release its rules allow, or downloads it, then rests until armed again.
+ */
+export interface WatchDto {
+  id: number
+  query: string
+  resolution: SeriesResolution | null
+  minSeeders: number
+  maxSizeMb: number | null
+  preferWords: string | null
+  excludeWords: string | null
+  autoDownload: boolean
+  checkIntervalMinutes: number
+  enabled: boolean
+  createdAt: string
+  lastCheckedAt: string | null
+  found: FoundReleaseDto | null
+  downloadId: number | null
+}
+
 /** An episode's place and air time, as TVmaze reports it. */
 export interface AiringDto {
   season: number | null
@@ -318,6 +349,19 @@ export type SeriesTaskPatch = z.infer<typeof SeriesTaskPatch>
 
 /** Largest .torrent file accepted, before base64. */
 export const MAX_TORRENT_FILE = 4 * 1024 * 1024
+
+export const WatchInput = z.strictObject({
+  query: z.string().trim().min(2).max(200),
+  resolution: resolution.nullable().default(null),
+  minSeeders: z.number().int().min(1).default(1),
+  maxSizeMb: z.number().int().min(1).nullable().default(null),
+  preferWords: words.default(null),
+  excludeWords: words.default(null),
+  autoDownload: z.boolean().default(false),
+  checkIntervalMinutes: z.number().int().min(15).max(10_080).default(360),
+  enabled: z.boolean().default(true),
+})
+export type WatchInput = z.input<typeof WatchInput>
 
 export const StartDownloadInput = z.strictObject({
   resultId: z.string().optional(),

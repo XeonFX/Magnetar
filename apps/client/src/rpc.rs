@@ -19,6 +19,7 @@ use crate::error::{ApiError, ApiResult, ErrorCode};
 use crate::protocol::encoding::random_id;
 use crate::protocol::{
     AppInfoDto, ClaudeConnectResultDto, NotificationEvent, SeriesTaskInput, SeriesTaskPatch, SettingsPatch, StartDownloadInput,
+    WatchInput,
 };
 use crate::search::cache::to_result_dto;
 use crate::system;
@@ -238,6 +239,13 @@ struct PushEndpoint {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct WatchUpdate {
+    id: i64,
+    watch: WatchInput,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SeriesUpdate {
     id: i64,
     patch: SeriesTaskPatch,
@@ -441,6 +449,38 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
             ok(a.list_series())
         }
         "series.create" => ok(a.create_series(parse::<SeriesTaskInput>(params)?).await?),
+        "watches.list" => {
+            parse::<NoParams>(params)?;
+            ok(app.monitor.watches.all())
+        }
+        "watches.create" => {
+            let watch = app.monitor.watches.create(parse::<WatchInput>(params)?)?;
+            // A first look straight away, so "is it out already?" gets an answer now.
+            let monitor = app.monitor.clone();
+            tokio::spawn(async move {
+                if let Err(error) = monitor.check_watch(watch.id).await {
+                    tracing::warn!("First check of watch '{}' failed: {error}", watch.query);
+                }
+            });
+            ok(app.monitor.watches.get(watch.id)?)
+        }
+        "watches.update" => {
+            let WatchUpdate { id, watch } = parse(params)?;
+            ok(app.monitor.watches.update(id, watch)?)
+        }
+        "watches.delete" => {
+            app.monitor.watches.delete(parse::<IdParams>(params)?.id)?;
+            ok(Value::Null)
+        }
+        "watches.checkNow" => ok(app.monitor.check_watch(parse::<IdParams>(params)?.id).await?),
+        "watches.download" => {
+            let id = parse::<IdParams>(params)?.id;
+            let found =
+                app.monitor.watches.get(id)?.found.ok_or_else(|| ApiError::bad("This watch hasn't found anything yet."))?;
+            let download = app.monitor.download_found(&found)?;
+            app.monitor.watches.set_download(id, download);
+            ok(app.downloads.get(download)?)
+        }
         "series.poster" => {
             let poster = app.monitor.poster(parse::<IdParams>(params)?.id)?;
             ok(json!({ "data": poster.map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes)) }))

@@ -1,6 +1,7 @@
-import type { AiringDto, DownloadDto, SeriesResolution, SeriesTaskDto, ShowInfoDto } from '@md/protocol'
-import { ChevronDown, CircleCheck, ExternalLink, Pencil, Plus, RefreshCw, Trash2, Tv } from 'lucide-react'
-import { memo, useEffect, useMemo, useState, type ReactNode } from 'react'
+import type { AiringDto, DownloadDto, SeriesResolution, SeriesTaskDto, ShowInfoDto, WatchInput } from '@md/protocol'
+import { ChevronDown, CircleCheck, Clapperboard, ExternalLink, Pencil, Plus, RefreshCw, Trash2, Tv } from 'lucide-react'
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useLocation, useSearchParams } from 'react-router'
 import { useFormatRelative, useT } from '../../lib/i18n.tsx'
 import { PageHeader, Segmented, Switch } from '../../ui/controls.tsx'
 import { Field, TextField } from '../../ui/fields.tsx'
@@ -9,6 +10,7 @@ import { ConfirmDialog, Modal } from '../../ui/Modal.tsx'
 import { useToast } from '../../ui/toast.tsx'
 import { useConnection, useDevice, useDownloads } from '../DeviceContext.tsx'
 import { FolderField } from '../components/folders.tsx'
+import { WatchesSection } from '../components/watches.tsx'
 import { useRun } from '../useRun.ts'
 import { DownloadList } from './DownloadsPage.tsx'
 
@@ -22,7 +24,7 @@ function episodeLabel(season: number | null, episode: number): string {
 
 export function SeriesPage() {
   const t = useT()
-  const { series } = useDevice()
+  const { series, watches } = useDevice()
   const downloads = useDownloads()
   const [editing, setEditing] = useState<SeriesTaskDto | 'new' | null>(null)
   // One pass per update; each card keeps its list until one of its own downloads changes.
@@ -32,11 +34,24 @@ export function SeriesPage() {
     return groups
   }, [downloads])
   const add = <button type="button" className="btn btn-primary" onClick={() => setEditing('new')}><Plus size={16} />{t('series.add')}</button>
+  const [params, setParams] = useSearchParams()
+  const location = useLocation()
+  const tab = params.get('tab') === 'releases' ? 'releases' : 'series'
+  // Search hands over "watch for this" with its query.
+  const [handed, setHanded] = useState<WatchInput | null>((location.state as { watch?: WatchInput } | null)?.watch ?? null)
+  const clearHanded = useCallback(() => setHanded(null), [])
 
   return (
     <>
-      <PageHeader title={t('series.title')} summary={series.length > 0 && t('series.subtitle')} action={series.length > 0 && add} />
-      {series.length === 0 ? (
+      <PageHeader title={t('watch.pageTitle')} summary={t(tab === 'series' ? 'series.subtitle' : 'watch.subtitle')} action={tab === 'series' && series.length > 0 && add} />
+      <div className="mb-4">
+        <Segmented label={t('watch.pageTitle')} value={tab} onChange={next => setParams(next === 'series' ? {} : { tab: next }, { replace: true })}
+          options={[
+            { value: 'series', label: t('series.title'), icon: <Tv size={14} />, count: series.length },
+            { value: 'releases', label: t('watch.tab'), icon: <Clapperboard size={14} />, count: watches.length },
+          ]} />
+      </div>
+      {tab === 'releases' ? <WatchesSection start={handed} onStarted={clearHanded} /> : series.length === 0 ? (
         <Empty icon={<Tv size={40} strokeWidth={1.5} className="text-primary" />} title={t('series.emptyTitle')} text={t('series.emptyHint')}>
           {add}
         </Empty>

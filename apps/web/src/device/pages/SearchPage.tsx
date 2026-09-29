@@ -1,6 +1,6 @@
-import type { SearchResultDto, SourceOutcomeDto, TorrentDetailsDto } from '@md/protocol'
+import type { SearchResultDto, SeriesResolution, SourceOutcomeDto, TorrentDetailsDto } from '@md/protocol'
 import { formatBytes } from '@md/protocol/bytes'
-import { Check, CircleAlert, Copy, Download, ExternalLink, FolderOpen, SearchIcon, SearchX, Sprout, Telescope, X } from 'lucide-react'
+import { BellRing, Check, CircleAlert, Copy, Download, ExternalLink, FolderOpen, SearchIcon, SearchX, Sprout, Telescope, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useFormatDate, useFormatRelative, useT } from '../../lib/i18n.tsx'
@@ -43,7 +43,8 @@ function useStartDownload() {
 
 export function SearchPage() {
   const t = useT()
-  const { connection, sources, search, setSearch } = useDevice()
+  const { connection, sources, search, setSearch, basePath } = useDevice()
+  const navigate = useNavigate()
   const run = useRun()
   const startDownload = useStartDownload()
   const [details, setDetails] = useState<SearchResultDto | null>(null)
@@ -110,7 +111,10 @@ export function SearchPage() {
         </div>
       </form>
 
-      {search.outcomes.length > 0 && <Outcomes outcomes={search.outcomes} total={results?.length ?? 0} searching={search.searching} />}
+      {search.outcomes.length > 0 && <Outcomes outcomes={search.outcomes} total={results?.length ?? 0} searching={search.searching}
+        onWatch={search.searching ? undefined : () => navigate(`${basePath}/series?tab=releases`, {
+          state: { watch: { query: search.query.trim(), resolution: (search.resolution || null) as SeriesResolution | null } },
+        })} />}
       {search.searching && !results?.length && <div className="flex justify-center py-16"><span className="loading loading-dots loading-lg text-primary" /></div>}
 
       {results === null ? (
@@ -184,7 +188,7 @@ function ResultRow({ result: r, added, onOpen, onDownload }: { result: SearchRes
  * How each source answered. A site that failed, or answered but had everything filtered out, would
  * otherwise look exactly like "nothing found".
  */
-function Outcomes({ outcomes, total, searching }: { outcomes: SourceOutcomeDto[]; total: number; searching: boolean }) {
+function Outcomes({ outcomes, total, searching, onWatch }: { outcomes: SourceOutcomeDto[]; total: number; searching: boolean; onWatch?: () => void }) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const failed = outcomes.filter(o => o.status === 'failed')
@@ -195,6 +199,11 @@ function Outcomes({ outcomes, total, searching }: { outcomes: SourceOutcomeDto[]
         <span>{searching ? t('search.searching') : t('search.summary', total, answered, outcomes.length)}</span>
         {failed.length > 0 && <span className="inline-flex items-center gap-1 text-warning"><CircleAlert size={14} />{t('search.failedCount', failed.length)}</span>}
         <button type="button" className="link link-hover text-sm" aria-expanded={open} onClick={() => setOpen(o => !o)}>{open ? t('search.hideSources') : t('search.showSources')}</button>
+        {onWatch && (
+          <button type="button" className="btn btn-ghost btn-xs ml-auto gap-1" onClick={onWatch} title={t('watch.fromSearchHint')}>
+            <BellRing size={13} />{t('watch.fromSearch')}
+          </button>
+        )}
       </div>
       {open && (
         <ul className="mt-2 flex flex-wrap gap-2">

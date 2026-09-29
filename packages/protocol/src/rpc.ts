@@ -1,10 +1,10 @@
 import { z } from 'zod'
 import {
-  SeriesTaskInput, SeriesTaskPatch, SettingsPatch, StartDownloadInput,
+  SeriesTaskInput, SeriesTaskPatch, SettingsPatch, StartDownloadInput, WatchInput,
   type AgentStatusDto, type AppInfoDto, type ClaudeConnectResultDto, type DownloadDto, type DownloadFileDto, type FolderListing, type LegacyImportResultDto,
   type LegacyImportStatusDto, type LoginStartupStatus, type RemoteStatusDto, type SearchResultDto,
   type HandlerStatus, type NetworkInterfaceDto, type SeriesTaskDto, type SettingsDto, type SourceDto, type SourceOutcomeDto, type TorrentDetailsDto,
-  type TransferStatusDto, type UpdateStatusDto,
+  type TransferStatusDto, type UpdateStatusDto, type WatchDto,
 } from './model.ts'
 
 const none = z.strictObject({})
@@ -61,6 +61,15 @@ export const RPC_PARAMS = {
   'series.update': z.strictObject({ id: z.number().int(), patch: SeriesTaskPatch }),
   'series.delete': id,
   'series.checkNow': id,
+  'watches.list': none,
+  /** Creates a watch and looks once straight away. */
+  'watches.create': WatchInput,
+  /** Replaces a watch's rules; enabling one that found something arms it again. */
+  'watches.update': z.strictObject({ id: z.number().int(), watch: WatchInput }),
+  'watches.delete': id,
+  'watches.checkNow': id,
+  /** Downloads what a watch found. */
+  'watches.download': id,
   /** The show's poster from TVmaze, base64 JPEG, or null. */
   'series.poster': id,
 
@@ -137,6 +146,12 @@ export interface RpcResults {
   'series.delete': null
   'series.checkNow': SeriesTaskDto
   'series.poster': { data: string | null }
+  'watches.list': WatchDto[]
+  'watches.create': WatchDto
+  'watches.update': WatchDto
+  'watches.delete': null
+  'watches.checkNow': WatchDto
+  'watches.download': DownloadDto
   'settings.get': SettingsDto
   'settings.update': SettingsDto
   'notifications.test': null
@@ -170,10 +185,11 @@ export interface RpcEvents {
   'downloads.updated': DownloadDto[]
   'transfer.changed': TransferStatusDto
   'series.changed': SeriesTaskDto[]
+  'watches.changed': WatchDto[]
   'search.results': { searchId: string; results: SearchResultDto[] }
   'search.source': { searchId: string; outcome: SourceOutcomeDto }
   'search.done': { searchId: string; error: string | null }
-  'notification': { kind: 'started' | 'completed' | 'update' | 'test'; title: string; message: string }
+  'notification': { kind: 'started' | 'completed' | 'found' | 'update' | 'test'; title: string; message: string }
   'updates.changed': UpdateStatusDto
   'remote.changed': RemoteStatusDto
   'settings.changed': SettingsDto

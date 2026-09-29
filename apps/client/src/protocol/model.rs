@@ -231,6 +231,95 @@ pub struct AiringDto {
     pub airstamp: Option<String>,
 }
 
+/// A release a watch found.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FoundReleaseDto {
+    pub title: String,
+    pub magnet_uri: String,
+    pub size_bytes: u64,
+    pub seeders: u32,
+    pub source: String,
+    pub found_at: String,
+}
+
+/// Waiting for a release of something (a film in 4K, an album): checked on a schedule, it tells
+/// the user when one appears that passes its rules, or downloads it.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchDto {
+    pub id: i64,
+    pub query: String,
+    pub resolution: Option<String>,
+    pub min_seeders: i64,
+    pub max_size_mb: Option<i64>,
+    pub prefer_words: Option<String>,
+    pub exclude_words: Option<String>,
+    pub auto_download: bool,
+    pub check_interval_minutes: i64,
+    pub enabled: bool,
+    pub created_at: String,
+    pub last_checked_at: Option<String>,
+    pub found: Option<FoundReleaseDto>,
+    pub download_id: Option<i64>,
+}
+
+fn default_watch_interval() -> i64 {
+    360
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct WatchInput {
+    pub query: String,
+    #[serde(default)]
+    pub resolution: Option<String>,
+    #[serde(default = "default_min_seeders")]
+    pub min_seeders: i64,
+    #[serde(default)]
+    pub max_size_mb: Option<i64>,
+    #[serde(default)]
+    pub prefer_words: Option<String>,
+    #[serde(default)]
+    pub exclude_words: Option<String>,
+    #[serde(default)]
+    pub auto_download: bool,
+    #[serde(default = "default_watch_interval")]
+    pub check_interval_minutes: i64,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl WatchInput {
+    pub fn validated(mut self) -> ApiResult<Self> {
+        let optional = |v: Option<String>| v.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+        self.query = self.query.trim().to_owned();
+        self.resolution = optional(self.resolution);
+        self.prefer_words = optional(self.prefer_words);
+        self.exclude_words = optional(self.exclude_words);
+        let mut problems = Vec::new();
+        if self.query.chars().count() < 2 || self.query.chars().count() > 200 {
+            problems.push("query: 2 to 200 characters.");
+        }
+        if self.resolution.as_deref().is_some_and(|r| !crate::series::quality::RESOLUTIONS.contains(&r)) {
+            problems.push("resolution must be 720p, 1080p or 2160p, or null for any.");
+        }
+        if !(1..=100_000).contains(&self.min_seeders) {
+            problems.push("minSeeders must be at least 1.");
+        }
+        if self.max_size_mb.is_some_and(|mb| !(1..=10_000_000).contains(&mb)) {
+            problems.push("maxSizeMb must be at least 1.");
+        }
+        if !(15..=10_080).contains(&self.check_interval_minutes) {
+            problems.push("checkIntervalMinutes must be 15 minutes to a week.");
+        }
+        if [&self.prefer_words, &self.exclude_words].iter().any(|w| w.as_ref().is_some_and(|w| w.chars().count() > 200)) {
+            problems.push("preferWords and excludeWords are at most 200 characters.");
+        }
+        if problems.is_empty() { Ok(self) } else { Err(ApiError::bad(problems.join(" "))) }
+    }
+}
+
 /// Where a new series task starts.
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]

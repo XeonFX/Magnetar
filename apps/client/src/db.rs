@@ -90,6 +90,24 @@ CREATE TABLE series_rejects (
   PRIMARY KEY (task_id, info_hash)
 );
 ",
+    r"
+CREATE TABLE watches (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  query TEXT NOT NULL,
+  resolution TEXT,
+  min_seeders INTEGER NOT NULL DEFAULT 1,
+  max_size_mb INTEGER,
+  prefer_words TEXT,
+  exclude_words TEXT,
+  auto_download INTEGER NOT NULL DEFAULT 0,
+  check_interval_minutes INTEGER NOT NULL DEFAULT 360,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  last_checked_at TEXT,
+  found TEXT,
+  download_id INTEGER
+);
+",
 ];
 
 /// The app database. Statements are short, so one connection behind a mutex serves every service.

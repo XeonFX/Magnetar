@@ -8,10 +8,14 @@ use tokio_util::sync::CancellationToken;
 use super::episode::{EpisodeRule, episode_queries, matches_episode, parse_episode};
 use super::store::{SeriesStore, SeriesTask};
 use super::tvmaze;
+use super::watch::{self, WatchStore};
 use crate::api::actions::start_from_result;
+use crate::downloads::AddDownload;
 use crate::downloads::DownloadManager;
 use crate::error::{ApiError, ApiResult};
+use crate::notifications::NotificationDispatcher;
 use crate::protocol::encoding::{now_iso, parse_iso};
+use crate::protocol::{FoundReleaseDto, WatchDto};
 use crate::search::SearchService;
 use crate::search::types::TorrentSearchResult;
 
@@ -26,6 +30,8 @@ const SHOW_REFRESH: chrono::Duration = chrono::Duration::hours(12);
 /// quality rules allow, replacing one that turned out dead with the next best.
 pub struct SeriesMonitor {
     store: Arc<SeriesStore>,
+    pub watches: Arc<WatchStore>,
+    notifications: Arc<NotificationDispatcher>,
     search: Arc<SearchService>,
     downloads: Arc<DownloadManager>,
     http: reqwest::Client,
@@ -36,14 +42,27 @@ pub struct SeriesMonitor {
 }
 
 impl SeriesMonitor {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         store: Arc<SeriesStore>,
+        watches: Arc<WatchStore>,
+        notifications: Arc<NotificationDispatcher>,
         search: Arc<SearchService>,
         downloads: Arc<DownloadManager>,
         http: reqwest::Client,
         posters: Option<PathBuf>,
     ) -> Arc<Self> {
-        Arc::new(Self { store, search, downloads, http, posters, cancel: CancellationToken::new(), running: Mutex::default() })
+        Arc::new(Self {
+            store,
+            watches,
+            notifications,
+            search,
+            downloads,
+            http,
+            posters,
+            cancel: CancellationToken::new(),
+            running: Mutex::default(),
+        })
     }
 
     pub fn start(self: &Arc<Self>) {
@@ -56,6 +75,7 @@ impl SeriesMonitor {
                     _ = tokio::time::sleep(delay) => {}
                 }
                 monitor.check_due().await;
+                monitor.check_due_watches().await;
                 monitor.refresh_stale_shows().await;
                 delay = POLL;
             }
@@ -280,6 +300,72 @@ impl SeriesMonitor {
                 tracing::debug!("TVmaze lookup for '{}' failed: {error}", task.name);
             }
         }
+    }
+
+    async fn check_due_watches(&self) {
+        let now = chrono::Utc::now();
+        for watch in self.watches.all() {
+            let due = watch.enabled
+                && watch
+                    .last_checked_at
+                    .as_deref()
+                    .and_then(parse_iso)
+                    .is_none_or(|last| last + chrono::Duration::minutes(watch.check_interval_minutes) <= now);
+            if due
+                && !self.cancel.is_cancelled()
+                && let Err(error) = self.check_watch(watch.id).await
+            {
+                tracing::warn!("Watch '{}' could not be checked: {error}", watch.query);
+            }
+        }
+    }
+
+    /// Looks for a release a watch allows. The first one found is reported (and downloaded, when
+    /// the watch says so); the watch then rests until armed again.
+    pub async fn check_watch(&self, id: i64) -> ApiResult<WatchDto> {
+        let watch = self.watches.get(id)?;
+        let found = self.search.collect(&watch.query, None, &self.cancel, true).await?;
+        let Some(best) = watch::quality(&watch).best(&found.results).cloned() else {
+            self.watches.checked(id);
+            return self.watches.get(id);
+        };
+        // Lazy sources only have the magnet on the release's own page.
+        let shared = Arc::new(Mutex::new(best));
+        if shared.lock().unwrap().needs_resolution() {
+            let _ = tokio::time::timeout(Duration::from_secs(30), self.search.ensure_details(&shared, &self.cancel)).await;
+        }
+        let best = shared.lock().unwrap().clone();
+        if best.magnet_uri.is_empty() {
+            self.watches.checked(id);
+            return Err(ApiError::bad(format!("Found \"{}\", but {} did not give its magnet link.", best.title, best.source)));
+        }
+        let release = FoundReleaseDto {
+            title: best.title.clone(),
+            magnet_uri: best.magnet_uri.clone(),
+            size_bytes: best.size_bytes,
+            seeders: best.seeders,
+            source: best.source.clone(),
+            found_at: now_iso(),
+        };
+        let download = if watch.auto_download { Some(self.download_found(&release)?) } else { None };
+        self.watches.found(id, &release, download);
+        let title = if download.is_some() { "Watched release found and downloading" } else { "Watched release found" };
+        self.notifications.notify("found", title, release.title.clone());
+        tracing::info!("Watch '{}' found {}", watch.query, release.title);
+        self.watches.get(id)
+    }
+
+    /// Starts the download of what a watch found.
+    pub fn download_found(&self, release: &FoundReleaseDto) -> ApiResult<i64> {
+        let added = self.downloads.add(AddDownload {
+            name: release.title.clone(),
+            magnet_uri: release.magnet_uri.clone(),
+            source: release.source.clone(),
+            series_task_id: None,
+            episode: None,
+            save_folder: None,
+        })?;
+        Ok(added.id)
     }
 
     /// The show's poster, when TVmaze had one.

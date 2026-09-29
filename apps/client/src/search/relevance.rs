@@ -11,7 +11,7 @@ fn normalize(text: &str) -> String {
     let mut out = String::with_capacity(lower.len());
     let mut gap = false;
     for c in lower.chars() {
-        if c.is_ascii_lowercase() || c.is_ascii_digit() {
+        if c.is_alphanumeric() {
             if gap && !out.is_empty() {
                 out.push(' ');
             }
@@ -26,7 +26,8 @@ fn normalize(text: &str) -> String {
 
 fn tokenize(text: &str) -> Vec<String> {
     let mut tokens: Vec<String> = Vec::new();
-    for token in normalize(text).split(' ').filter(|t| t.len() >= 2) {
+    // One Latin letter says little ("a"); one CJK character is a whole word.
+    for token in normalize(text).split(' ').filter(|t| t.chars().count() >= 2 || !t.is_ascii()) {
         if !tokens.iter().any(|t| t == token) {
             tokens.push(token.to_owned());
         }
@@ -46,5 +47,14 @@ mod tests {
         assert!(matches_query("UBUNTU", "ubuntu"));
         assert!(matches_query("a", "anything"));
         assert!(matches_query("", "anything"));
+    }
+
+    #[test]
+    fn queries_in_other_scripts_match_like_latin_ones() {
+        assert!(matches_query("無職転生", "[SubsPlease] 無職転生 - 06 (1080p)"));
+        assert!(!matches_query("無職転生", "Unrelated.Movie.2024.1080p"), "not everything matches a non-Latin query");
+        assert!(matches_query("Амели 2001", "Амели.2001.BDRip.1080p"));
+        assert!(!matches_query("Амели 2001", "Amelie.2001.1080p"));
+        assert!(matches_query("Amélie", "Amélie.2001.1080p"));
     }
 }

@@ -1,6 +1,6 @@
 import type {
   AppInfoDto, DownloadDto, RemoteStatusDto, SearchResultDto, SeriesTaskDto, SettingsDto, SourceDto, SourceOutcomeDto,
-  TransferStatusDto, UpdateStatusDto,
+  TransferStatusDto, UpdateStatusDto, WatchDto,
 } from '@md/protocol'
 import { mergeByInfoHash } from '@md/protocol/merge'
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
@@ -25,6 +25,7 @@ interface DeviceState {
   connectionState: ConnectionState
   info: AppInfoDto | null
   series: SeriesTaskDto[]
+  watches: WatchDto[]
   settings: SettingsDto | null
   sources: SourceDto[]
   updates: UpdateStatusDto | null
@@ -70,6 +71,7 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
   const [info, setInfo] = useState<AppInfoDto | null>(null)
   const [downloads, setDownloads] = useState<DownloadDto[]>([])
   const [series, setSeries] = useState<SeriesTaskDto[]>([])
+  const [watches, setWatches] = useState<WatchDto[]>([])
   const [settings, setSettings] = useState<SettingsDto | null>(null)
   const [sources, setSources] = useState<SourceDto[]>([])
   const [updates, setUpdates] = useState<UpdateStatusDto | null>(null)
@@ -87,6 +89,7 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
           connection.call('settings.get'), connection.call('sources.list'), connection.call('updates.status'),
           connection.call('remote.status'), optional(connection.call('transfer.status')),
         ])
+        void optional(connection.call('watches.list')).then(w => setWatches(w ?? []))
         setInfo(i)
         setDownloads(d)
         setSeries(s)
@@ -112,6 +115,7 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
       connection.on('downloads.updated', rows => setDownloads(list => mergeRows(list, rows))),
       connection.on('transfer.changed', setTransfer),
       connection.on('series.changed', setSeries),
+      connection.on('watches.changed', setWatches),
       connection.on('settings.changed', next => {
         setSettings(next)
         void connection.call('sources.list').then(setSources).catch(() => {})
@@ -138,8 +142,8 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
   }, [connection])
 
   const value = useMemo<DeviceState>(() => ({
-    connection, connectionState, info, series, settings, sources, updates, remote, transfer, search, setSearch, basePath, deviceName,
-  }), [connection, connectionState, info, series, settings, sources, updates, remote, transfer, search, basePath, deviceName])
+    connection, connectionState, info, series, watches, settings, sources, updates, remote, transfer, search, setSearch, basePath, deviceName,
+  }), [connection, connectionState, info, series, watches, settings, sources, updates, remote, transfer, search, basePath, deviceName])
 
   return (
     <ConnectionContext.Provider value={connection}>

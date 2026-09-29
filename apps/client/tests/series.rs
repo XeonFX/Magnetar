@@ -176,3 +176,35 @@ async fn a_release_nobody_seeds_is_replaced_by_the_next_best() {
     assert_eq!((downloads[0].name.as_str(), downloads[0].status), ("[Preferred] Show - 01 (1080p)", DownloadStatus::Error));
     assert_eq!(app.actions.list_series()[0].next_episode, 2, "the episode still counts as taken");
 }
+
+#[tokio::test]
+async fn a_watch_reports_the_first_release_its_rules_allow_then_rests_until_armed_again() {
+    use mediadownloader::protocol::WatchInput;
+    let (app, _, _dir) = app(2);
+    let watch = |value: serde_json::Value| serde_json::from_value::<WatchInput>(value).unwrap();
+    let store = &app.monitor.watches;
+
+    let uhd = store.create(watch(serde_json::json!({ "query": "Show", "resolution": "2160p" }))).unwrap();
+    let checked = app.monitor.check_watch(uhd.id).await.unwrap();
+    assert!(checked.found.is_none() && checked.enabled && checked.last_checked_at.is_some(), "nothing in 4K yet");
+
+    let hd = store
+        .create(watch(serde_json::json!({ "query": "Show 02", "resolution": "1080p", "preferWords": "preferred" })))
+        .unwrap();
+    let found = app.monitor.check_watch(hd.id).await.unwrap();
+    let release = found.found.expect("a release");
+    assert_eq!(release.title, "[Preferred] Show - 02 (1080p)");
+    assert!(!found.enabled, "it rests once something is found");
+    assert!(app.downloads.list().is_empty(), "only reported: it wasn't asked to download");
+
+    let auto =
+        store.create(watch(serde_json::json!({ "query": "Show 01", "resolution": "720p", "autoDownload": true }))).unwrap();
+    let downloaded = app.monitor.check_watch(auto.id).await.unwrap();
+    assert_eq!(app.downloads.get(downloaded.download_id.unwrap()).unwrap().name, "[Popular] Show - 01 (720p)");
+
+    let rearmed =
+        store.update(hd.id, watch(serde_json::json!({ "query": "Show 02", "resolution": "1080p", "enabled": true }))).unwrap();
+    assert!(rearmed.enabled && rearmed.found.is_none() && rearmed.last_checked_at.is_none(), "armed again, it looks afresh");
+    assert!(store.create(watch(serde_json::json!({ "query": " x " }))).is_err(), "a one-letter query would match anything");
+    assert!(store.create(watch(serde_json::json!({ "query": "Show", "checkIntervalMinutes": 1 }))).is_err());
+}

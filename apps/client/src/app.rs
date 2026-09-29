@@ -18,6 +18,7 @@ use crate::search::SearchService;
 use crate::search::cache::SearchResultCache;
 use crate::search::providers;
 use crate::search::types::Provider;
+use crate::series::watch::WatchStore;
 use crate::series::{SeriesMonitor, SeriesStore};
 use crate::settings::SettingsService;
 use crate::updates::UpdateService;
@@ -94,7 +95,16 @@ impl App {
         );
         let series = Arc::new(SeriesStore::new(db.clone(), events.clone()));
         let posters = show_lookups.then(|| paths.posters.clone());
-        let monitor = SeriesMonitor::new(series.clone(), search.clone(), downloads.clone(), http.clone(), posters);
+        let watches = Arc::new(WatchStore::new(db.clone(), events.clone()));
+        let monitor = SeriesMonitor::new(
+            series.clone(),
+            watches,
+            notifications.clone(),
+            search.clone(),
+            downloads.clone(),
+            http.clone(),
+            posters,
+        );
         let actions = Actions {
             search: search.clone(),
             downloads: downloads.clone(),
