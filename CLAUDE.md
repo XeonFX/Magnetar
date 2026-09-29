@@ -21,4 +21,11 @@ See docs/ARCHITECTURE.md before touching the relay, pairing or either `e2e` impl
   user's download folder); `downloads::engine::delete_files` does it.
 - librqbit restores the torrents it had (`session/`) on start; the downloads table decides what runs
   (`Engine::reconcile`). Pause with `Engine::pause` so fast-resume data survives; `Engine::remove` drops it.
+- The engine is swapped under a supervisor (`DownloadManager::supervise_engine`): reach it with `self.engine()`, never
+  keep an `Arc<Engine>` across an await that could outlive a restart, and add live rows to `downloads.updated` rather
+  than re-sending the list.
+- Relayed streaming and push go through the encrypted channel only: the Worker forwards opaque bytes (`stream.read`
+  replies, sealed push payloads) and must never see a key or plaintext.
+- Test and scratch runs: set `MD_DATA_DIRECTORY` and `MD_DOWNLOAD_FOLDER`, or they use the user's real folders.
+- `bun run e2e` drives the real app with Playwright; its specs end in `.e2e.ts` so `bun test` skips them.
 - Dev ports: app 47820, Vite 5173, Worker 8790.

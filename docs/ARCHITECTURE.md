@@ -103,9 +103,9 @@ expiry. Cookie-authenticated calls and WebSocket upgrades must carry our own `Or
 A Rust program built into one executable (`apps/client`), with the dashboard embedded by `rust-embed` in release
 builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the services together on a Tokio runtime:
 
-- **Search**: `search/providers/*` parse each site (`scraper` for HTML), `MirrorRotator` staggers mirror attempts
-  (1.5 s) and remembers the fastest, `SearchService` fans out and reports per-source outcomes, `SearchResultCache`
-  hands out 30-minute result ids.
+- **Search**: `search/providers/*` parse each site (`scraper` for HTML), `MirrorRotator` starts the next mirror when
+  one fails or hasn't answered within 1.5 s and remembers the fastest, `SearchService` fans out and reports per-source
+  outcomes, `SearchResultCache` hands out 30-minute result ids.
 - **Downloads**: `DownloadManager` over librqbit (`downloads/engine.rs`). A magnet's metadata is fetched first and
   cached as a `.torrent` file; a torrent with no peers fails after 3 minutes. librqbit keeps its own torrent list in
   `session/` with each torrent's verified pieces (fast resume), so pausing and restarting never re-read the files; at
@@ -114,7 +114,29 @@ builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the ser
   torrent's own file list and never removes the save folder itself. The DHT bootstraps from `dht.libtorrent.org`
   first (on some filtered networks the classic routers answer with one node repeated, which stalls the lookup) and its
   routing table is kept in `dht.json` between runs.
-- **Series**: `SeriesMonitor` checks due tasks every minute and saves after each queued episode.
+  The engine runs under a supervisor (`DownloadManager::supervise_engine`): it starts the engine, applies the speed
+  caps of the moment (usual or alternative, `downloads/transfer.rs`) when they change, and restarts the engine when
+  the chosen network interface changes. With an interface chosen, every socket is bound to it and the engine only
+  runs while it exists: when a VPN drops, downloads wait, queued. Progress goes out as `downloads.updated` with only
+  the rows whose numbers changed; `downloads.changed` carries the whole list on structural changes.
+- **Playback**: a file is read from disk once complete, else through librqbit's `FileStream`, which fetches the
+  pieces the reader reaches first (`downloads/media.rs`). Locally `/stream/<token>` serves byte ranges; a token is
+  handed out over the dashboard socket for one file and 12 hours. Remotely the website's service worker (`sw.js`)
+  answers the player's range requests with bytes the page reads by `stream.read` over the encrypted channel (at
+  most 448 KiB a read, to stay under the relay's frame size).
+- **Series and watches**: `SeriesMonitor` checks due series tasks and watches every minute. Each episode takes the
+  best release its task's quality rules allow (`series/quality.rs`); a download that found no peers is replaced by the
+  next best and its release remembered in `series_rejects`. Tasks can start from the newest episode already out.
+  Show details and posters come from TVmaze (`series/tvmaze.rs`), refreshed twice a day, posters served to browsers
+  by `series.poster`. A watch reports (or downloads) the first release its rules allow, then rests.
+- **Browser push**: a linked browser subscribes with the Worker's VAPID public key and gives the subscription to the
+  device over the encrypted channel (`push_subscriptions`, removed with the browser's key). Each notification is
+  sealed on the device for that subscription (RFC 8291, `protocol/webpush.rs`) and posted to the Worker, which adds
+  the VAPID signature and forwards the ciphertext to the push service (known push hosts only). A 404 or 410 drops the
+  subscription.
+- **Opening magnet links and .torrent files**: the macOS bundle declares both and becomes the default through Launch
+  Services; Windows registers per-user classes, Linux a desktop entry set with xdg-mime (`system/handlers.rs`). The
+  app, or the running instance, opens the dashboard at `/?add=…` or `/?torrent=…`, which fills in the add dialog.
 - **Storage**: SQLite (`rusqlite`, bundled) with numbered migrations (`db.rs`); settings as one JSON row, so a new
   setting needs no migration; secrets sealed with AES-256-GCM under a key file beside the database.
 - **Server**: `axum` on localhost (IPv4 and IPv6) serves the dashboard, its WebSocket, the agent REST API
