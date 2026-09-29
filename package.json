@@ -20,6 +20,7 @@
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "oxlint . && cargo clippy --all-targets --locked -- -D warnings && cargo fmt --check",
     "test": "bun test && cargo test --locked",
+    "e2e": "bun run --cwd apps/e2e test",
     "check": "bun run lint && bun run typecheck && bun run test"
   },
   "devDependencies": {

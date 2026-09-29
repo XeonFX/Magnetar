@@ -65,8 +65,13 @@ fn default_data_dir() -> PathBuf {
     }
 }
 
+/// `MD_DOWNLOAD_FOLDER` (test and scratch runs keep out of the user's folder), or
+/// ~/Downloads/MediaDownloader.
 pub fn default_download_folder() -> PathBuf {
-    home_dir().join("Downloads").join("MediaDownloader")
+    match std::env::var_os("MD_DOWNLOAD_FOLDER") {
+        Some(configured) => std::path::absolute(configured).unwrap_or_else(|_| PathBuf::from("MediaDownloader")),
+        None => home_dir().join("Downloads").join("MediaDownloader"),
+    }
 }
 
 /// Where the legacy .NET MediaDownloader kept its database.

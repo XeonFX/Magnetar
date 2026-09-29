@@ -4,6 +4,8 @@
 .wrangler/
 apps/web/dist/
 coverage/
+test-results/
+playwright-report/
 dist/
 node_modules/
 target/

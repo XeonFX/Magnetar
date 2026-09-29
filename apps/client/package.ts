@@ -4,11 +4,15 @@
  *   bun run package.ts [--target aarch64-apple-darwin] [--version 2.0.0] [--skip-web]
  *
  * Output in dist/: `MediaDownloader-<version>-<platform>-<arch>` (.exe on Windows). On macOS it
- * is also wrapped in an ad-hoc signed MediaDownloader.app and zipped, which is the release asset.
+ * is also wrapped in MediaDownloader.app and zipped, which is the release asset: signed with the
+ * Developer ID in MACOS_SIGNING_IDENTITY and notarized when APPLE_ID, APPLE_TEAM_ID and
+ * APPLE_APP_PASSWORD are set, ad-hoc signed otherwise. On Windows the .exe is signed when
+ * WINDOWS_CERTIFICATE is set.
  * The version and the release public key (release-public-key.txt) are compiled in by build.rs.
  */
 import { $ } from 'bun'
-import { chmodSync, cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { parseArgs } from 'node:util'
 
@@ -51,6 +55,7 @@ if (platform !== 'windows') chmodSync(outfile, 0o755)
 console.log(`Built ${relative(process.cwd(), outfile)}`)
 
 if (platform === 'macos') await packageMacApp()
+if (platform === 'windows') await signWindowsExecutable(outfile)
 
 /** MediaDownloader.app: a menu-bar agent (no Dock icon), ad-hoc signed, zipped with ditto. */
 async function packageMacApp(): Promise<void> {
@@ -113,10 +118,50 @@ async function packageMacApp(): Promise<void> {
     console.warn('Skipping signing and zipping: macOS bundles must be signed on macOS')
     return
   }
-  await $`/usr/bin/codesign --force --sign - --identifier cc.codefusion.mediadownloader --timestamp=none ${app}`
+  // A Developer ID from the keychain when one is configured (release builds with the certificate
+  // imported), otherwise ad-hoc: Gatekeeper then asks the user to confirm the first launch.
+  const identity = process.env.MACOS_SIGNING_IDENTITY
+  if (identity) {
+    await $`/usr/bin/codesign --force --options runtime --timestamp --sign ${identity} --identifier cc.codefusion.mediadownloader ${app}`
+  } else {
+    await $`/usr/bin/codesign --force --sign - --identifier cc.codefusion.mediadownloader --timestamp=none ${app}`
+  }
   await $`/usr/bin/codesign --verify --deep --strict --verbose=2 ${app}`
   const zip = join(dist, `${name}.zip`)
-  rmSync(zip, { force: true })
-  await $`/usr/bin/ditto -c -k --keepParent ${app} ${zip}`
+  const pack = async () => {
+    rmSync(zip, { force: true })
+    await $`/usr/bin/ditto -c -k --keepParent ${app} ${zip}`
+  }
+  await pack()
+  const { APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD } = process.env
+  if (identity && APPLE_ID && APPLE_TEAM_ID && APPLE_APP_PASSWORD) {
+    // Apple checks the build for malware and issues a ticket; stapled, it works offline too.
+    await $`/usr/bin/xcrun notarytool submit ${zip} --apple-id ${APPLE_ID} --team-id ${APPLE_TEAM_ID} --password ${APPLE_APP_PASSWORD} --wait`
+    await $`/usr/bin/xcrun stapler staple ${app}`
+    await $`/usr/sbin/spctl --assess --type execute --verbose ${app}`
+    await pack()
+    console.log('Notarized and stapled')
+  }
   console.log(`Packaged ${relative(process.cwd(), zip)}`)
+}
+
+/**
+ * Signs the Windows executable when a code-signing certificate is configured (WINDOWS_CERTIFICATE,
+ * a base64 .pfx, and its password), so SmartScreen knows who published it.
+ */
+async function signWindowsExecutable(file: string): Promise<void> {
+  const { WINDOWS_CERTIFICATE, WINDOWS_CERTIFICATE_PASSWORD } = process.env
+  if (!WINDOWS_CERTIFICATE || process.platform !== 'win32') return
+  const pfx = join(tmpdir(), `md-signing-${process.pid}.pfx`)
+  writeFileSync(pfx, Buffer.from(WINDOWS_CERTIFICATE, 'base64'))
+  try {
+    const kits = 'C:/Program Files (x86)/Windows Kits/10/bin'
+    const versions = existsSync(kits) ? readdirSync(kits).filter(v => existsSync(join(kits, v, 'x64', 'signtool.exe'))).sort() : []
+    const signtool = versions.length ? join(kits, versions.at(-1)!, 'x64', 'signtool.exe') : 'signtool'
+    await $`${signtool} sign /f ${pfx} /p ${WINDOWS_CERTIFICATE_PASSWORD ?? ''} /fd sha256 /tr http://timestamp.digicert.com /td sha256 ${file}`
+    await $`${signtool} verify /pa ${file}`
+    console.log('Signed the Windows executable')
+  } finally {
+    rmSync(pfx, { force: true })
+  }
 }

@@ -175,8 +175,10 @@ export function useAddShortcuts(onAdd: (pending: PendingAdd) => void) {
       if (files.length) handler.current({ magnets: [], files })
     }
     const paste = (e: ClipboardEvent) => {
-      const target = e.target as HTMLElement | null
-      if (target?.closest('input, textarea, [contenteditable="true"], dialog[open]')) return
+      // Pasting into a field, or while a dialog is open, is left to the page.
+      if (e.target instanceof Element && e.target.closest('input, textarea, [contenteditable="true"], dialog[open]')) return
+      // A dialog showing its content (one closing has already dropped it).
+      if (document.querySelector('dialog[open] .modal-box')) return
       const magnets = magnetsIn(e.clipboardData?.getData('text') ?? '')
       if (magnets.length) {
         e.preventDefault()

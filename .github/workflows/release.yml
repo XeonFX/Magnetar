@@ -10,6 +10,7 @@ permissions:
 
 env:
   AWS_LC_SYS_PREBUILT_NASM: '1'
+  HAS_MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE != '' }}
 
 jobs:
   build:
@@ -38,11 +39,35 @@ jobs:
         with:
           key: ${{ matrix.target }}
       - run: bun install --frozen-lockfile
+      # Only when the Developer ID certificate is a secret; without it the build is ad-hoc signed.
+      - name: Import the Developer ID certificate
+        if: runner.os == 'macOS' && env.HAS_MACOS_CERTIFICATE == 'true'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password="$(uuidgen)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
       # The x64 macOS build is cross-compiled on an arm64 runner, so its tests can't run there.
       - run: cargo test --locked
         if: matrix.target != 'x86_64-apple-darwin'
       - name: Build
         shell: bash
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: bun run --cwd apps/client build --target ${{ matrix.target }} --version ${GITHUB_REF_NAME#v}
       - name: Collect the release asset
         shell: bash

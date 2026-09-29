@@ -18,6 +18,9 @@ export function Modal({ open, title, icon, onClose, children, actions, wide = fa
 }) {
   const t = useT()
   const ref = useRef<HTMLDialogElement>(null)
+  // The browser fires "close" later, as a task: one this component caused must not close a dialog
+  // that has opened again in the meantime.
+  const closingItself = useRef(false)
   useEffect(() => {
     const dialog = ref.current
     if (!dialog) return
@@ -25,11 +28,18 @@ export function Modal({ open, title, icon, onClose, children, actions, wide = fa
       dialog.showModal()
       dialog.querySelector<HTMLElement>('[data-autofocus]')?.focus()
     }
-    if (!open && dialog.open) dialog.close()
+    if (!open && dialog.open) {
+      closingItself.current = true
+      dialog.close()
+    }
   }, [open])
+  const closed = () => {
+    if (closingItself.current) closingItself.current = false
+    else onClose()
+  }
 
   return (
-    <dialog ref={ref} className="modal modal-bottom sm:modal-middle" onClose={onClose} onCancel={onClose}>
+    <dialog ref={ref} className="modal modal-bottom sm:modal-middle" onClose={closed}>
       {open && (
         <div className={`modal-box ${wide ? 'sm:max-w-2xl' : 'sm:max-w-lg'} p-0`}>
           <div className="flex items-center gap-2 border-b border-base-300 px-5 py-4">
