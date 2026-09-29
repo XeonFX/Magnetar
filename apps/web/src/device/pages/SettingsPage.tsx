@@ -1,6 +1,6 @@
 import type { AgentStatusDto, LegacyImportStatusDto, LoginStartupStatus, SettingsDto, SettingsPatch } from '@md/protocol'
 import {
-  Bell, Bot, Copy, Eye, EyeOff, HardDriveDownload, Mail, RefreshCw, Send, Server, Smartphone, SlidersHorizontal, Upload,
+  Bell, Bot, Copy, Eye, EyeOff, HardDriveDownload, Mail, RefreshCw, Send, Server, Smartphone, SlidersHorizontal, Sparkles, Upload,
 } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { LANGUAGES, useFormatDate, useT } from '../../lib/i18n.tsx'
@@ -161,6 +161,7 @@ function AgentSection() {
   const [agent, setAgent] = useState<AgentStatusDto | null>(null)
   const [reveal, setReveal] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [connectingClaude, setConnectingClaude] = useState(false)
   useEffect(() => {
     void connection.call('agent.status').then(setAgent).catch(() => {})
   }, [connection])
@@ -171,11 +172,29 @@ function AgentSection() {
     if (next) setAgent(next)
     if (next && patch.allowRemote !== undefined) toast(t('settings.agentRestart'), 'info')
   }
-  const command = `claude mcp add --transport http mediadownloader ${agent.mcpUrl}`
+  const command = `claude mcp add --transport http --scope user mediadownloader ${agent.mcpUrl}`
+
+  /** Registers the MCP server with Claude Code on this computer (turning agent access on). */
+  const connectClaude = async () => {
+    setConnectingClaude(true)
+    const result = await run(() => connection.call('agent.connectClaude'), 'settings.claudeConnectFailed')
+    setConnectingClaude(false)
+    if (!result) return
+    setAgent(result.agent)
+    toast(t(result.status === 'connected' ? 'settings.claudeConnected' : 'settings.claudeNotFound'), result.status === 'connected' ? 'success' : 'info')
+  }
 
   return (
     <Section icon={<Bot size={20} />} title={t('settings.agentAccess')} hint={t('settings.agentHint')}
       toggle={<Toggle hideLabel label={t('settings.agentAccess')} checked={agent.enabled} onChange={enabled => void change({ enabled })} />}>
+      {connection.kind === 'local' && (
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+          <button type="button" className="btn btn-primary btn-sm self-start" disabled={connectingClaude} onClick={() => void connectClaude()}>
+            {connectingClaude ? <span className="loading loading-spinner loading-xs" /> : <Sparkles size={14} />}{t('settings.connectClaude')}
+          </button>
+          <p className="text-xs text-base-content/60">{t('settings.connectClaudeHint')}</p>
+        </div>
+      )}
       {agent.enabled && (
         <div className="flex flex-col gap-4">
           <div role="alert" className="alert alert-info alert-outline text-sm">{t('settings.agentLoopbackHint')}</div>

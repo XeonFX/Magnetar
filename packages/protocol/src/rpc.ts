@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import {
   SeriesTaskInput, SeriesTaskPatch, SettingsPatch, StartDownloadInput,
-  type AgentStatusDto, type AppInfoDto, type DownloadDto, type FolderListing, type LegacyImportResultDto,
+  type AgentStatusDto, type AppInfoDto, type ClaudeConnectResultDto, type DownloadDto, type FolderListing, type LegacyImportResultDto,
   type LegacyImportStatusDto, type LoginStartupStatus, type RemoteStatusDto, type SearchResultDto,
   type SeriesTaskDto, type SettingsDto, type SourceDto, type SourceOutcomeDto, type TorrentDetailsDto,
   type UpdateStatusDto,
@@ -54,6 +54,8 @@ export const RPC_PARAMS = {
   'agent.status': none,
   'agent.set': z.strictObject({ enabled: z.boolean().optional(), allowRemote: z.boolean().optional() }),
   'agent.regenerateToken': none,
+  /** Turns agent access on and registers the MCP server with the Claude Code CLI on the device. */
+  'agent.connectClaude': none,
 
   'remote.status': none,
   'remote.pair': z.strictObject({ deviceName: z.string().trim().min(1).max(60).optional() }),
@@ -102,6 +104,7 @@ export interface RpcResults {
   'agent.status': AgentStatusDto
   'agent.set': AgentStatusDto
   'agent.regenerateToken': AgentStatusDto
+  'agent.connectClaude': ClaudeConnectResultDto
   'remote.status': RemoteStatusDto
   'remote.pair': RemoteStatusDto
   'remote.cancelPairing': RemoteStatusDto
@@ -135,5 +138,5 @@ export type ServerMessage =
   | { id: number; error: { code: RpcErrorCode; message: string } }
   | { event: string; data: unknown }
 
-/** Methods that act on the device's own screen, pointless through the relay. */
-export const LOCAL_ONLY_METHODS: ReadonlySet<RpcMethod> = new Set(['fs.pickNative'])
+/** Methods that act on the device's own screen or programs, not offered through the relay. */
+export const LOCAL_ONLY_METHODS: ReadonlySet<RpcMethod> = new Set(['fs.pickNative', 'agent.connectClaude'])

@@ -1,3 +1,4 @@
+pub mod claude;
 pub mod folders;
 pub mod login_startup;
 

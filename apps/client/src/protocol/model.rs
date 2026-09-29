@@ -202,6 +202,16 @@ pub struct AgentStatusDto {
     pub endpoint_file: String,
 }
 
+/// Outcome of registering this device's MCP server with Claude Code on the device.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeConnectResultDto {
+    /// "connected", or "cliNotFound" when the user has to run `command` themselves.
+    pub status: &'static str,
+    pub command: String,
+    pub agent: AgentStatusDto,
+}
+
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct LinkedBrowserDto {

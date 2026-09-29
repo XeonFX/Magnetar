@@ -230,6 +230,14 @@ export interface AgentStatusDto {
   endpointFile: string
 }
 
+/** Outcome of registering this device's MCP server with Claude Code on the device. */
+export interface ClaudeConnectResultDto {
+  /** `cliNotFound`: Claude Code isn't installed where the app can find it; run `command` instead. */
+  status: 'connected' | 'cliNotFound'
+  command: string
+  agent: AgentStatusDto
+}
+
 export interface LinkedBrowserDto {
   keyId: string
   label: string

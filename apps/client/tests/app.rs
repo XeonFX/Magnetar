@@ -142,6 +142,7 @@ async fn validates_parameters_and_rejects_unknown_methods() {
     // Device-screen methods are refused through the relay.
     let mut relayed = Client::new(&h.app, false);
     assert!(relayed.call("fs.pickNative", json!({})).await.unwrap_err().starts_with("forbidden"));
+    assert!(relayed.call("agent.connectClaude", json!({})).await.unwrap_err().starts_with("forbidden"));
     assert_eq!(relayed.ok("app.info", json!({})).await["nativeFolderPicker"], false);
 }
 

@@ -15,12 +15,14 @@ use crate::app::App;
 use crate::config::{ARCH, PLATFORM, VERSION};
 use crate::error::{ApiError, ApiResult, ErrorCode};
 use crate::protocol::encoding::random_id;
-use crate::protocol::{AppInfoDto, NotificationEvent, SeriesTaskInput, SeriesTaskPatch, SettingsPatch, StartDownloadInput};
+use crate::protocol::{
+    AppInfoDto, ClaudeConnectResultDto, NotificationEvent, SeriesTaskInput, SeriesTaskPatch, SettingsPatch, StartDownloadInput,
+};
 use crate::search::cache::to_result_dto;
 use crate::system;
 
-/// Methods that act on the device's own screen, pointless through the relay.
-const LOCAL_ONLY_METHODS: [&str; 1] = ["fs.pickNative"];
+/// Methods that act on the device's own screen or programs, not offered through the relay.
+const LOCAL_ONLY_METHODS: [&str; 2] = ["fs.pickNative", "agent.connectClaude"];
 
 /// One connected dashboard. Messages for it arrive on the receiver handed back by `connect`.
 pub struct RpcSession {
@@ -379,6 +381,18 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
         "agent.regenerateToken" => {
             parse::<NoParams>(params)?;
             ok(app.agent.regenerate())
+        }
+        "agent.connectClaude" => {
+            parse::<NoParams>(params)?;
+            let agent = app.agent.set(Some(true), None);
+            let status = match system::claude::find_cli() {
+                Some(cli) => {
+                    system::claude::register(&cli, &agent.mcp_url).await?;
+                    "connected"
+                }
+                None => "cliNotFound",
+            };
+            ok(ClaudeConnectResultDto { status, command: system::claude::command(&agent.mcp_url), agent })
         }
 
         "remote.status" => {

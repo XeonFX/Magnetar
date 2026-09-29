@@ -74,10 +74,12 @@ keys only 1.x can read, so re-enter them. Private-tracker (PTE) downloads are no
 
 ## Agent access (MCP and REST)
 
-Enable **Settings → Agent access**, then point an MCP client at the URL shown there:
+On the computer running MediaDownloader, **Settings → Agent access → Connect Claude** turns agent access on and adds
+the server to Claude Code (for every project). Other MCP clients, or Claude Code where the app can't find it, use the URL
+shown there:
 
 ```bash
-claude mcp add --transport http mediadownloader http://localhost:47820/mcp
+claude mcp add --transport http --scope user mediadownloader http://localhost:47820/mcp
 ```
 
 The resolved URLs and bearer token are also written to `endpoint.json` in the data folder (owner-only). REST lives
