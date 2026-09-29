@@ -1,4 +1,4 @@
-import { MAX_TORRENT_FILE } from '@md/protocol'
+import { MAX_TORRENT_FILE } from '@md/protocol/limits'
 import { FilePlus2, Link2, Upload } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { useT } from '../../lib/i18n.tsx'

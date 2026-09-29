@@ -10,7 +10,8 @@
     "./bytes": "./src/bytes.ts",
     "./base64": "./src/base64.ts",
     "./scrub": "./src/scrub.ts",
-    "./merge": "./src/merge.ts"
+    "./merge": "./src/merge.ts",
+    "./limits": "./src/limits.ts"
   },
   "scripts": {
     "typecheck": "tsc -p ."

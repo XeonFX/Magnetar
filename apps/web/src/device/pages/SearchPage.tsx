@@ -1,7 +1,7 @@
 import type { SearchResultDto, SeriesResolution, SourceOutcomeDto, TorrentDetailsDto } from '@md/protocol'
 import { formatBytes } from '@md/protocol/bytes'
 import { BellRing, Check, CircleAlert, Copy, Download, ExternalLink, FolderOpen, SearchIcon, SearchX, Sprout, Telescope, X } from 'lucide-react'
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useFormatDate, useFormatRelative, useT } from '../../lib/i18n.tsx'
 import { askNotificationPermission } from '../../lib/notifications.ts'
@@ -76,9 +76,12 @@ export function SearchPage() {
   }, [linked])
 
   const results = useMemo(() => (search.results ? [...search.results].sort(SORTS[sort]) : null), [search.results, sort])
-  const download = async (result: SearchResultDto, folder?: string) => {
-    if (await startDownload(result, folder)) setAdded(s => new Set(s).add(result.resultId))
-  }
+  // Stable for the memoized rows, so typing a new query doesn't re-render the list below.
+  const latest = useRef(startDownload)
+  latest.current = startDownload
+  const download = useCallback(async (result: SearchResultDto, folder?: string) => {
+    if (await latest.current(result, folder)) setAdded(s => new Set(s).add(result.resultId))
+  }, [])
 
   return (
     <>
@@ -124,7 +127,7 @@ export function SearchPage() {
       ) : (
         <>
           <ul className="flex flex-col gap-2">
-            {results.slice(0, shown).map(r => <ResultRow key={r.resultId} result={r} added={added.has(r.resultId)} onOpen={() => setDetails(r)} onDownload={() => void download(r)} />)}
+            {results.slice(0, shown).map(r => <ResultRow key={r.resultId} result={r} added={added.has(r.resultId)} onOpen={setDetails} onDownload={download} />)}
           </ul>
           {results.length > shown && <ShowMore remaining={results.length - shown} onMore={() => setShown(n => n + PAGE_SIZE)} />}
         </>
@@ -160,12 +163,17 @@ function Tags({ title }: { title: string }) {
   )
 }
 
-function ResultRow({ result: r, added, onOpen, onDownload }: { result: SearchResultDto; added: boolean; onOpen: () => void; onDownload: () => void }) {
+const ResultRow = memo(function ResultRow({ result: r, added, onOpen, onDownload }: {
+  result: SearchResultDto
+  added: boolean
+  onOpen: (result: SearchResultDto) => void
+  onDownload: (result: SearchResultDto) => void
+}) {
   const t = useT()
   const formatRelative = useFormatRelative()
   return (
     <li className="surface flex items-start gap-3 p-4 transition-colors hover:border-base-content/20">
-      <button type="button" className="min-w-0 flex-1 text-left" onClick={onOpen}>
+      <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onOpen(r)}>
         <div className="break-release font-medium leading-snug">{r.title}</div>
         <div className="muted mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
           <Tags title={r.title} />
@@ -176,13 +184,13 @@ function ResultRow({ result: r, added, onOpen, onDownload }: { result: SearchRes
         </div>
       </button>
       <button type="button" className={`btn btn-sm shrink-0 ${added ? 'btn-ghost text-success' : 'btn-primary btn-soft'}`} disabled={added}
-        onClick={onDownload} aria-label={added ? t('search.added') : t('common.download')} title={added ? t('search.added') : t('common.download')}>
+        onClick={() => onDownload(r)} aria-label={added ? t('search.added') : t('common.download')} title={added ? t('search.added') : t('common.download')}>
         {added ? <Check size={16} /> : <Download size={16} />}
         <span className="hidden sm:inline">{added ? t('search.added') : t('common.download')}</span>
       </button>
     </li>
   )
-}
+})
 
 /**
  * How each source answered. A site that failed, or answered but had everything filtered out, would

@@ -34,6 +34,11 @@ describe('translation catalogs', () => {
     }
   })
 
+  test('the language menu lists every catalog by its own name', async () => {
+    const { LANGUAGES } = await import('../lib/languages.ts')
+    expect(Object.fromEntries(LANGUAGES.map(l => [l.code, l.name]))).toEqual(Object.fromEntries(Object.entries(catalogs).map(([code, c]) => [code, c.name])))
+  })
+
   test("every key the code asks for by name exists", () => {
     const used = new Set(sources(src).flatMap(code => [...code.matchAll(/\bt\(\s*'([\w.]+)'/g)].map(m => m[1]!)))
     expect([...used].filter(key => !(key in english))).toEqual([])

@@ -1,4 +1,5 @@
-import { MIN_SPEED_LIMIT, type NetworkInterfaceDto, type SettingsDto, type SettingsPatch } from '@md/protocol'
+import type { NetworkInterfaceDto, SettingsDto, SettingsPatch } from '@md/protocol'
+import { MIN_SPEED_LIMIT } from '@md/protocol/limits'
 import { Gauge, Network, ShieldCheck } from 'lucide-react'
 import { useEffect, useId, useMemo, useState } from 'react'
 import { useLanguage, useT } from '../../lib/i18n.tsx'

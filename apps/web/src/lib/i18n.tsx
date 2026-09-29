@@ -1,23 +1,25 @@
-import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import english from '../i18n/en.json'
+import { LANGUAGES } from './languages.ts'
 
 interface Catalog {
   name: string
   strings: Record<string, string>
 }
 
-const catalogs = Object.fromEntries(
-  Object.entries(import.meta.glob<Catalog>('../i18n/*.json', { eager: true, import: 'default' }))
-    .map(([path, catalog]) => [path.match(/([a-z]{2})\.json$/)![1]!, catalog]),
-) as Record<string, Catalog>
+export { LANGUAGES }
 
-export const LANGUAGES = Object.entries(catalogs).map(([code, catalog]) => ({ code, name: catalog.name }))
-  .sort((a, b) => (a.code === 'en' ? -1 : b.code === 'en' ? 1 : a.name.localeCompare(b.name)))
+const loaders = Object.fromEntries(
+  Object.entries(import.meta.glob<Catalog>(['../i18n/*.json', '!../i18n/en.json'], { import: 'default' }))
+    .map(([path, load]) => [path.match(/([a-z]{2})\.json$/)![1]!, load]),
+) as Record<string, () => Promise<Catalog>>
+
+const loaded: Record<string, Record<string, string>> = { en: english.strings }
 
 export type Translate = (key: string, ...args: (string | number)[]) => string
 
-function translator(language: string): Translate {
-  const strings = catalogs[language]?.strings ?? {}
-  const fallback = catalogs.en!.strings
+function translator(strings: Record<string, string>): Translate {
+  const fallback = english.strings as Record<string, string>
   return (key, ...args) => {
     const template = strings[key] ?? fallback[key] ?? key
     return args.length ? template.replace(/\{(\d+)\}/g, (match, i: string) => String(args[Number(i)] ?? match)) : template
@@ -28,15 +30,31 @@ function translator(language: string): Translate {
 export function browserLanguage(): string {
   for (const tag of navigator.languages ?? [navigator.language]) {
     const code = tag.slice(0, 2).toLowerCase()
-    if (catalogs[code]) return code
+    if (LANGUAGES.some(l => l.code === code)) return code
   }
   return 'en'
 }
 
-const I18nContext = createContext<{ language: string; t: Translate }>({ language: 'en', t: translator('en') })
+const I18nContext = createContext<{ language: string; t: Translate }>({ language: 'en', t: translator(english.strings) })
 
+/**
+ * Translations for `language`. A language not loaded yet is fetched first; the page waits for it
+ * rather than flashing English, and shows English if it can't be loaded.
+ */
 export function I18nProvider({ language, children }: { language: string; children: ReactNode }) {
-  const value = useMemo(() => ({ language, t: translator(catalogs[language] ? language : 'en') }), [language])
+  const code = loaders[language] || language === 'en' ? language : 'en'
+  const [strings, setStrings] = useState(() => loaded[code] ?? null)
+  useEffect(() => {
+    if (loaded[code]) return setStrings(loaded[code])
+    let cancelled = false
+    loaders[code]!().then(catalog => { loaded[code] = catalog.strings }, () => { loaded[code] = english.strings })
+      .finally(() => { if (!cancelled) setStrings(loaded[code]!) })
+    return () => { cancelled = true }
+  }, [code])
+  const value = useMemo(() => ({ language: code, t: translator(strings ?? english.strings) }), [code, strings])
+  if (!strings) {
+    return <div className="grid min-h-screen place-items-center"><span className="loading loading-spinner loading-lg text-primary" /></div>
+  }
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
 }
 

@@ -27,6 +27,7 @@ pub const METADATA_TIMEOUT: Duration = Duration::from_secs(3 * 60);
 /// How a download that found nobody to fetch it from fails; series replace those with another release.
 pub const NO_PEERS: &str = "No peers found";
 const TICK: Duration = Duration::from_secs(1);
+const METADATA_CACHE: usize = 64;
 const PERSIST_EVERY_TICKS: u64 = 20;
 /// Ids of the downloads an update paused, for the next start to resume.
 const PAUSED_FOR_UPDATE_KEY: &str = "downloads.pausedForUpdate";
@@ -217,6 +218,8 @@ pub struct DownloadManager {
     events: EventBus,
     torrent_cache: PathBuf,
     items: Mutex<BTreeMap<i64, Item>>,
+    /// Parsed .torrent files, by info hash: the file list is read every few seconds while shown.
+    metadata: Mutex<HashMap<String, Arc<Metadata>>>,
     transfer: Mutex<TransferStatusDto>,
     changed: Notify,
     shutting_down: AtomicBool,
@@ -250,6 +253,7 @@ impl DownloadManager {
             events,
             torrent_cache,
             items: Mutex::default(),
+            metadata: Mutex::default(),
             transfer: Mutex::new(TransferStatusDto {
                 engine: state,
                 message: None,
@@ -665,6 +669,7 @@ impl DownloadManager {
         }
         self.db.lock().execute("DELETE FROM downloads WHERE id = ?", [id])?;
         let _ = std::fs::remove_file(self.cached_torrent_path(&item.info_hash));
+        self.metadata.lock().unwrap_or_else(|e| e.into_inner()).remove(&item.info_hash.to_lowercase());
         Ok(())
     }
 
@@ -785,8 +790,20 @@ impl DownloadManager {
         self.torrent_cache.join(format!("{}.torrent", hash.to_lowercase()))
     }
 
-    fn metadata(&self, hash: &str) -> Option<Metadata> {
-        std::fs::read(self.cached_torrent_path(hash)).ok().and_then(|bytes| Metadata::from_torrent(bytes).ok())
+    fn metadata(&self, hash: &str) -> Option<Arc<Metadata>> {
+        let key = hash.to_lowercase();
+        if let Some(found) = self.metadata.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+            return Some(found.clone());
+        }
+        let parsed =
+            Arc::new(std::fs::read(self.cached_torrent_path(hash)).ok().and_then(|bytes| Metadata::from_torrent(bytes).ok())?);
+        let mut cache = self.metadata.lock().unwrap_or_else(|e| e.into_inner());
+        // Small, and emptied rather than managed: parsing again is cheap, holding every torrent isn't.
+        if cache.len() >= METADATA_CACHE {
+            cache.clear();
+        }
+        cache.insert(key, parsed.clone());
+        Some(parsed)
     }
 
     /// Starts following a download in the engine: metadata from the cache or the swarm, then the

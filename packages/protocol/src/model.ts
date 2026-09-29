@@ -1,4 +1,7 @@
 import { z } from 'zod'
+import { MAX_TORRENT_FILE, MIN_SPEED_LIMIT } from './limits.ts'
+
+export { MAX_TORRENT_FILE, MIN_SPEED_LIMIT }
 
 export const DOWNLOAD_STATUSES = [
   'Queued', 'FetchingMetadata', 'Downloading', 'Seeding', 'Paused', 'Completed', 'Error',
@@ -10,8 +13,6 @@ export type PostDownloadAction = 'StopSeeding' | 'KeepSeeding' | 'SeedToRatio'
 /** When the alternative speed limits apply instead of the usual ones. */
 export type AltSpeedMode = 'off' | 'on' | 'scheduled'
 
-/** The engine refuses caps below this (bytes per second); 0 is no cap. */
-export const MIN_SPEED_LIMIT = 32 * 1024
 
 export type EngineState = 'running' | 'starting' | 'waitingForNetwork' | 'failed' | 'off'
 
@@ -347,8 +348,6 @@ export const SeriesTaskPatch = z.strictObject({
 })
 export type SeriesTaskPatch = z.infer<typeof SeriesTaskPatch>
 
-/** Largest .torrent file accepted, before base64. */
-export const MAX_TORRENT_FILE = 4 * 1024 * 1024
 
 export const WatchInput = z.strictObject({
   query: z.string().trim().min(2).max(200),
