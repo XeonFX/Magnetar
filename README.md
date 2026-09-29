@@ -8,8 +8,9 @@ read what you search for, what you download, or your settings.
 > **Legal notice:** downloading copyrighted material without permission may be illegal where you live. Use this for
 > content you are entitled to download (Linux ISOs, public-domain and Creative Commons media, your own files).
 
-This is version 2, a rewrite of the .NET/Blazor [MediaDownloader 1.x](https://github.com/XeonFX/MediaDownloader) in
-TypeScript. It can import everything from a 1.x installation (see [Upgrading from 1.x](#upgrading-from-1x)).
+This is version 2, a rewrite of the .NET/Blazor [MediaDownloader 1.x](https://github.com/XeonFX/MediaDownloader): the app
+is Rust, the dashboard and website TypeScript. It can import everything from a 1.x installation (see
+[Upgrading from 1.x](#upgrading-from-1x)).
 
 ## Features
 
@@ -18,7 +19,7 @@ TypeScript. It can import everything from a 1.x installation (see [Upgrading fro
   Torrents-CSV, Nyaa and EZTV.
 - **Per-source outcomes** above the results, so a failing site or an over-eager relevance filter never looks like
   "no results". Turn any source off in Settings.
-- **Built-in BitTorrent engine** (WebTorrent over TCP, with DHT and trackers): live progress, speed and peers;
+- **Built-in BitTorrent engine** (librqbit, with DHT and trackers): live progress, speed and peers;
   pause, resume, retry and delete (optionally with the files). Torrents that can't find peers fail after 3 minutes
   instead of sitting on "Fetching metadata" forever.
 - **Series tasks** that check for the next episode on a schedule and download it. They understand `S01E05`, `1x05`,
@@ -91,25 +92,26 @@ computer, and the bearer token.
 
 ## Development
 
-Requires [Bun](https://bun.com) 1.4.
+Requires [Bun](https://bun.com) 1.4 and a stable [Rust](https://rustup.rs) toolchain.
 
 ```bash
 bun install
-bun run dev:client        # the app on http://localhost:47820 (no tray, dev data in the normal folder unless MD_DATA_DIRECTORY is set)
+bun run dev:client        # the app on http://localhost:47820 (cargo run; no tray, dev data in the normal folder unless MD_DATA_DIRECTORY is set)
 bun run dev:web           # Vite on http://localhost:5173, proxying to the client (MD_WEB_TARGET=cloud proxies to the Worker)
 bun run dev:worker        # the website on http://localhost:8790 with a local D1 and a passwordless dev sign-in
-bun run check             # lint, typecheck, tests
-bun run --cwd apps/client build [--target bun-windows-x64]   # a single executable in apps/client/dist
+bun run check             # oxlint, clippy, rustfmt, tsc, bun test and cargo test
+bun run build:client      # the dashboard and a release executable in apps/client/dist (--target <rust triple> for another platform)
 ```
 
-To try remote access locally, run the client with `MD_CLOUD_URL=http://localhost:8790` next to `dev:worker`.
-`MD_LIVE_TESTS=1 bun test apps/client/test/live.test.ts` checks every provider against the real sites (also run
+The debug client serves the dashboard from `apps/web/dist`, so run `bun run build:web` once (or use `dev:web`). To try
+remote access locally, run the client with `MD_CLOUD_URL=http://localhost:8790` next to `dev:worker`.
+`MD_LIVE_TESTS=1 cargo test --test providers live_providers` checks every provider against the real sites (also run
 weekly in CI).
 
 | Path | What it is |
 |---|---|
 | `packages/protocol` | The RPC contract shared by dashboard and device, the end-to-end encryption, relay framing, Worker API types |
-| `apps/client` | The app: search providers, WebTorrent engine, series monitor, notifications, RPC/REST/MCP server, relay connector, tray, updater, legacy importer |
+| `apps/client` | The app, in Rust: search providers, librqbit engine, series monitor, notifications, RPC/REST/MCP server, relay connector, tray, updater, legacy importer |
 | `apps/web` | The React + Tailwind + daisyUI dashboard, served by the app locally and by the Worker remotely |
 | `apps/worker` | The Cloudflare Worker: Google sign-in, pairing, device registry (D1) and the relay (a Durable Object per device) |
 | `docs/` | [Architecture and security](docs/ARCHITECTURE.md), [deployment](docs/DEPLOY.md) |

@@ -3,7 +3,7 @@
 ```
  phone / laptop browser                mediadownloader.codefusion.cc                 your computer
 ┌──────────────────────┐   HTTPS    ┌──────────────────────────────────┐   WSS    ┌───────────────────────┐
-│ React dashboard      │──cookie───►│ Worker: sign-in, pairing, D1     │◄─token───│ MediaDownloader (Bun) │
+│ React dashboard      │──cookie───►│ Worker: sign-in, pairing, D1     │◄─token───│ MediaDownloader (Rust)│
 │ key in IndexedDB     │            │ DeviceRelay DO (one per device)  │          │ engine, providers, …  │
 │                      │◄═══════════╪══ sealed frames, relayed as-is ══╪═════════►│ browser keys (sealed) │
 └──────────────────────┘            └──────────────────────────────────┘          └───────────────────────┘
@@ -23,8 +23,9 @@ answers `cloud`. Every page talks to a device through an `RpcClient`:
 
 Both carry the same messages, defined once in `packages/protocol/src/rpc.ts`: `{ id, method, params }` calls,
 `{ id, result | error }` replies, and `{ event, data }` pushes (download progress, streamed search results, settings
-changes, desktop notifications). The app validates every call against a zod schema, and the REST and MCP surfaces go
-through the same `Actions` facade, so the three surfaces cannot drift apart.
+changes, desktop notifications). The dashboard's side is typed with zod; the app mirrors the contract as serde types
+(`apps/client/src/protocol`) and validates every call against them. The REST and MCP surfaces go through the same
+`Actions` facade as the dashboard (`apps/client/src/api/actions.rs`), so the three surfaces cannot drift apart.
 
 ## Pairing
 
@@ -49,7 +50,9 @@ fragment (`#…`), which browsers never send to servers: in the pairing link, or
 IndexedDB, so page script can use it but not read it back. The device keeps every K sealed at rest and can revoke
 each one.
 
-**Handshake** (per connection, `packages/protocol/src/e2e.ts`):
+**Handshake** (per connection; the browser side is `packages/protocol/src/e2e.ts`, the device side
+`apps/client/src/protocol/e2e.rs`, and both are checked against the same fixed vector,
+`packages/protocol/src/e2e-vector.json`):
 
 ```
 browser → device   hello   { kid, eB, nB }            eB: ephemeral P-256 public key, nB: 16 random bytes
@@ -67,8 +70,9 @@ fail. Fresh ephemeral keys per connection give forward secrecy: a K stolen later
 
 **Frames**: AES-256-GCM with one key per direction. The IV is a direction tag plus a 64-bit counter, and the
 associated data is `th`. The receiver requires exactly the next counter, which rejects replays, drops and
-reordering. Any failure closes the connection. Sealing and opening are serialized, so frames stay in counter order
-even though WebCrypto is asynchronous.
+reordering. Any failure closes the connection. Each end seals and opens in order: the browser serializes its
+asynchronous WebCrypto calls, and the device opens frames on the relay socket's read loop and seals replies on one
+task per connection.
 
 **What the relay still learns**: which account owns which device, when a dashboard is connected, and the sizes and
 timing of frames. The device's name and platform are stored in D1 to show the device list.
@@ -96,22 +100,27 @@ expiry. Cookie-authenticated calls and WebSocket upgrades must carry our own `Or
 
 ## The app
 
-`apps/client/src/app.ts` wires the services together:
+A Rust program built into one executable (`apps/client`), with the dashboard embedded by `rust-embed` in release
+builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the services together on a Tokio runtime:
 
-- **Search**: `providers/*` parse each site (cheerio for HTML), `MirrorRotator` staggers mirror attempts (1.5 s)
-  and remembers the fastest, `SearchService` fans out and reports per-source outcomes, `SearchResultCache` hands out
-  30-minute result ids.
-- **Downloads**: `DownloadManager` over a `TorrentEngine` (WebTorrent). Metadata is cached as `.torrent` files for
-  quick re-attach; DHT nodes are remembered between runs. WebTorrent's WebRTC dependency is replaced by a stub at build
-  time (`stub-webrtc.ts`), so no native code is needed. The DHT bootstraps from `dht.libtorrent.org` first: on some
-  filtered networks the classic routers answer with one node repeated, which stalls the lookup.
+- **Search**: `search/providers/*` parse each site (`scraper` for HTML), `MirrorRotator` staggers mirror attempts
+  (1.5 s) and remembers the fastest, `SearchService` fans out and reports per-source outcomes, `SearchResultCache`
+  hands out 30-minute result ids.
+- **Downloads**: `DownloadManager` over librqbit (`downloads/engine.rs`). A magnet's metadata is fetched first and
+  cached as a `.torrent` file, so pause/resume and restarts re-attach instantly; a torrent with no peers fails after
+  3 minutes. Multi-file torrents get a folder of their own inside the save folder. Deleting files goes through the
+  torrent's own file list and never removes the save folder itself. The DHT bootstraps from `dht.libtorrent.org`
+  first (on some filtered networks the classic routers answer with one node repeated, which stalls the lookup) and its
+  routing table is kept in `dht.json` between runs.
 - **Series**: `SeriesMonitor` checks due tasks every minute and saves after each queued episode.
-- **Storage**: `bun:sqlite` with numbered migrations (`db/database.ts`); settings as one JSON row, so a new setting
-  needs no migration; secrets sealed with AES-256-GCM under a key file beside the database (`db/secrets.ts`).
-- **Tray**: AppKit (`NSStatusItem`) and Win32 (`Shell_NotifyIconW`) through `bun:ffi`, with events pumped from a timer
-  on the JS thread. No helper binary.
+- **Storage**: SQLite (`rusqlite`, bundled) with numbered migrations (`db.rs`); settings as one JSON row, so a new
+  setting needs no migration; secrets sealed with AES-256-GCM under a key file beside the database.
+- **Server**: `axum` on localhost (IPv4 and IPv6) serves the dashboard, its WebSocket, the agent REST API
+  (`http/rest.rs`) and a stateless MCP endpoint (`http/mcp.rs`, JSON-RPC over Streamable HTTP).
+- **Tray**: `tray-icon` on a `tao` event loop on the main thread (macOS menu bar, Windows notification area). Linux
+  has no tray; the dashboard opens in the browser.
 - **Updates**: GitHub Releases every 6 hours. Installs require `SHA256SUMS.txt.sig`, an Ed25519 signature checked
-  against the public key compiled into the app. macOS swaps the `.app` bundle after exit with rollback; Windows and
-  Linux rename the running executable aside.
+  against the public key compiled into the app. macOS swaps the `.app` bundle after exit with rollback
+  (`updates/mac-install.sh`); Windows and Linux rename the running executable aside.
 - **Telemetry**: logged errors are scrubbed (quoted text, paths, URLs, addresses, hashes, tokens) and sent, at most
   10 an hour, to the Worker, which forwards them to CodeFusion Console. Off in development; switchable in Settings.
