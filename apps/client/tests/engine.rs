@@ -21,6 +21,7 @@ async fn start_app(paths: &Paths) -> Arc<App> {
         engine: EngineSource::Fixed(engine),
         providers: Vec::new(),
         legacy_database: None,
+        show_lookups: false,
     })
     .unwrap();
     app.settings.update(|s| s.post_download_action = PostDownloadAction::KeepSeeding);
@@ -174,6 +175,7 @@ async fn downloads_wait_for_the_chosen_interface_and_stop_without_it() {
         engine: EngineSource::Managed(paths.clone()),
         providers: Vec::new(),
         legacy_database: None,
+        show_lookups: false,
     })
     .unwrap();
     app.settings.update(|s| {

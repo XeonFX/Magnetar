@@ -196,6 +196,52 @@ pub struct SeriesTaskDto {
     pub download_folder: Option<String>,
     pub last_checked_at: Option<String>,
     pub finished: bool,
+    pub resolution: Option<String>,
+    pub min_seeders: i64,
+    pub max_size_mb: Option<i64>,
+    pub prefer_words: Option<String>,
+    pub exclude_words: Option<String>,
+    /// From TVmaze, once the show has been found there.
+    pub show: Option<ShowInfoDto>,
+}
+
+/// A show as TVmaze describes it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ShowInfoDto {
+    pub tvmaze_id: i64,
+    pub name: String,
+    pub url: Option<String>,
+    /// "Running", "Ended", "To Be Determined"…
+    pub status: Option<String>,
+    pub premiered: Option<String>,
+    pub network: Option<String>,
+    /// Whether `series.poster` has an image for it.
+    pub has_poster: bool,
+    pub next_episode: Option<AiringDto>,
+    pub previous_episode: Option<AiringDto>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AiringDto {
+    pub season: Option<i64>,
+    pub number: Option<i64>,
+    pub name: Option<String>,
+    pub airstamp: Option<String>,
+}
+
+/// Where a new series task starts.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum StartFrom {
+    /// `startEpisode`, catching up on everything after it.
+    #[default]
+    Episode,
+    /// The newest episode already out, then each new one.
+    Latest,
+    /// Only episodes that come out from now on.
+    New,
 }
 
 /// Secret fields are write-only: reads say whether one is set, never what it is.
@@ -387,6 +433,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_min_seeders() -> i64 {
+    1
+}
+
 /// A new series rule; omitted fields take their defaults.
 #[derive(Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -409,6 +459,22 @@ pub struct SeriesTaskInput {
     pub enabled: bool,
     #[serde(default)]
     pub download_folder: Option<String>,
+    /// "720p", "1080p" or "2160p"; null takes any.
+    #[serde(default)]
+    pub resolution: Option<String>,
+    #[serde(default = "default_min_seeders")]
+    pub min_seeders: i64,
+    #[serde(default)]
+    pub max_size_mb: Option<i64>,
+    /// Words that make a release preferred (a group, a codec), comma or space separated.
+    #[serde(default)]
+    pub prefer_words: Option<String>,
+    /// Words that rule a release out ("CAM, dubbed").
+    #[serde(default)]
+    pub exclude_words: Option<String>,
+    /// Creating only.
+    #[serde(default)]
+    pub start_from: StartFrom,
 }
 
 /// Every field of a rule, required (REST PUT), so an omission can't silently reset one.
@@ -430,6 +496,15 @@ pub struct SeriesTaskReplacement {
     pub enabled: bool,
     #[serde(deserialize_with = "required_nullable")]
     pub download_folder: Option<String>,
+    #[serde(deserialize_with = "required_nullable")]
+    pub resolution: Option<String>,
+    pub min_seeders: i64,
+    #[serde(deserialize_with = "required_nullable")]
+    pub max_size_mb: Option<i64>,
+    #[serde(deserialize_with = "required_nullable")]
+    pub prefer_words: Option<String>,
+    #[serde(deserialize_with = "required_nullable")]
+    pub exclude_words: Option<String>,
 }
 
 /// A partial change: anything omitted keeps its current value. Null clears a nullable field.
@@ -451,6 +526,15 @@ pub struct SeriesTaskPatch {
     pub enabled: Option<bool>,
     #[serde(default, deserialize_with = "double_option")]
     pub download_folder: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub resolution: Option<Option<String>>,
+    pub min_seeders: Option<i64>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub max_size_mb: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub prefer_words: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub exclude_words: Option<Option<String>>,
 }
 
 impl From<SeriesTaskReplacement> for SeriesTaskPatch {
@@ -466,6 +550,11 @@ impl From<SeriesTaskReplacement> for SeriesTaskPatch {
             check_interval_minutes: Some(r.check_interval_minutes),
             enabled: Some(r.enabled),
             download_folder: Some(r.download_folder),
+            resolution: Some(r.resolution),
+            min_seeders: Some(r.min_seeders),
+            max_size_mb: Some(r.max_size_mb),
+            prefer_words: Some(r.prefer_words),
+            exclude_words: Some(r.exclude_words),
         }
     }
 }
@@ -481,6 +570,9 @@ impl SeriesTaskInput {
         self.provider = optional_text(self.provider);
         self.title_filter = optional_text(self.title_filter);
         self.download_folder = optional_text(self.download_folder);
+        self.resolution = optional_text(self.resolution);
+        self.prefer_words = optional_text(self.prefer_words);
+        self.exclude_words = optional_text(self.exclude_words);
         let mut problems = Vec::new();
         if self.name.is_empty() {
             problems.push("A series task needs a name.");
@@ -499,6 +591,18 @@ impl SeriesTaskInput {
         }
         if self.end_episode.is_some_and(|end| end < self.start_episode) {
             problems.push("endEpisode cannot be before startEpisode.");
+        }
+        if self.resolution.as_deref().is_some_and(|r| !crate::series::quality::RESOLUTIONS.contains(&r)) {
+            problems.push("resolution must be 720p, 1080p or 2160p, or null for any.");
+        }
+        if !(1..=100_000).contains(&self.min_seeders) {
+            problems.push("minSeeders must be at least 1.");
+        }
+        if self.max_size_mb.is_some_and(|mb| !(1..=10_000_000).contains(&mb)) {
+            problems.push("maxSizeMb must be at least 1.");
+        }
+        if [&self.prefer_words, &self.exclude_words].iter().any(|w| w.as_ref().is_some_and(|w| w.chars().count() > 200)) {
+            problems.push("preferWords and excludeWords are at most 200 characters.");
         }
         if problems.is_empty() { Ok(self) } else { Err(ApiError::bad(problems.join(" "))) }
     }

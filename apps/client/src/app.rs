@@ -27,6 +27,8 @@ pub struct AppOptions {
     pub engine: EngineSource,
     pub providers: Vec<Arc<dyn Provider>>,
     pub legacy_database: Option<PathBuf>,
+    /// Series show details from TVmaze; off in tests, which stay offline.
+    pub show_lookups: bool,
 }
 
 impl AppOptions {
@@ -38,6 +40,7 @@ impl AppOptions {
             paths,
             providers: providers::all(),
             legacy_database: legacy_database_path(),
+            show_lookups: true,
         }
     }
 }
@@ -71,7 +74,7 @@ impl App {
     pub fn new(options: AppOptions) -> anyhow::Result<Arc<Self>> {
         // reqwest, the relay socket and SMTP share rustls; pick its crypto once for all of them.
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-        let AppOptions { paths, engine, providers, legacy_database } = options;
+        let AppOptions { paths, engine, providers, legacy_database, show_lookups } = options;
         let db = Db::open(&paths.database)?;
         let kv = KeyValue(db.clone());
         let sealer = Arc::new(SecretBox::open(&paths.secret_key)?);
@@ -90,7 +93,8 @@ impl App {
             paths.torrent_files.clone(),
         );
         let series = Arc::new(SeriesStore::new(db.clone(), events.clone()));
-        let monitor = SeriesMonitor::new(series.clone(), search.clone(), downloads.clone());
+        let posters = show_lookups.then(|| paths.posters.clone());
+        let monitor = SeriesMonitor::new(series.clone(), search.clone(), downloads.clone(), http.clone(), posters);
         let actions = Actions {
             search: search.clone(),
             downloads: downloads.clone(),

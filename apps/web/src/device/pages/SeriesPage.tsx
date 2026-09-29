@@ -1,13 +1,13 @@
-import type { SeriesTaskDto } from '@md/protocol'
-import { ChevronDown, CircleCheck, Pencil, Plus, RefreshCw, Trash2, Tv } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import type { AiringDto, DownloadDto, SeriesResolution, SeriesTaskDto, ShowInfoDto } from '@md/protocol'
+import { ChevronDown, CircleCheck, ExternalLink, Pencil, Plus, RefreshCw, Trash2, Tv } from 'lucide-react'
+import { memo, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useFormatRelative, useT } from '../../lib/i18n.tsx'
-import { PageHeader, Switch } from '../../ui/controls.tsx'
+import { PageHeader, Segmented, Switch } from '../../ui/controls.tsx'
 import { Field, TextField } from '../../ui/fields.tsx'
 import { Empty } from '../../ui/Empty.tsx'
 import { ConfirmDialog, Modal } from '../../ui/Modal.tsx'
 import { useToast } from '../../ui/toast.tsx'
-import { useDevice, useDownloads } from '../DeviceContext.tsx'
+import { useConnection, useDevice, useDownloads } from '../DeviceContext.tsx'
 import { FolderField } from '../components/folders.tsx'
 import { useRun } from '../useRun.ts'
 import { DownloadList } from './DownloadsPage.tsx'
@@ -23,7 +23,14 @@ function episodeLabel(season: number | null, episode: number): string {
 export function SeriesPage() {
   const t = useT()
   const { series } = useDevice()
+  const downloads = useDownloads()
   const [editing, setEditing] = useState<SeriesTaskDto | 'new' | null>(null)
+  // One pass per update; each card keeps its list until one of its own downloads changes.
+  const byTask = useMemo(() => {
+    const groups = new Map<number, DownloadDto[]>()
+    for (const d of downloads) if (d.seriesTaskId !== null) groups.set(d.seriesTaskId, [...(groups.get(d.seriesTaskId) ?? []), d])
+    return groups
+  }, [downloads])
   const add = <button type="button" className="btn btn-primary" onClick={() => setEditing('new')}><Plus size={16} />{t('series.add')}</button>
 
   return (
@@ -35,7 +42,7 @@ export function SeriesPage() {
         </Empty>
       ) : (
         <ul className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-          {series.map(task => <SeriesCard key={task.id} task={task} onEdit={() => setEditing(task)} />)}
+          {series.map(task => <SeriesCard key={task.id} task={task} downloads={byTask.get(task.id) ?? NONE} onEdit={setEditing} />)}
         </ul>
       )}
       <SeriesDialog task={editing} onClose={() => setEditing(null)} />
@@ -43,13 +50,42 @@ export function SeriesPage() {
   )
 }
 
-function SeriesCard({ task, onEdit }: { task: SeriesTaskDto; onEdit: () => void }) {
+const NONE: DownloadDto[] = []
+const sameRows = (a: DownloadDto[], b: DownloadDto[]) => a.length === b.length && a.every((d, i) => d === b[i])
+
+/** Posters by task and show, kept for the page's lifetime: they only change with the show. */
+const posters = new Map<string, Promise<string | null>>()
+
+function usePoster(taskId: number, show: ShowInfoDto | null): string | null {
+  const connection = useConnection()
+  const [poster, setPoster] = useState<string | null>(null)
+  const key = show?.hasPoster ? `${taskId}:${show.tvmazeId}` : null
+  useEffect(() => {
+    if (!key) return setPoster(null)
+    let cancelled = false
+    if (!posters.has(key)) {
+      posters.set(key, connection.call('series.poster', { id: taskId }).then(r => (r.data ? `data:image/jpeg;base64,${r.data}` : null)).catch(() => {
+        posters.delete(key)
+        return null
+      }))
+    }
+    void posters.get(key)!.then(url => { if (!cancelled) setPoster(url) })
+    return () => { cancelled = true }
+  }, [connection, key, taskId])
+  return poster
+}
+
+const SeriesCard = memo(function SeriesCard({ task, downloads, onEdit }: {
+  task: SeriesTaskDto
+  downloads: DownloadDto[]
+  onEdit: (task: SeriesTaskDto) => void
+}) {
   const t = useT()
   const formatRelative = useFormatRelative()
   const toast = useToast()
   const run = useRun()
-  const { connection } = useDevice()
-  const downloads = useDownloads().filter(d => d.seriesTaskId === task.id)
+  const connection = useConnection()
+  const poster = usePoster(task.id, task.show)
   const [checking, setChecking] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [showDownloads, setShowDownloads] = useState(false)
@@ -63,25 +99,36 @@ function SeriesCard({ task, onEdit }: { task: SeriesTaskDto; onEdit: () => void 
 
   const details = [
     task.season !== null && t('series.seasonN', task.season),
+    task.resolution && (task.resolution === '2160p' ? '4K' : task.resolution),
     task.titleFilter,
     task.provider,
     t('series.everyN', intervalLabel(t, task.checkIntervalMinutes)),
   ].filter(Boolean).join(' · ')
   const total = task.endEpisode === null ? null : task.endEpisode - task.startEpisode + 1
   const got = Math.max(0, task.lastDownloadedEpisode - task.startEpisode + 1)
+  const failed = downloads.filter(d => d.status === 'Error').length
+  const show = task.show
+  const next = show?.nextEpisode?.airstamp && new Date(show.nextEpisode.airstamp).getTime() > Date.now() ? show.nextEpisode : null
+  const showLine = show && [show.network, next ? t('series.airs', airingLabel(next), formatRelative(next.airstamp)) : show.status === 'Ended' ? t('series.ended') : null]
+    .filter(Boolean).join(' · ')
 
   return (
     <li className={`surface flex flex-col p-5 ${task.enabled || task.finished ? '' : 'opacity-80'}`}>
-      <div className="flex items-start gap-3">
-        <span className={`grid size-10 shrink-0 place-items-center rounded-field ${task.enabled && !task.finished ? 'bg-primary/10 text-primary' : 'bg-base-200 muted'}`}><Tv size={20} /></span>
+      <div className="flex items-start gap-4">
+        {poster
+          ? <img src={poster} alt="" className="h-24 w-16 shrink-0 rounded-field object-cover shadow-sm" />
+          : <span className={`grid size-12 shrink-0 place-items-center rounded-field ${task.enabled && !task.finished ? 'bg-primary/10 text-primary' : 'bg-base-200 muted'}`}><Tv size={22} /></span>}
         <div className="min-w-0 flex-1">
-          <h2 className="break-release font-semibold leading-snug">{task.name || t('series.unnamed')}</h2>
+          <div className="flex items-start gap-3">
+            <h2 className="break-release min-w-0 flex-1 font-semibold leading-snug">{task.name || t('series.unnamed')}</h2>
+            {!task.finished && (
+              <Switch label={t('series.enabled')} checked={task.enabled}
+                onChange={enabled => void run(() => connection.call('series.update', { id: task.id, patch: { enabled } }), 'settings.saveFailed')} />
+            )}
+          </div>
           <p className="muted mt-0.5 text-sm">{details}</p>
+          {showLine && <p className="mt-0.5 text-xs text-info">{showLine}</p>}
         </div>
-        {!task.finished && (
-          <Switch label={t('series.enabled')} checked={task.enabled}
-            onChange={enabled => void run(() => connection.call('series.update', { id: task.id, patch: { enabled } }), 'settings.saveFailed')} />
-        )}
       </div>
 
       <div className="mt-4">
@@ -104,6 +151,7 @@ function SeriesCard({ task, onEdit }: { task: SeriesTaskDto; onEdit: () => void 
             <p className="muted mt-2 text-xs">
               {!task.enabled ? t('series.pausedHint') : task.lastCheckedAt ? t('series.checkedAgo', formatRelative(task.lastCheckedAt)) : t('series.notCheckedYet')}
             </p>
+            {failed > 0 && <p className="mt-1 text-xs text-warning">{t('series.failedHint', failed)}</p>}
           </>
         )}
       </div>
@@ -114,26 +162,36 @@ function SeriesCard({ task, onEdit }: { task: SeriesTaskDto; onEdit: () => void 
             {checking ? <span className="loading loading-spinner loading-xs" /> : <RefreshCw size={14} />}{t('series.checkNow')}
           </button>
         )}
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onEdit}><Pencil size={14} />{t('common.edit')}</button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => onEdit(task)}><Pencil size={14} />{t('common.edit')}</button>
         {downloads.length > 0 && (
           <button type="button" className="btn btn-ghost btn-sm" aria-expanded={showDownloads} onClick={() => setShowDownloads(s => !s)}>
             {t('series.downloads', downloads.length)}<ChevronDown size={14} className={`transition-transform ${showDownloads ? 'rotate-180' : ''}`} />
           </button>
+        )}
+        {show?.url && (
+          <a className="btn btn-ghost btn-sm btn-square muted" href={show.url} target="_blank" rel="noreferrer noopener" aria-label={t('series.onTvmaze')} title={t('series.onTvmaze')}>
+            <ExternalLink size={14} />
+          </a>
         )}
         <button type="button" className="btn btn-ghost btn-sm btn-square muted ml-auto hover:text-error" aria-label={t('series.deleteTask')} title={t('series.deleteTask')}
           onClick={() => setDeleting(true)}><Trash2 size={16} /></button>
       </div>
       {showDownloads && <div className="mt-3"><DownloadList downloads={downloads} hideSeries /></div>}
 
-      <ConfirmDialog open={deleting} title={t('series.deleteTaskTitle')}
+      {deleting && <ConfirmDialog open title={t('series.deleteTaskTitle')}
         message={downloads.length > 0 ? t('series.deleteConfirmWithDownloads', task.name, downloads.length) : t('series.deleteConfirm', task.name)}
         options={[{ label: t('common.cancel'), value: false, tone: 'ghost' }, { label: t('common.delete'), value: true, tone: 'error' }]}
         onResult={confirmed => {
           setDeleting(false)
           if (confirmed) void run(() => connection.call('series.delete', { id: task.id }))
-        }} />
+        }} />}
     </li>
   )
+}, (a, b) => a.task === b.task && a.onEdit === b.onEdit && sameRows(a.downloads, b.downloads))
+
+/** "S03E15", or just "E15", for an airing. */
+function airingLabel(airing: AiringDto): string {
+  return airing.number === null ? '' : episodeLabel(airing.season, airing.number)
 }
 
 function intervalLabel(t: ReturnType<typeof useT>, minutes: number): string {
@@ -152,6 +210,12 @@ interface Form {
   endEpisode: string
   checkIntervalMinutes: number
   downloadFolder: string
+  resolution: SeriesResolution | ''
+  minSeeders: string
+  maxSizeGb: string
+  preferWords: string
+  excludeWords: string
+  startFrom: 'episode' | 'latest' | 'new'
 }
 
 function formFor(task: SeriesTaskDto | null): Form {
@@ -165,6 +229,12 @@ function formFor(task: SeriesTaskDto | null): Form {
     endEpisode: task?.endEpisode == null ? '' : String(task.endEpisode),
     checkIntervalMinutes: task?.checkIntervalMinutes ?? 60,
     downloadFolder: task?.downloadFolder ?? '',
+    resolution: task?.resolution ?? '',
+    minSeeders: String(task?.minSeeders ?? 1),
+    maxSizeGb: task?.maxSizeMb == null ? '' : String(Math.round((task.maxSizeMb / 1024) * 10) / 10),
+    preferWords: task?.preferWords ?? '',
+    excludeWords: task?.excludeWords ?? '',
+    startFrom: 'episode',
   }
 }
 
@@ -185,7 +255,10 @@ function SeriesDialog({ task, onClose }: { task: SeriesTaskDto | 'new' | null; o
   const number = (v: string) => (v.trim() === '' ? null : Math.max(0, Math.trunc(Number(v))))
   const start = number(form.startEpisode) ?? 1
   const end = number(form.endEpisode)
-  const invalid = !form.query.trim() || (end !== null && end < start)
+  const seeders = number(form.minSeeders)
+  const maxSize = form.maxSizeGb.trim() === '' ? null : Number(form.maxSizeGb)
+  const sizeInvalid = maxSize !== null && !(maxSize > 0)
+  const invalid = !form.query.trim() || (end !== null && end < start) || seeders === null || seeders < 1 || sizeInvalid
 
   const save = async () => {
     const values = {
@@ -198,11 +271,16 @@ function SeriesDialog({ task, onClose }: { task: SeriesTaskDto | 'new' | null; o
       endEpisode: end,
       checkIntervalMinutes: form.checkIntervalMinutes,
       downloadFolder: form.downloadFolder.trim() || null,
+      resolution: form.resolution || null,
+      minSeeders: Math.max(1, seeders ?? 1),
+      maxSizeMb: maxSize === null ? null : Math.max(1, Math.round(maxSize * 1024)),
+      preferWords: form.preferWords.trim() || null,
+      excludeWords: form.excludeWords.trim() || null,
     }
     setSaving(true)
     const saved = existing
       ? await run(() => connection.call('series.update', { id: existing.id, patch: values }), 'settings.saveFailed')
-      : await run(() => connection.call('series.create', { ...values, enabled: true }), 'settings.saveFailed')
+      : await run(() => connection.call('series.create', { ...values, enabled: true, startFrom: form.startFrom }), 'settings.saveFailed')
     setSaving(false)
     if (saved) onClose()
   }
@@ -228,15 +306,45 @@ function SeriesDialog({ task, onClose }: { task: SeriesTaskDto | 'new' | null; o
         </FormSection>
 
         <FormSection title={t('series.episodesTitle')}>
+          {!existing && (
+            <Segmented label={t('series.startFrom')} value={form.startFrom} onChange={set('startFrom')}
+              options={[
+                { value: 'episode', label: t('series.startFrom.episode') },
+                { value: 'latest', label: t('series.startFrom.latest') },
+                { value: 'new', label: t('series.startFrom.new') },
+              ]} />
+          )}
           <div className="grid grid-cols-3 gap-3">
             <TextField label={t('series.season')} type="number" min={0} value={form.season} onChange={set('season')} />
-            <TextField label={t('series.startEpisode')} type="number" min={1} value={form.startEpisode} onChange={set('startEpisode')} />
+            {(existing || form.startFrom === 'episode') && (
+              <TextField label={t('series.startEpisode')} type="number" min={1} value={form.startEpisode} onChange={set('startEpisode')} />
+            )}
             <TextField label={t('series.endEpisode')} type="number" min={1} value={form.endEpisode} onChange={set('endEpisode')} />
           </div>
           {end !== null && end < start
             ? <p className="text-sm text-error">{t('series.endBeforeStart')}</p>
             : <p className="muted text-xs">{t('series.episodesHelp')}</p>}
-          {!existing && <p className="rounded-field bg-info/10 px-3 py-2 text-sm text-info">{t('series.backfillHint', start)}</p>}
+          {!existing && (
+            <p className="rounded-field bg-info/10 px-3 py-2 text-sm text-info">
+              {form.startFrom === 'episode' ? t('series.backfillHint', start) : t(`series.startFromHint.${form.startFrom}`)}
+            </p>
+          )}
+        </FormSection>
+
+        <FormSection title={t('series.qualityTitle')}>
+          <Field label={t('search.resolution')}>
+            <Segmented label={t('search.resolution')} value={form.resolution} onChange={set('resolution')}
+              options={[{ value: '', label: t('search.resolutionAny') }, { value: '720p', label: '720p' }, { value: '1080p', label: '1080p' }, { value: '2160p', label: '4K' }]} />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <TextField label={t('series.minSeeders')} help={t('series.minSeedersHelp')} type="number" min={1} value={form.minSeeders} onChange={set('minSeeders')} />
+            <TextField label={t('series.maxSize')} help={sizeInvalid ? <span className="text-error">{t('settings.speedInvalid')}</span> : t('series.maxSizeHelp')}
+              type="number" min={0.1} step={0.1} value={form.maxSizeGb} placeholder={t('settings.noLimit')} onChange={set('maxSizeGb')} />
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <TextField label={t('series.prefer')} help={t('series.preferHelp')} value={form.preferWords} placeholder="SubsPlease, HEVC" maxLength={200} onChange={set('preferWords')} />
+            <TextField label={t('series.exclude')} help={t('series.excludeHelp')} value={form.excludeWords} placeholder="CAM, dubbed" maxLength={200} onChange={set('excludeWords')} />
+          </div>
         </FormSection>
 
         <FormSection title={t('series.whereTitle')}>

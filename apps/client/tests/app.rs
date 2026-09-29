@@ -76,9 +76,14 @@ fn harness() -> Harness {
     let dir = tempfile::tempdir().unwrap();
     let legacy = legacy_database(dir.path());
     let paths = Paths::new(dir.path().join("data")).unwrap();
-    let app =
-        App::new(AppOptions { paths, engine: EngineSource::Off, providers: vec![Arc::new(Fake)], legacy_database: Some(legacy) })
-            .unwrap();
+    let app = App::new(AppOptions {
+        paths,
+        engine: EngineSource::Off,
+        providers: vec![Arc::new(Fake)],
+        legacy_database: Some(legacy),
+        show_lookups: false,
+    })
+    .unwrap();
     app.start();
     Harness { app, dir }
 }

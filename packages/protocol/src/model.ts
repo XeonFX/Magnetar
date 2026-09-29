@@ -130,6 +130,39 @@ export interface SeriesTaskDto {
   downloadFolder: string | null
   lastCheckedAt: string | null
   finished: boolean
+  /** Only releases of this resolution; null takes any. */
+  resolution: SeriesResolution | null
+  minSeeders: number
+  maxSizeMb: number | null
+  /** Comma-separated words that make a release preferred / rule it out. */
+  preferWords: string | null
+  excludeWords: string | null
+  /** From TVmaze, once the show has been found there. */
+  show: ShowInfoDto | null
+}
+
+export type SeriesResolution = '720p' | '1080p' | '2160p'
+
+/** An episode's place and air time, as TVmaze reports it. */
+export interface AiringDto {
+  season: number | null
+  number: number | null
+  name: string | null
+  airstamp: string | null
+}
+
+export interface ShowInfoDto {
+  tvmazeId: number
+  name: string
+  url: string | null
+  /** "Running", "Ended", "To Be Determined"… */
+  status: string | null
+  premiered: string | null
+  network: string | null
+  /** Whether `series.poster` has an image for it. */
+  hasPoster: boolean
+  nextEpisode: AiringDto | null
+  previousEpisode: AiringDto | null
 }
 
 /** Secret fields are write-only: reads say whether one is set, never what it is. */
@@ -215,6 +248,8 @@ export type SettingsPatch = z.infer<typeof SettingsPatch>
 
 const episode = z.number().int().min(1)
 const optionalText = z.string().trim().transform(v => (v === '' ? null : v)).nullable()
+const resolution = z.enum(['720p', '1080p', '2160p'])
+const words = z.string().trim().max(200).transform(v => (v === '' ? null : v)).nullable()
 
 /**
  * A complete series rule. Creating one fills omitted fields with these defaults; replacing one
@@ -231,6 +266,13 @@ export const SeriesTaskInput = z.strictObject({
   checkIntervalMinutes: z.number().int().min(1).default(60),
   enabled: z.boolean().default(true),
   downloadFolder: optionalText.default(null),
+  resolution: resolution.nullable().default(null),
+  minSeeders: z.number().int().min(1).default(1),
+  maxSizeMb: z.number().int().min(1).nullable().default(null),
+  preferWords: words.default(null),
+  excludeWords: words.default(null),
+  /** Where a new task starts: `startEpisode`, the newest episode out, or only new ones. Creating only. */
+  startFrom: z.enum(['episode', 'latest', 'new']).default('episode'),
 }).refine(t => t.endEpisode == null || t.endEpisode >= t.startEpisode, {
   message: 'endEpisode cannot be before startEpisode.',
 })
@@ -247,6 +289,11 @@ export const SeriesTaskReplacement = z.strictObject({
   checkIntervalMinutes: z.number().int(),
   enabled: z.boolean(),
   downloadFolder: z.string().nullable(),
+  resolution: resolution.nullable(),
+  minSeeders: z.number().int(),
+  maxSizeMb: z.number().int().nullable(),
+  preferWords: z.string().nullable(),
+  excludeWords: z.string().nullable(),
 })
 
 /** A partial change: anything omitted keeps its current value. Null clears a nullable field. */
@@ -261,6 +308,11 @@ export const SeriesTaskPatch = z.strictObject({
   checkIntervalMinutes: z.number().int().optional(),
   enabled: z.boolean().optional(),
   downloadFolder: z.string().nullable().optional(),
+  resolution: resolution.nullable().optional(),
+  minSeeders: z.number().int().min(1).optional(),
+  maxSizeMb: z.number().int().min(1).nullable().optional(),
+  preferWords: z.string().nullable().optional(),
+  excludeWords: z.string().nullable().optional(),
 })
 export type SeriesTaskPatch = z.infer<typeof SeriesTaskPatch>
 

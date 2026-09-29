@@ -16,6 +16,7 @@ async fn start() -> (Arc<App>, String, tempfile::TempDir) {
         engine: EngineSource::Off,
         providers: mediadownloader::search::providers::all(),
         legacy_database: None,
+        show_lookups: false,
     })
     .unwrap();
     app.start();

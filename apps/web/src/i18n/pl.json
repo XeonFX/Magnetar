@@ -456,6 +456,25 @@
     "devices.magnetsButton": "Otwieraj linki magnet tutaj",
     "devices.magnetsAsked": "Przeglądarka poprosi o potwierdzenie; potem linki magnet będą trafiać tutaj.",
     "addRedirect.choose": "Na którym komputerze to pobrać?",
-    "addRedirect.none": "Najpierw połącz tę przeglądarkę z komputerem"
+    "addRedirect.none": "Najpierw połącz tę przeglądarkę z komputerem",
+    "series.airs": "{0} emisja {1}",
+    "series.ended": "Zakończony",
+    "series.onTvmaze": "Serial w TVmaze",
+    "series.failedHint": "Wydania bez seedów: {0}; następne sprawdzenie spróbuje innych.",
+    "series.startFrom": "Zacznij od",
+    "series.startFrom.episode": "Odcinka",
+    "series.startFrom.latest": "Najnowszego",
+    "series.startFrom.new": "Tylko nowych",
+    "series.startFromHint.latest": "Pobierze teraz najnowszy odcinek, a potem każdy nowy. Nic starszego.",
+    "series.startFromHint.new": "Teraz nic nie pobierze; tylko każdy odcinek, który wyjdzie od teraz.",
+    "series.qualityTitle": "Jakość",
+    "series.minSeeders": "Co najmniej tyle seedów",
+    "series.minSeedersHelp": "Przy mniejszej liczbie wydanie jest pomijane.",
+    "series.maxSize": "Największy rozmiar (GB)",
+    "series.maxSizeHelp": "Na odcinek; zostaw puste, aby nie ograniczać.",
+    "series.prefer": "Preferuj wydania z",
+    "series.preferHelp": "Grupa lub kodek; wygrywa z większą liczbą seedów.",
+    "series.exclude": "Nigdy wydań z",
+    "series.excludeHelp": "Słowa oddzielone przecinkami, w dowolnym miejscu nazwy."
   }
 }

@@ -456,6 +456,25 @@
     "devices.magnetsButton": "Apri i link magnet qui",
     "devices.magnetsAsked": "Il browser chiede conferma; dopo, i link magnet arriveranno qui.",
     "addRedirect.choose": "Su quale computer scaricarlo?",
-    "addRedirect.none": "Prima collega questo browser a un computer"
+    "addRedirect.none": "Prima collega questo browser a un computer",
+    "series.airs": "{0} in onda {1}",
+    "series.ended": "Conclusa",
+    "series.onTvmaze": "Serie su TVmaze",
+    "series.failedHint": "{0} release non avevano seeder; il prossimo controllo ne prova altre.",
+    "series.startFrom": "Inizia da",
+    "series.startFrom.episode": "Un episodio",
+    "series.startFrom.latest": "L'ultimo",
+    "series.startFrom.new": "Solo i nuovi",
+    "series.startFromHint.latest": "Scarica ora l'ultimo episodio uscito, poi ogni nuovo. Niente di più vecchio.",
+    "series.startFromHint.new": "Ora non scarica nulla; solo ogni episodio che uscirà da qui in poi.",
+    "series.qualityTitle": "Qualità",
+    "series.minSeeders": "Almeno questi seeder",
+    "series.minSeedersHelp": "Con meno, la release viene saltata.",
+    "series.maxSize": "Dimensione massima (GB)",
+    "series.maxSizeHelp": "Per episodio; vuoto per nessun limite.",
+    "series.prefer": "Preferisci release con",
+    "series.preferHelp": "Un gruppo o un codec; vince su più seeder.",
+    "series.exclude": "Mai release con",
+    "series.excludeHelp": "Parole separate da virgole, ovunque nel nome."
   }
 }

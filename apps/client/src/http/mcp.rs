@@ -37,6 +37,11 @@ fn series_fields() -> Map<String, Value> {
         "checkIntervalMinutes": { "type": "integer", "description": "How often to check, in minutes." },
         "enabled": { "type": "boolean", "description": "False pauses the rule without deleting it." },
         "downloadFolder": nullable("string", "Must be inside the configured download folder; null uses the default."),
+        "resolution": { "type": ["string", "null"], "enum": ["720p", "1080p", "2160p", null], "description": "Only releases of this resolution; null takes any." },
+        "minSeeders": { "type": "integer", "minimum": 1, "description": "Skip releases with fewer seeders (default 1)." },
+        "maxSizeMb": nullable("integer", "Skip releases larger than this many MiB; null means no limit."),
+        "preferWords": nullable("string", "Comma-separated words that make a release preferred (a group such as SubsPlease, a codec such as HEVC)."),
+        "excludeWords": nullable("string", "Comma-separated words that rule a release out (CAM, dubbed)."),
     });
     fields.as_object().cloned().unwrap_or_default()
 }
@@ -133,6 +138,11 @@ fn tools() -> Vec<Value> {
                     json!({
                         "name": { "type": "string" },
                         "query": { "type": "string", "description": "Search query, e.g. \"One Piece 1080p\"." },
+                        "startFrom": {
+                            "type": "string",
+                            "enum": ["episode", "latest", "new"],
+                            "description": "episode: from startEpisode, catching up on everything after it (default). latest: the newest episode already out, then each new one. new: only episodes released from now on."
+                        },
                     }),
                 ),
                 &["name", "query"],
@@ -224,7 +234,7 @@ async fn call_tool(actions: &Actions, name: &str, arguments: &Value, cancel: &Ca
             to_value(actions.delete_download(a.id, a.delete_files).await?)
         }
         "list_series_tasks" => to_value(actions.list_series()),
-        "create_series_task" => to_value(actions.create_series(args::<SeriesTaskInput>(name, arguments)?)?),
+        "create_series_task" => to_value(actions.create_series(args::<SeriesTaskInput>(name, arguments)?).await?),
         "update_series_task" => {
             let id = args::<Id>(name, arguments)?.id;
             let mut fields = arguments.clone();

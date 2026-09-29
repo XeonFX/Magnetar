@@ -61,6 +61,8 @@ export const RPC_PARAMS = {
   'series.update': z.strictObject({ id: z.number().int(), patch: SeriesTaskPatch }),
   'series.delete': id,
   'series.checkNow': id,
+  /** The show's poster from TVmaze, base64 JPEG, or null. */
+  'series.poster': id,
 
   'settings.get': none,
   'settings.update': SettingsPatch,
@@ -134,6 +136,7 @@ export interface RpcResults {
   'series.update': SeriesTaskDto
   'series.delete': null
   'series.checkNow': SeriesTaskDto
+  'series.poster': { data: string | null }
   'settings.get': SettingsDto
   'settings.update': SettingsDto
   'notifications.test': null

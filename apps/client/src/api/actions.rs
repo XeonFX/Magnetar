@@ -12,11 +12,12 @@ use crate::downloads::{AddDownload, DownloadManager};
 use crate::error::{ApiError, ApiResult, ErrorCode};
 use crate::protocol::{
     DOWNLOAD_STATUSES, DownloadDto, DownloadStatus, SearchResponse, SeriesTaskDto, SeriesTaskInput, SeriesTaskPatch, SourceDto,
-    StartDownloadInput, TorrentDetailsDto,
+    StartDownloadInput, StartFrom, TorrentDetailsDto,
 };
 use crate::search::SearchService;
 use crate::search::cache::{SearchResultCache, to_result_dto};
 use crate::search::types::SharedResult;
+use crate::series::episode::EpisodeRule;
 use crate::series::{SeriesMonitor, SeriesStore};
 use crate::settings::SettingsService;
 
@@ -231,11 +232,37 @@ impl Actions {
         Ok(self.series.get(id)?.to_dto())
     }
 
-    pub fn create_series(&self, input: SeriesTaskInput) -> ApiResult<SeriesTaskDto> {
+    /// Creates a rule. Starting from the latest episode, or with new ones only, first asks the
+    /// sources what is already out, so the rule doesn't download a backlog nobody wanted.
+    pub async fn create_series(&self, input: SeriesTaskInput) -> ApiResult<SeriesTaskDto> {
         let mut input = input.validated()?;
         self.require_available_source(input.provider.as_deref())?;
         input.download_folder = self.folder(input.download_folder.as_deref())?;
-        Ok(self.series.create(&input)?.to_dto())
+        let latest = match input.start_from {
+            StartFrom::Episode => None,
+            _ => {
+                self.limit("series lookup")?;
+                let rule = EpisodeRule { query: &input.query, title_filter: input.title_filter.as_deref(), season: input.season };
+                Some(self.monitor.latest_episode(&rule, input.provider.as_deref()).await?)
+            }
+        };
+        let mut task = self.series.create(&input)?;
+        if let Some(latest) = latest {
+            task.last_downloaded_episode = if input.start_from == StartFrom::New { latest } else { (latest - 1).max(0) };
+            self.series.save(&task)?;
+        }
+        self.refresh_show_later(task.id);
+        Ok(task.to_dto())
+    }
+
+    /// Looks the show up on TVmaze in the background; the card fills in when it answers.
+    fn refresh_show_later(&self, id: i64) {
+        let monitor = self.monitor.clone();
+        tokio::spawn(async move {
+            if let Err(error) = monitor.refresh_show(id).await {
+                tracing::debug!("TVmaze lookup failed: {error}");
+            }
+        });
     }
 
     /// Changes only the fields supplied, then validates the merged result so a patch can't leave the
@@ -256,8 +283,14 @@ impl Actions {
             end_episode,
             check_interval_minutes,
             enabled,
-            download_folder
+            download_folder,
+            resolution,
+            min_seeders,
+            max_size_mb,
+            prefer_words,
+            exclude_words
         );
+        let renamed = merged.name.trim() != task.name;
         let mut merged = merged.validated()?;
         if patch.provider.is_some() {
             self.require_available_source(merged.provider.as_deref())?;
@@ -270,6 +303,9 @@ impl Actions {
         };
         task.apply(merged);
         self.series.save(&task)?;
+        if renamed {
+            self.refresh_show_later(task.id);
+        }
         Ok(task.to_dto())
     }
 

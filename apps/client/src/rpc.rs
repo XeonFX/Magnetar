@@ -440,7 +440,11 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
             parse::<NoParams>(params)?;
             ok(a.list_series())
         }
-        "series.create" => ok(a.create_series(parse::<SeriesTaskInput>(params)?)?),
+        "series.create" => ok(a.create_series(parse::<SeriesTaskInput>(params)?).await?),
+        "series.poster" => {
+            let poster = app.monitor.poster(parse::<IdParams>(params)?.id)?;
+            ok(json!({ "data": poster.map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes)) }))
+        }
         "series.update" => {
             let SeriesUpdate { id, patch } = parse(params)?;
             ok(a.update_series(id, patch)?)

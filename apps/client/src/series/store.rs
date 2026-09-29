@@ -1,11 +1,12 @@
 use rusqlite::{OptionalExtension, Row, params};
 
 use super::episode::EpisodeRule;
+use super::quality::{QualityRule, words};
 use crate::db::Db;
 use crate::error::{ApiError, ApiResult};
 use crate::events::EventBus;
 use crate::protocol::encoding::now_iso;
-use crate::protocol::{SeriesTaskDto, SeriesTaskInput};
+use crate::protocol::{SeriesTaskDto, SeriesTaskInput, ShowInfoDto, StartFrom};
 
 #[derive(Clone, Debug)]
 pub struct SeriesTask {
@@ -22,6 +23,13 @@ pub struct SeriesTask {
     pub check_interval_minutes: i64,
     pub enabled: bool,
     pub last_checked_at: Option<String>,
+    pub resolution: Option<String>,
+    pub min_seeders: i64,
+    pub max_size_mb: Option<i64>,
+    pub prefer_words: Option<String>,
+    pub exclude_words: Option<String>,
+    pub show: Option<ShowInfoDto>,
+    pub show_checked_at: Option<String>,
 }
 
 impl SeriesTask {
@@ -40,6 +48,13 @@ impl SeriesTask {
             check_interval_minutes: row.get("check_interval_minutes")?,
             enabled: row.get("enabled")?,
             last_checked_at: row.get("last_checked_at")?,
+            resolution: row.get("resolution")?,
+            min_seeders: row.get("min_seeders")?,
+            max_size_mb: row.get("max_size_mb")?,
+            prefer_words: row.get("prefer_words")?,
+            exclude_words: row.get("exclude_words")?,
+            show: row.get::<_, Option<String>>("show_info")?.and_then(|json| serde_json::from_str(&json).ok()),
+            show_checked_at: row.get("show_checked_at")?,
         })
     }
 
@@ -49,6 +64,16 @@ impl SeriesTask {
 
     pub fn is_finished(&self) -> bool {
         self.end_episode.is_some_and(|end| self.last_downloaded_episode >= end)
+    }
+
+    pub fn quality(&self) -> QualityRule {
+        QualityRule {
+            resolution: self.resolution.clone(),
+            min_seeders: self.min_seeders.clamp(1, u32::MAX as i64) as u32,
+            max_size_bytes: self.max_size_mb.map(|mb| mb.max(1) as u64 * 1024 * 1024),
+            prefer: words(self.prefer_words.as_deref()),
+            exclude: words(self.exclude_words.as_deref()),
+        }
     }
 
     pub fn rule(&self) -> EpisodeRule<'_> {
@@ -68,6 +93,12 @@ impl SeriesTask {
             check_interval_minutes: self.check_interval_minutes,
             enabled: self.enabled,
             download_folder: self.download_folder.clone(),
+            resolution: self.resolution.clone(),
+            min_seeders: self.min_seeders,
+            max_size_mb: self.max_size_mb,
+            prefer_words: self.prefer_words.clone(),
+            exclude_words: self.exclude_words.clone(),
+            start_from: StartFrom::Episode,
         }
     }
 
@@ -82,6 +113,11 @@ impl SeriesTask {
         self.check_interval_minutes = input.check_interval_minutes;
         self.enabled = input.enabled;
         self.download_folder = input.download_folder;
+        self.resolution = input.resolution;
+        self.min_seeders = input.min_seeders;
+        self.max_size_mb = input.max_size_mb;
+        self.prefer_words = input.prefer_words;
+        self.exclude_words = input.exclude_words;
     }
 
     pub fn to_dto(&self) -> SeriesTaskDto {
@@ -101,6 +137,12 @@ impl SeriesTask {
             download_folder: self.download_folder.clone(),
             last_checked_at: self.last_checked_at.clone(),
             finished: self.is_finished(),
+            resolution: self.resolution.clone(),
+            min_seeders: self.min_seeders,
+            max_size_mb: self.max_size_mb,
+            prefer_words: self.prefer_words.clone(),
+            exclude_words: self.exclude_words.clone(),
+            show: self.show.clone(),
         }
     }
 }
@@ -132,8 +174,8 @@ impl SeriesStore {
     pub fn create(&self, input: &SeriesTaskInput) -> ApiResult<SeriesTask> {
         let task = self.db.lock().query_row(
             "INSERT INTO series_tasks (name, query, provider, title_filter, season, start_episode, end_episode, download_folder,
-               check_interval_minutes, enabled, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
+               check_interval_minutes, enabled, created_at, resolution, min_seeders, max_size_mb, prefer_words, exclude_words)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
             params![
                 input.name,
                 input.query,
@@ -145,7 +187,12 @@ impl SeriesStore {
                 input.download_folder,
                 input.check_interval_minutes,
                 input.enabled,
-                now_iso()
+                now_iso(),
+                input.resolution,
+                input.min_seeders,
+                input.max_size_mb,
+                input.prefer_words,
+                input.exclude_words
             ],
             SeriesTask::from_row,
         )?;
@@ -157,7 +204,8 @@ impl SeriesStore {
         self.db.lock().execute(
             "UPDATE series_tasks SET name = ?, query = ?, provider = ?, title_filter = ?, season = ?, start_episode = ?,
                end_episode = ?, download_folder = ?, last_downloaded_episode = ?, check_interval_minutes = ?, enabled = ?,
-               last_checked_at = ?
+               last_checked_at = ?, resolution = ?, min_seeders = ?, max_size_mb = ?, prefer_words = ?, exclude_words = ?,
+               show_info = ?, show_checked_at = ?
              WHERE id = ?",
             params![
                 task.name,
@@ -172,6 +220,13 @@ impl SeriesStore {
                 task.check_interval_minutes,
                 task.enabled,
                 task.last_checked_at,
+                task.resolution,
+                task.min_seeders,
+                task.max_size_mb,
+                task.prefer_words,
+                task.exclude_words,
+                task.show.as_ref().map(|show| serde_json::to_string(show).unwrap_or_default()),
+                task.show_checked_at,
                 task.id
             ],
         )?;
@@ -185,6 +240,25 @@ impl SeriesStore {
         self.db.lock().execute("DELETE FROM series_tasks WHERE id = ?", [id])?;
         self.changed();
         Ok(())
+    }
+
+    /// A release that failed for this task (nobody seeded it); it is never picked again.
+    pub fn reject(&self, id: i64, info_hash: &str) {
+        let _ = self
+            .db
+            .lock()
+            .execute("INSERT OR IGNORE INTO series_rejects (task_id, info_hash) VALUES (?, ?)", params![id, info_hash]);
+    }
+
+    pub fn rejected(&self, id: i64) -> std::collections::HashSet<String> {
+        let db = self.db.lock();
+        let Ok(mut statement) = db.prepare("SELECT info_hash FROM series_rejects WHERE task_id = ?") else {
+            return Default::default();
+        };
+        statement
+            .query_map([id], |r| r.get::<_, String>(0))
+            .map(|rows| rows.filter_map(Result::ok).map(|h| h.to_lowercase()).collect())
+            .unwrap_or_default()
     }
 
     pub fn dtos(&self) -> Vec<SeriesTaskDto> {

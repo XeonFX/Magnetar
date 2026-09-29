@@ -456,6 +456,25 @@
     "devices.magnetsButton": "Ouvrir les liens magnet ici",
     "devices.magnetsAsked": "Votre navigateur demande confirmation ; ensuite, les liens magnet arriveront ici.",
     "addRedirect.choose": "Le télécharger sur quel ordinateur ?",
-    "addRedirect.none": "Associez d'abord ce navigateur à un ordinateur"
+    "addRedirect.none": "Associez d'abord ce navigateur à un ordinateur",
+    "series.airs": "{0} diffusé {1}",
+    "series.ended": "Terminée",
+    "series.onTvmaze": "Série sur TVmaze",
+    "series.failedHint": "{0} versions n'avaient aucun seeder ; la prochaine vérification en essaie d'autres.",
+    "series.startFrom": "Commencer par",
+    "series.startFrom.episode": "Un épisode",
+    "series.startFrom.latest": "Le dernier",
+    "series.startFrom.new": "Seulement les nouveaux",
+    "series.startFromHint.latest": "Télécharge maintenant le dernier épisode sorti, puis chaque nouveau. Rien de plus ancien.",
+    "series.startFromHint.new": "Ne télécharge rien maintenant ; chaque épisode qui sortira à partir d'ici.",
+    "series.qualityTitle": "Qualité",
+    "series.minSeeders": "Au moins ce nombre de seeders",
+    "series.minSeedersHelp": "En dessous, la version est ignorée.",
+    "series.maxSize": "Taille maximale (Go)",
+    "series.maxSizeHelp": "Par épisode ; laissez vide pour aucune limite.",
+    "series.prefer": "Préférer les versions avec",
+    "series.preferHelp": "Un groupe ou un codec ; l'emporte sur plus de seeders.",
+    "series.exclude": "Jamais de versions avec",
+    "series.excludeHelp": "Mots séparés par des virgules, n'importe où dans le nom."
   }
 }

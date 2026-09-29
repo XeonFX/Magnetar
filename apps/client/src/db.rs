@@ -76,6 +76,20 @@ CREATE TABLE push_subscriptions (
 );
 CREATE INDEX push_subscriptions_key ON push_subscriptions(key_id);
 ",
+    r"
+ALTER TABLE series_tasks ADD COLUMN resolution TEXT;
+ALTER TABLE series_tasks ADD COLUMN min_seeders INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE series_tasks ADD COLUMN max_size_mb INTEGER;
+ALTER TABLE series_tasks ADD COLUMN prefer_words TEXT;
+ALTER TABLE series_tasks ADD COLUMN exclude_words TEXT;
+ALTER TABLE series_tasks ADD COLUMN show_info TEXT;
+ALTER TABLE series_tasks ADD COLUMN show_checked_at TEXT;
+CREATE TABLE series_rejects (
+  task_id INTEGER NOT NULL REFERENCES series_tasks(id) ON DELETE CASCADE,
+  info_hash TEXT NOT NULL COLLATE NOCASE,
+  PRIMARY KEY (task_id, info_hash)
+);
+",
 ];
 
 /// The app database. Statements are short, so one connection behind a mutex serves every service.

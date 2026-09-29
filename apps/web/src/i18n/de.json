@@ -456,6 +456,25 @@
     "devices.magnetsButton": "Magnet-Links hier öffnen",
     "devices.magnetsAsked": "Dein Browser fragt nach einer Bestätigung; danach landen Magnet-Links hier.",
     "addRedirect.choose": "Auf welchem Computer herunterladen?",
-    "addRedirect.none": "Verknüpfe diesen Browser zuerst mit einem Computer"
+    "addRedirect.none": "Verknüpfe diesen Browser zuerst mit einem Computer",
+    "series.airs": "{0} läuft {1}",
+    "series.ended": "Beendet",
+    "series.onTvmaze": "Serie auf TVmaze",
+    "series.failedHint": "{0} Releases hatten keine Seeder; die nächste Prüfung versucht andere.",
+    "series.startFrom": "Beginnen mit",
+    "series.startFrom.episode": "Einer Folge",
+    "series.startFrom.latest": "Der neuesten",
+    "series.startFrom.new": "Nur neuen",
+    "series.startFromHint.latest": "Lädt die neueste bereits erschienene Folge und danach jede neue. Nichts Älteres.",
+    "series.startFromHint.new": "Lädt jetzt nichts, nur jede Folge, die ab jetzt erscheint.",
+    "series.qualityTitle": "Qualität",
+    "series.minSeeders": "Mindestens so viele Seeder",
+    "series.minSeedersHelp": "Weniger, und ein Release wird übersprungen.",
+    "series.maxSize": "Maximale Größe (GB)",
+    "series.maxSizeHelp": "Pro Folge; leer lassen für kein Limit.",
+    "series.prefer": "Releases bevorzugen mit",
+    "series.preferHelp": "Eine Gruppe oder ein Codec; schlägt mehr Seeder.",
+    "series.exclude": "Niemals Releases mit",
+    "series.excludeHelp": "Wörter durch Kommas getrennt, irgendwo im Namen."
   }
 }

@@ -24,6 +24,8 @@ use crate::settings::{AppSettings, SettingsService};
 
 /// A dead torrent otherwise sits on "Fetching metadata" forever with no feedback.
 pub const METADATA_TIMEOUT: Duration = Duration::from_secs(3 * 60);
+/// How a download that found nobody to fetch it from fails; series replace those with another release.
+pub const NO_PEERS: &str = "No peers found";
 const TICK: Duration = Duration::from_secs(1);
 const PERSIST_EVERY_TICKS: u64 = 20;
 /// Ids of the downloads an update paused, for the next start to resume.
@@ -498,11 +500,12 @@ impl DownloadManager {
             .collect()
     }
 
-    /// Series downloads that failed, with the episode each was for.
-    pub fn failed_episodes(&self, series_task_id: i64) -> Vec<(i64, i64, String)> {
+    /// Series downloads that died for want of peers: (download id, episode, info hash).
+    pub fn dead_episodes(&self, series_task_id: i64) -> Vec<(i64, i64, String)> {
         self.items()
             .values()
             .filter(|i| i.series_task_id == Some(series_task_id) && i.status == DownloadStatus::Error)
+            .filter(|i| i.error.as_deref().is_some_and(|e| e.starts_with(NO_PEERS)))
             .filter_map(|i| Some((i.id, i.episode?, i.info_hash.clone())))
             .collect()
     }
@@ -844,7 +847,7 @@ impl DownloadManager {
                 Ok(resolved) => resolved?,
                 Err(_) => {
                     tracing::info!("Gave up fetching metadata for download {id} after 3 min (no peers)");
-                    anyhow::bail!("No peers found — the torrent may be dead or have no seeders.");
+                    anyhow::bail!("{NO_PEERS} — the torrent may be dead or have no seeders.");
                 }
             },
         };

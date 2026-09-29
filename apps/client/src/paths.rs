@@ -14,6 +14,8 @@ pub struct Paths {
     pub dht_state: PathBuf,
     /// The torrent engine's own list of torrents and the pieces each has verified.
     pub torrent_session: PathBuf,
+    /// Series posters from TVmaze.
+    pub posters: PathBuf,
 }
 
 impl Paths {
@@ -28,6 +30,7 @@ impl Paths {
             lock: data_dir.join("instance.lock"),
             dht_state: data_dir.join("dht.json"),
             torrent_session: data_dir.join("session"),
+            posters: data_dir.join("posters"),
             data_dir,
         })
     }

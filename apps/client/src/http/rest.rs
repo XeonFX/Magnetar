@@ -110,7 +110,7 @@ pub async fn handle(
             (Route::Download(id), _) => to_json(actions.get_download(id)?),
             (Route::DownloadPause(id), _) => to_json(actions.pause(id).await?),
             (Route::DownloadResume(id), _) => to_json(actions.resume(id)?),
-            (Route::Series, "POST") => to_json(actions.create_series(body::<SeriesTaskInput>(bytes)?)?),
+            (Route::Series, "POST") => to_json(actions.create_series(body::<SeriesTaskInput>(bytes)?).await?),
             (Route::Series, _) => to_json(actions.list_series()),
             (Route::SeriesTask(id), "PUT") => to_json(actions.update_series(id, body::<SeriesTaskReplacement>(bytes)?.into())?),
             (Route::SeriesTask(id), "PATCH") => to_json(actions.update_series(id, body::<SeriesTaskPatch>(bytes)?)?),

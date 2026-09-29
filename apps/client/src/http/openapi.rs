@@ -29,9 +29,17 @@ pub fn document() -> Value {
         "checkIntervalMinutes": { "type": "integer" },
         "enabled": { "type": "boolean" },
         "downloadFolder": nullable("string"),
+        "resolution": { "type": ["string", "null"], "enum": ["720p", "1080p", "2160p", null] },
+        "minSeeders": { "type": "integer", "minimum": 1 },
+        "maxSizeMb": nullable("integer"),
+        "preferWords": nullable("string"),
+        "excludeWords": nullable("string"),
     });
     let all_fields: Vec<&str> = series_properties.as_object().map(|o| o.keys().map(String::as_str).collect()).unwrap_or_default();
     let series = |required: &[&str]| json!({ "type": "object", "properties": series_properties, "required": required, "additionalProperties": false });
+    let mut create_properties = series_properties.clone();
+    create_properties["startFrom"] = json!({ "type": "string", "enum": ["episode", "latest", "new"] });
+    let create_series = json!({ "type": "object", "properties": create_properties, "required": ["name", "query"], "additionalProperties": false });
     json!({
         "openapi": "3.1.0",
         "info": { "title": "MediaDownloader agent API", "version": VERSION },
@@ -79,7 +87,7 @@ pub fn document() -> Value {
             "/api/downloads/{id}/resume": { "post": { "summary": "Resume or retry", "parameters": [id], "responses": ok } },
             "/api/series": {
                 "get": { "summary": "List series tasks", "responses": ok },
-                "post": { "summary": "Create a series task", "requestBody": body(series(&["name", "query"])), "responses": ok },
+                "post": { "summary": "Create a series task", "requestBody": body(create_series), "responses": ok },
             },
             "/api/series/{id}": {
                 "get": { "summary": "Get a series task", "parameters": [id], "responses": ok },

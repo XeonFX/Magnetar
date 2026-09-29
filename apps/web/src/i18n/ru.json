@@ -456,6 +456,25 @@
     "devices.magnetsButton": "Открывать magnet-ссылки здесь",
     "devices.magnetsAsked": "Браузер попросит подтвердить; после этого magnet-ссылки будут приходить сюда.",
     "addRedirect.choose": "На каком компьютере скачать?",
-    "addRedirect.none": "Сначала свяжите этот браузер с компьютером"
+    "addRedirect.none": "Сначала свяжите этот браузер с компьютером",
+    "series.airs": "{0} выходит {1}",
+    "series.ended": "Завершён",
+    "series.onTvmaze": "Сериал на TVmaze",
+    "series.failedHint": "У раздач без сидов: {0}; следующая проверка попробует другие.",
+    "series.startFrom": "Начать с",
+    "series.startFrom.episode": "Эпизода",
+    "series.startFrom.latest": "Последнего",
+    "series.startFrom.new": "Только новых",
+    "series.startFromHint.latest": "Скачает последний вышедший эпизод, затем каждый новый. Ничего старее.",
+    "series.startFromHint.new": "Сейчас ничего не скачает; только эпизоды, которые выйдут с этого момента.",
+    "series.qualityTitle": "Качество",
+    "series.minSeeders": "Минимум сидов",
+    "series.minSeedersHelp": "Если меньше — раздача пропускается.",
+    "series.maxSize": "Наибольший размер (ГБ)",
+    "series.maxSizeHelp": "На эпизод; пусто — без ограничения.",
+    "series.prefer": "Предпочитать раздачи с",
+    "series.preferHelp": "Группа или кодек; важнее числа сидов.",
+    "series.exclude": "Никогда не брать раздачи с",
+    "series.excludeHelp": "Слова через запятую, в любом месте названия."
   }
 }
