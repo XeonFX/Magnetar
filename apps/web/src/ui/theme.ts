@@ -1,38 +1,55 @@
 import { useCallback, useEffect, useState } from 'react'
 
-function current(): 'dark' | 'light' {
-  return document.documentElement.getAttribute('data-theme') === 'mddark' ? 'dark' : 'light'
+export type ThemeMode = 'system' | 'light' | 'dark'
+
+const KEY = 'md-theme'
+const CHANGED = 'md-theme-changed'
+
+function savedMode(): ThemeMode {
+  try {
+    const saved = localStorage.getItem(KEY)
+    return saved === 'light' || saved === 'dark' ? saved : 'system'
+  } catch {
+    return 'system'
+  }
 }
 
-/** Light/dark switch, remembered per browser; public/theme.js applies it before first paint. */
-export function useTheme(): ['dark' | 'light', () => void] {
-  const [theme, setTheme] = useState(current)
+function apply(mode: ThemeMode): 'light' | 'dark' {
+  const dark = mode === 'system' ? matchMedia('(prefers-color-scheme: dark)').matches : mode === 'dark'
+  document.documentElement.setAttribute('data-theme', dark ? 'mddark' : 'mdlight')
+  return dark ? 'dark' : 'light'
+}
+
+/**
+ * Light, dark, or following the system; remembered per browser. public/theme.js applies it before
+ * first paint. Returns the chosen mode, the theme in effect, and a setter.
+ */
+export function useTheme(): { mode: ThemeMode; theme: 'light' | 'dark'; setMode: (mode: ThemeMode) => void } {
+  const [mode, setModeState] = useState(savedMode)
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => apply(savedMode()))
   useEffect(() => {
-    // Follow the system while the user hasn't chosen.
     const media = matchMedia('(prefers-color-scheme: dark)')
-    const onChange = () => {
-      let saved: string | null = null
-      try {
-        saved = localStorage.getItem('md-theme')
-      } catch {
-        // storage unavailable
-      }
-      if (saved) return
-      document.documentElement.setAttribute('data-theme', media.matches ? 'mddark' : 'mdlight')
-      setTheme(current())
+    const sync = () => {
+      setModeState(savedMode())
+      setTheme(apply(savedMode()))
     }
-    media.addEventListener('change', onChange)
-    return () => media.removeEventListener('change', onChange)
+    media.addEventListener('change', sync)
+    // Another component on the page changed it.
+    window.addEventListener(CHANGED, sync)
+    return () => {
+      media.removeEventListener('change', sync)
+      window.removeEventListener(CHANGED, sync)
+    }
   }, [])
-  const toggle = useCallback(() => {
-    const next = current() === 'dark' ? 'light' : 'dark'
-    document.documentElement.setAttribute('data-theme', next === 'dark' ? 'mddark' : 'mdlight')
+  const setMode = useCallback((next: ThemeMode) => {
     try {
-      localStorage.setItem('md-theme', next)
+      if (next === 'system') localStorage.removeItem(KEY)
+      else localStorage.setItem(KEY, next)
     } catch {
-      // storage unavailable: the choice lasts for this page only
+      // Storage unavailable: the choice lasts for this page only.
     }
-    setTheme(next)
+    apply(next)
+    window.dispatchEvent(new Event(CHANGED))
   }, [])
-  return [theme, toggle]
+  return { mode, theme, setMode }
 }

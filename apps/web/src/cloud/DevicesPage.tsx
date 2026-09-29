@@ -3,7 +3,7 @@ import { ChevronRight, Laptop, MonitorSmartphone, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { cloud } from '../lib/cloudApi.ts'
-import { useFormatDate, useT } from '../lib/i18n.tsx'
+import { useFormatRelative, useT } from '../lib/i18n.tsx'
 import { forgetDeviceKey, listDeviceKeys } from '../lib/keyStore.ts'
 import { Empty } from '../ui/Empty.tsx'
 import { ConfirmDialog } from '../ui/Modal.tsx'
@@ -13,7 +13,7 @@ import { CloudFrame } from './CloudFrame.tsx'
 export function DevicesPage() {
   const t = useT()
   const toast = useToast()
-  const formatDate = useFormatDate()
+  const formatRelative = useFormatRelative()
   const [devices, setDevices] = useState<CloudDeviceDto[] | null>(null)
   const [linked, setLinked] = useState<Set<string>>(new Set())
   const [removing, setRemoving] = useState<CloudDeviceDto | null>(null)
@@ -36,42 +36,47 @@ export function DevicesPage() {
 
   return (
     <CloudFrame>
-      <h1 className="mb-1 text-2xl font-bold sm:text-3xl">{t('devices.title')}</h1>
-      <p className="mb-6 text-sm text-base-content/60">{t('devices.subtitle')}</p>
+      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{t('devices.title')}</h1>
+      <p className="muted mb-6 mt-1 text-sm">{t('devices.subtitle')}</p>
       {devices === null ? (
         <div className="flex justify-center py-16"><span className="loading loading-spinner loading-lg text-primary" /></div>
       ) : devices.length === 0 ? (
-        <Empty icon={<MonitorSmartphone size={40} className="text-primary" />} title={t('devices.emptyTitle')} text={t('devices.emptyHint')}>
-          <a className="link link-primary text-sm" href="https://github.com/XeonFX/MediaDownloader/releases/latest" target="_blank" rel="noreferrer noopener">{t('devices.download')}</a>
+        <Empty icon={<MonitorSmartphone size={40} strokeWidth={1.5} className="text-primary" />} title={t('devices.emptyTitle')} text={t('devices.emptyHint')}>
+          <a className="btn btn-primary" href="https://github.com/XeonFX/MediaDownloader/releases/latest" target="_blank" rel="noreferrer noopener">{t('devices.download')}</a>
         </Empty>
       ) : (
-        <ul className="flex flex-col gap-2">
-          {devices.map(device => {
-            const hasKey = linked.has(device.id)
-            const body = (
-              <>
-                <div className={`grid size-11 shrink-0 place-items-center rounded-full ${device.online ? 'bg-success/15 text-success' : 'bg-base-300 text-base-content/50'}`}><Laptop size={22} /></div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-semibold">{device.name}</div>
-                  <div className="text-xs text-base-content/60">
-                    <span className={device.online ? 'text-success' : ''}>{device.online ? t('devices.online') : t('devices.offline')}</span>
-                    {' · '}{device.platform} · v{device.version}
-                    {!device.online && device.lastSeenAt && <> · {t('remote.lastSeen', formatDate(device.lastSeenAt, true))}</>}
+        <>
+          <ul className="flex flex-col gap-2">
+            {devices.map(device => {
+              const hasKey = linked.has(device.id)
+              const body = (
+                <>
+                  <span className="relative grid size-11 shrink-0 place-items-center rounded-field bg-base-200">
+                    <Laptop size={22} className={device.online ? '' : 'muted'} />
+                    <span className={`absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-base-100 ${device.online ? 'bg-success' : 'bg-base-300'}`} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-semibold">{device.name}</div>
+                    <div className="muted mt-0.5 text-xs">
+                      {device.online ? <span className="text-success">{t('devices.online')}</span>
+                        : device.lastSeenAt ? t('remote.lastSeen', formatRelative(device.lastSeenAt)) : t('devices.offline')}
+                      {' · '}{device.platform} · v{device.version}
+                    </div>
+                    {!hasKey && <div className="mt-1 text-xs text-warning">{t('devices.notLinked')}</div>}
                   </div>
-                  {!hasKey && <div className="mt-1 text-xs text-warning">{t('devices.notLinked')}</div>}
-                </div>
-              </>
-            )
-            return (
-              <li key={device.id} className="surface flex items-center gap-2 p-2 pr-3">
-                {hasKey
-                  ? <Link to={`/d/${encodeURIComponent(device.id)}`} className="flex min-w-0 flex-1 items-center gap-3 rounded-field p-2 hover:bg-base-200">{body}<ChevronRight size={18} className="text-base-content/40" /></Link>
-                  : <div className="flex min-w-0 flex-1 items-center gap-3 p-2">{body}</div>}
-                <button type="button" className="btn btn-ghost btn-sm btn-square text-error" aria-label={t('devices.remove')} title={t('devices.remove')} onClick={() => setRemoving(device)}><Trash2 size={16} /></button>
-              </li>
-            )
-          })}
-        </ul>
+                </>
+              )
+              return (
+                <li key={device.id} className="surface flex items-center gap-1 p-2 transition-colors hover:border-base-content/20">
+                  {/* Not linked yet: the device page explains how to link this browser. */}
+                  <Link to={`/d/${encodeURIComponent(device.id)}`} className="flex min-w-0 flex-1 items-center gap-3 rounded-field p-2">{body}<ChevronRight size={18} className="muted" /></Link>
+                  <button type="button" className="btn btn-ghost btn-sm btn-square muted hover:text-error" aria-label={t('devices.remove')} title={t('devices.remove')} onClick={() => setRemoving(device)}><Trash2 size={16} /></button>
+                </li>
+              )
+            })}
+          </ul>
+          <p className="muted mt-6 text-sm">{t('devices.addHint')}</p>
+        </>
       )}
       <ConfirmDialog open={removing !== null} title={t('devices.removeTitle')} message={t('devices.removeConfirm', removing?.name ?? '')}
         options={[{ label: t('common.cancel'), value: false, tone: 'ghost' }, { label: t('devices.remove'), value: true, tone: 'error' }]}

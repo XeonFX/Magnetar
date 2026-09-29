@@ -69,14 +69,15 @@ website's device list. How the encryption works is described in [docs/ARCHITECTU
 
 ## Upgrading from 1.x
 
-Version 2 keeps its data separately, so 1.x keeps working. In **Settings → Import from the previous version**, import
-your downloads, series tasks and settings. Downloads that were still in progress come in paused (so the two apps never
-write the same files); resume them once you've quit 1.x. The SMTP password and Telegram bot token were encrypted with
-keys only 1.x can read, so re-enter them. Private-tracker (PTE) downloads are not imported: PTE isn't supported in 2.x.
+Version 2 keeps its data separately, so 1.x keeps working. When the app finds 1.x data it offers to import it on the
+Downloads page (and under **Settings → About**): your downloads, series tasks and settings. Downloads that were still
+in progress come in paused (so the two apps never write the same files); resume them once you've quit 1.x. The SMTP
+password and Telegram bot token were encrypted with keys only 1.x can read, so re-enter them. Private-tracker (PTE)
+downloads are not imported: PTE isn't supported in 2.x.
 
 ## Agent access (MCP and REST)
 
-On the computer running MediaDownloader, **Settings → Agent access → Connect Claude** turns agent access on and adds
+On the computer running MediaDownloader, **Settings → AI agents → Connect Claude** turns agent access on and adds
 the server to Claude Code (for every project). Other MCP clients, or Claude Code where the app can't find it, use the URL
 shown there:
 

@@ -105,13 +105,13 @@ pub fn evaluate(r: &AgentRequest<'_>) -> AgentAuth {
 /// Status and message for a refused request.
 pub fn refusal(result: AgentAuth) -> (u16, &'static str) {
     match result {
-        AgentAuth::Disabled => (404, "The agent API is turned off. Enable it in MediaDownloader under Settings → Agent access."),
+        AgentAuth::Disabled => (404, "The agent API is turned off. Enable it in MediaDownloader under Settings → AI agents."),
         AgentAuth::RemoteDisabled => (404, "Remote agent access is turned off."),
         AgentAuth::InsecureTransport => {
             (426, "Remote agent requests require HTTPS. Put a TLS reverse proxy on this machine in front of the loopback URL.")
         }
         AgentAuth::ForbiddenOrigin => (403, "Cross-origin requests are not accepted by the agent API."),
-        AgentAuth::Unauthorized => (401, "Requests from other machines need a bearer token. Find it in Settings → Agent access."),
+        AgentAuth::Unauthorized => (401, "Requests from other machines need a bearer token. Find it in Settings → AI agents."),
         AgentAuth::Allowed => (200, ""),
     }
 }

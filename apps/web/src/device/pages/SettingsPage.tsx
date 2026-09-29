@@ -1,49 +1,65 @@
-import type { AgentStatusDto, LegacyImportStatusDto, LoginStartupStatus, SettingsDto, SettingsPatch } from '@md/protocol'
+import type { AgentStatusDto, LoginStartupStatus, SettingsDto, SettingsPatch } from '@md/protocol'
 import {
-  Bell, Bot, Copy, Eye, EyeOff, HardDriveDownload, Mail, RefreshCw, Send, Server, Smartphone, SlidersHorizontal, Sparkles, Upload,
+  Bell, Bot, Cloud, Copy, Download, Eye, EyeOff, Info, Mail, RefreshCw, Send, Server, Smartphone, SlidersHorizontal, Sparkles, Upload,
 } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router'
 import { LANGUAGES, useFormatDate, useT } from '../../lib/i18n.tsx'
+import { askNotificationPermission } from '../../lib/notifications.ts'
+import { PageHeader, Segmented, SettingGroup, SettingRow, Switch } from '../../ui/controls.tsx'
+import { Field, SaveOnBlurInput, blurOnEnter } from '../../ui/fields.tsx'
 import { ConfirmDialog } from '../../ui/Modal.tsx'
-import { blurOnEnter, Field, SaveOnBlurInput } from '../../ui/fields.tsx'
+import { useTheme, type ThemeMode } from '../../ui/theme.ts'
 import { useCopy, useToast } from '../../ui/toast.tsx'
 import { useDevice } from '../DeviceContext.tsx'
-import { PageHeader } from '../Shell.tsx'
 import { FolderField } from '../components/folders.tsx'
+import { useLegacyImport } from '../components/legacyImport.tsx'
 import { RemoteAccessSection } from '../components/remoteAccess.tsx'
 import { useRun } from '../useRun.ts'
+
+const SECTIONS = [
+  { id: 'general', icon: SlidersHorizontal },
+  { id: 'downloads', icon: Download },
+  { id: 'notifications', icon: Bell },
+  { id: 'sources', icon: Server },
+  { id: 'remote', icon: Cloud },
+  { id: 'agents', icon: Bot },
+  { id: 'about', icon: Info },
+] as const
+type SectionId = (typeof SECTIONS)[number]['id']
 
 export function SettingsPage() {
   const t = useT()
   const { settings } = useDevice()
-  if (!settings) return <progress className="progress progress-primary w-full" />
+  const [params, setParams] = useSearchParams()
+  const current = SECTIONS.find(s => s.id === params.get('section'))?.id ?? 'general'
+  const select = (id: SectionId) => setParams(id === 'general' ? {} : { section: id }, { replace: true })
+  if (!settings) return <div className="flex justify-center py-24"><span className="loading loading-spinner loading-lg text-primary" /></div>
+
   return (
     <>
-      <PageHeader title={t('settings.title')} subtitle={t('settings.subtitle')} />
-      <div className="flex flex-col gap-4">
-        <GeneralSection settings={settings} />
-        <RemoteAccessSection />
-        <AgentSection />
-        <SourcesSection settings={settings} />
-        <NotificationSections settings={settings} />
-        <ImportSection />
-        <AboutSection />
+      <PageHeader title={t('settings.title')} summary={t('settings.subtitle')} />
+      <div className="flex flex-col gap-5 lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-8">
+        <nav aria-label={t('settings.title')} className="scroll-strip -mx-4 flex gap-1 overflow-x-auto px-4 lg:sticky lg:top-10 lg:mx-0 lg:flex-col lg:self-start lg:px-0">
+          {SECTIONS.map(({ id, icon: Icon }) => (
+            <button key={id} type="button" aria-current={current === id ? 'page' : undefined} onClick={() => select(id)}
+              className={`flex shrink-0 items-center gap-2.5 rounded-full px-3.5 py-2 text-sm font-medium transition-colors lg:rounded-field ${
+                current === id ? 'bg-neutral text-neutral-content lg:bg-primary/10 lg:text-primary' : 'muted hover:bg-base-100 hover:text-base-content'}`}>
+              <Icon size={16} />{t(`settings.section.${id}`)}
+            </button>
+          ))}
+        </nav>
+        <div className="flex min-w-0 flex-col gap-4">
+          {current === 'general' && <GeneralSection settings={settings} />}
+          {current === 'downloads' && <DownloadsSection settings={settings} />}
+          {current === 'notifications' && <NotificationsSection settings={settings} />}
+          {current === 'sources' && <SourcesSection settings={settings} />}
+          {current === 'remote' && <RemoteAccessSection />}
+          {current === 'agents' && <AgentSection />}
+          {current === 'about' && <><AboutSection /><ImportSection /></>}
+        </div>
       </div>
     </>
-  )
-}
-
-export function Section({ icon, title, toggle, children, hint }: { icon: ReactNode; title: string; toggle?: ReactNode; hint?: string; children?: ReactNode }) {
-  return (
-    <section className="surface p-5 sm:p-6">
-      <div className="flex items-center gap-3">
-        <span className="text-primary">{icon}</span>
-        <h2 className="flex-1 text-lg font-semibold">{title}</h2>
-        {toggle}
-      </div>
-      {hint && <p className="mt-2 text-sm text-base-content/60">{hint}</p>}
-      {children && <div className="mt-4">{children}</div>}
-    </section>
   )
 }
 
@@ -53,51 +69,16 @@ function useSave() {
   return (patch: SettingsPatch) => void run(() => connection.call('settings.update', patch), 'settings.saveFailed')
 }
 
-/** `hideLabel` for switches in a section header, where the title already says what they do. */
-function Toggle({ label, checked, onChange, disabled = false, tone = 'toggle-primary', hideLabel = false }: { label?: string; checked: boolean; onChange: (value: boolean) => void; disabled?: boolean; tone?: string; hideLabel?: boolean }) {
-  return (
-    <label className="flex cursor-pointer items-center gap-3">
-      <input type="checkbox" className={`toggle ${tone}`} checked={checked} disabled={disabled} onChange={e => onChange(e.target.checked)} aria-label={label} />
-      {label && !hideLabel && <span className="text-sm">{label}</span>}
-    </label>
-  )
-}
-
-function TextSetting({ label, value, onSave, type = 'text', help, className = '' }: { label: string; value: string; onSave: (value: string) => void; type?: string; help?: string; className?: string }) {
-  return <Field label={label} help={help} className={className}><SaveOnBlurInput type={type} placeholder={label} value={value} onSave={onSave} /></Field>
-}
-
-/** Write-only secret: shows whether one is saved, never its value. */
-function SecretSetting({ label, isSet, onSave, help, className = '' }: { label: string; isSet: boolean; onSave: (value: string) => void; help?: string; className?: string }) {
-  const t = useT()
-  const [draft, setDraft] = useState('')
-  return (
-    <div className={className}>
-      <div className="join w-full">
-        <label className="floating-label join-item w-full">
-          <span>{label}</span>
-          <input type="password" autoComplete="new-password" className="input w-full" value={draft}
-            placeholder={isSet ? t('settings.secretSaved') : label} onChange={e => setDraft(e.target.value)}
-            onBlur={() => { if (draft) { onSave(draft); setDraft('') } }}
-            onKeyDown={blurOnEnter} />
-        </label>
-        {isSet && <button type="button" className="btn join-item" onClick={() => onSave('')}>{t('settings.secretClear')}</button>}
-      </div>
-      {help && <p className="mt-1 text-xs text-base-content/60">{help}</p>}
-    </div>
-  )
-}
-
 function GeneralSection({ settings }: { settings: SettingsDto }) {
   const t = useT()
   const save = useSave()
   const run = useRun()
   const { connection } = useDevice()
+  const { mode, setMode } = useTheme()
   const [startup, setStartup] = useState<LoginStartupStatus | null>(null)
   const [changing, setChanging] = useState(false)
-  useEffect(() => {
-    void connection.call('startup.status').then(r => setStartup(r.status)).catch(() => setStartup('unavailable'))
-  }, [connection])
+  const refreshStartup = () => void connection.call('startup.status').then(r => setStartup(r.status)).catch(() => setStartup('unavailable'))
+  useEffect(refreshStartup, [connection])
 
   const changeStartup = async (enabled: boolean) => {
     setChanging(true)
@@ -107,48 +88,186 @@ function GeneralSection({ settings }: { settings: SettingsDto }) {
   }
 
   return (
-    <Section icon={<SlidersHorizontal size={20} />} title={t('settings.general')}>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-6">
-        <div className="sm:col-span-6">
-          <Toggle label={t('settings.startWithMac')} checked={startup === 'enabled' || startup === 'requiresApproval'}
-            disabled={changing || startup === 'unavailable' || startup === null} onChange={v => void changeStartup(v)} />
-          <p className="mt-1 text-xs text-base-content/60">{t(startup === 'unavailable' ? 'settings.startupUnavailable' : 'settings.startupHint')}</p>
-          {startup === 'requiresApproval' && <div role="alert" className="alert alert-warning alert-soft mt-2 text-sm">{t('settings.startupApproval')}</div>}
-          {startup !== 'unavailable' && startup !== null && (
-            <button type="button" className="btn btn-ghost btn-xs mt-1" disabled={changing}
-              onClick={() => void connection.call('startup.status').then(r => setStartup(r.status)).catch(() => {})}>{t('settings.startupRefresh')}</button>
+    <SettingGroup>
+      <SettingRow layout="wide" title={t('settings.language')} htmlFor="md-language">
+        <select id="md-language" className="select w-full sm:w-52" value={settings.language} onChange={e => save({ language: e.target.value })}>
+          {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
+        </select>
+      </SettingRow>
+      <SettingRow layout="wide" title={t('settings.appearance')} description={t('settings.appearanceHint')}>
+        <Segmented label={t('settings.appearance')} value={mode} onChange={(m: ThemeMode) => setMode(m)}
+          options={(['system', 'light', 'dark'] as const).map(m => ({ value: m, label: t(`settings.theme.${m}`) }))} />
+      </SettingRow>
+      <SettingRow title={t('settings.startWithMac')}
+        description={<>
+          {t(startup === 'unavailable' ? 'settings.startupUnavailable' : 'settings.startupHint')}
+          {startup === 'requiresApproval' && (
+            <span className="mt-2 flex flex-wrap items-center gap-2 text-warning">
+              {t('settings.startupApproval')}
+              <button type="button" className="btn btn-ghost btn-xs" disabled={changing} onClick={refreshStartup}>{t('settings.startupRefresh')}</button>
+            </span>
           )}
-        </div>
-        <div className="sm:col-span-4">
-          <FolderField label={t('settings.downloadFolder')} value={settings.downloadFolder} onChange={downloadFolder => downloadFolder.trim() && save({ downloadFolder })} />
-        </div>
-        <label className="floating-label sm:col-span-2">
-          <span>{t('settings.language')}</span>
-          <select className="select w-full" value={settings.language} onChange={e => save({ language: e.target.value })}>
-            {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
-          </select>
-        </label>
-        <div className="flex flex-wrap gap-6 sm:col-span-6">
-          <Toggle label={t('settings.notifyStart')} checked={settings.notifyOnStart} onChange={notifyOnStart => save({ notifyOnStart })} />
-          <Toggle label={t('settings.notifyFinish')} checked={settings.notifyOnComplete} onChange={notifyOnComplete => save({ notifyOnComplete })} />
-        </div>
-        <div className="sm:col-span-3">
-          <label className="floating-label block">
-            <span>{t('settings.postDownload')}</span>
-            <select className="select w-full" value={settings.postDownloadAction}
-              onChange={e => save({ postDownloadAction: e.target.value as SettingsDto['postDownloadAction'] })}>
-              <option value="StopSeeding">{t('settings.stopSeeding')}</option>
-              <option value="KeepSeeding">{t('settings.keepSeeding')}</option>
-            </select>
-          </label>
-          <p className="mt-1 text-xs text-base-content/60">{t(settings.postDownloadAction === 'KeepSeeding' ? 'settings.keepSeedingHelp' : 'settings.stopSeedingHelp')}</p>
-        </div>
-        <div className="sm:col-span-6">
-          <Toggle label={t('settings.errorReports')} checked={settings.errorReportsEnabled} onChange={errorReportsEnabled => save({ errorReportsEnabled })} />
-          <p className="mt-1 text-xs text-base-content/60">{t('settings.errorReportsHint')}</p>
-        </div>
+        </>}>
+        <Switch label={t('settings.startWithMac')} checked={startup === 'enabled' || startup === 'requiresApproval'}
+          disabled={changing || startup === 'unavailable' || startup === null} onChange={v => void changeStartup(v)} />
+      </SettingRow>
+      <SettingRow title={t('settings.errorReports')} description={t('settings.errorReportsHint')}>
+        <Switch label={t('settings.errorReports')} checked={settings.errorReportsEnabled} onChange={errorReportsEnabled => save({ errorReportsEnabled })} />
+      </SettingRow>
+    </SettingGroup>
+  )
+}
+
+function DownloadsSection({ settings }: { settings: SettingsDto }) {
+  const t = useT()
+  const save = useSave()
+  return (
+    <SettingGroup>
+      <SettingRow layout="stack" title={t('settings.downloadFolder')} description={t('settings.downloadFolderHint')}>
+        <FolderField hideLabel label={t('settings.downloadFolder')} value={settings.downloadFolder}
+          onChange={downloadFolder => downloadFolder.trim() && save({ downloadFolder })} />
+      </SettingRow>
+      <SettingRow layout="wide" title={t('settings.postDownload')}
+        description={t(settings.postDownloadAction === 'KeepSeeding' ? 'settings.keepSeedingHelp' : 'settings.stopSeedingHelp')}>
+        <Segmented label={t('settings.postDownload')} value={settings.postDownloadAction}
+          onChange={postDownloadAction => save({ postDownloadAction })}
+          options={[{ value: 'StopSeeding', label: t('settings.stopSeeding') }, { value: 'KeepSeeding', label: t('settings.keepSeeding') }]} />
+      </SettingRow>
+      <SettingRow title={t('settings.notifyStart')}>
+        <Switch label={t('settings.notifyStart')} checked={settings.notifyOnStart} onChange={notifyOnStart => save({ notifyOnStart })} />
+      </SettingRow>
+      <SettingRow title={t('settings.notifyFinish')}>
+        <Switch label={t('settings.notifyFinish')} checked={settings.notifyOnComplete} onChange={notifyOnComplete => save({ notifyOnComplete })} />
+      </SettingRow>
+    </SettingGroup>
+  )
+}
+
+function SecretField({ label, isSet, onSave, help }: { label: string; isSet: boolean; onSave: (value: string) => void; help?: ReactNode }) {
+  const t = useT()
+  const [draft, setDraft] = useState('')
+  return (
+    <Field label={label} help={help}>
+      <div className="join w-full">
+        <input type="password" autoComplete="new-password" className="input join-item w-full min-w-0" value={draft}
+          placeholder={isSet ? t('settings.secretSaved') : ''} onChange={e => setDraft(e.target.value)}
+          onBlur={() => { if (draft) { onSave(draft); setDraft('') } }} onKeyDown={blurOnEnter} />
+        {isSet && <button type="button" className="btn join-item" onClick={() => onSave('')}>{t('settings.secretClear')}</button>}
       </div>
-    </Section>
+    </Field>
+  )
+}
+
+function Text({ label, value, onSave, type = 'text', help, className }: { label: string; value: string; onSave: (value: string) => void; type?: string; help?: string; className?: string }) {
+  return <Field label={label} help={help} className={className}><SaveOnBlurInput type={type} value={value} onSave={onSave} /></Field>
+}
+
+/** One notification channel: its switch, and its settings only while it is on. */
+function Channel({ icon, title, description, enabled, onToggle, children }: {
+  icon: ReactNode
+  title: string
+  description?: ReactNode
+  enabled: boolean
+  onToggle: (enabled: boolean) => void
+  children?: ReactNode
+}) {
+  return (
+    <section className="surface p-5 sm:p-6">
+      <div className="flex items-start gap-3">
+        <span className={`grid size-9 shrink-0 place-items-center rounded-field ${enabled ? 'bg-primary/10 text-primary' : 'muted bg-base-200'}`}>{icon}</span>
+        <div className="min-w-0 flex-1">
+          <h2 className="font-semibold">{title}</h2>
+          {description && <div className="muted mt-0.5 text-sm">{description}</div>}
+        </div>
+        <Switch label={title} checked={enabled} onChange={onToggle} />
+      </div>
+      {enabled && children && <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">{children}</div>}
+    </section>
+  )
+}
+
+function NotificationsSection({ settings: s }: { settings: SettingsDto }) {
+  const t = useT()
+  const save = useSave()
+  const toast = useToast()
+  const run = useRun()
+  const { connection } = useDevice()
+  const [testing, setTesting] = useState(false)
+  const [permission, setPermission] = useState(() => ('Notification' in window ? Notification.permission : 'denied'))
+  const test = async () => {
+    setTesting(true)
+    const ok = await run(async () => { await connection.call('notifications.test'); return true }, 'settings.testFailed')
+    setTesting(false)
+    if (ok) toast(t('settings.testSent'), 'success')
+  }
+  const allow = () => {
+    askNotificationPermission()
+    // The prompt resolves on its own; read the answer once it has.
+    setTimeout(() => setPermission(Notification.permission), 1500)
+  }
+  const anyOn = s.desktopEnabled || s.emailEnabled || s.pushEnabled || s.telegramEnabled
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="muted min-w-0 flex-1 text-sm">{t('settings.notificationsHint')}</p>
+        <button type="button" className="btn btn-sm" disabled={testing || !anyOn} onClick={() => void test()}>
+          {testing ? <span className="loading loading-spinner loading-xs" /> : <Bell size={14} />}{t('settings.sendTest')}
+        </button>
+      </div>
+      <Channel icon={<Bell size={18} />} title={t('settings.desktop')} enabled={s.desktopEnabled}
+        onToggle={desktopEnabled => { if (desktopEnabled) askNotificationPermission(); save({ desktopEnabled }) }}
+        description={<>
+          {t('settings.desktopHint')}
+          {s.desktopEnabled && permission === 'default' && (
+            <button type="button" className="btn btn-xs btn-primary btn-soft ml-2" onClick={allow}>{t('settings.allowNotifications')}</button>
+          )}
+          {s.desktopEnabled && permission === 'denied' && <span className="mt-1 block text-warning">{t('settings.notificationsBlocked')}</span>}
+        </>} />
+      <Channel icon={<Mail size={18} />} title={t('settings.email')} enabled={s.emailEnabled} onToggle={emailEnabled => save({ emailEnabled })}>
+        <Text label={t('settings.smtpHost')} value={s.smtpHost} onSave={smtpHost => save({ smtpHost })} />
+        <div className="flex items-end gap-3">
+          <Text className="w-28" type="number" label={t('settings.port')} value={String(s.smtpPort)}
+            onSave={v => { const port = Number(v); if (port >= 1 && port <= 65535) save({ smtpPort: port }) }} />
+          <label className="flex h-10 cursor-pointer items-center gap-2 text-sm">
+            <Switch label={t('settings.ssl')} checked={s.smtpUseSsl} onChange={smtpUseSsl => save({ smtpUseSsl })} />{t('settings.ssl')}
+          </label>
+        </div>
+        <Text label={t('settings.username')} value={s.smtpUsername} onSave={smtpUsername => save({ smtpUsername })} />
+        <SecretField label={t('settings.password')} isSet={s.smtpPasswordSet} onSave={smtpPassword => save({ smtpPassword })} />
+        <Text type="email" label={t('settings.from')} value={s.emailFrom} onSave={emailFrom => save({ emailFrom: emailFrom.trim() })} />
+        <Text type="email" label={t('settings.to')} value={s.emailTo} onSave={emailTo => save({ emailTo: emailTo.trim() })} />
+      </Channel>
+      <Channel icon={<Smartphone size={18} />} title={t('settings.push')} description={t('settings.pushHint')} enabled={s.pushEnabled} onToggle={pushEnabled => save({ pushEnabled })}>
+        <Text label={t('settings.ntfyServer')} value={s.ntfyServer} onSave={ntfyServer => save({ ntfyServer: ntfyServer.trim() })} />
+        <Text label={t('settings.topic')} help={t('settings.topicHint')} value={s.ntfyTopic} onSave={ntfyTopic => save({ ntfyTopic })} />
+      </Channel>
+      <Channel icon={<Send size={18} />} title={t('settings.telegram')} enabled={s.telegramEnabled} onToggle={telegramEnabled => save({ telegramEnabled })}>
+        <SecretField label={t('settings.botToken')} help={t('settings.botTokenHint')} isSet={s.telegramBotTokenSet} onSave={telegramBotToken => save({ telegramBotToken })} />
+        <Text label={t('settings.chatId')} help={t('settings.chatIdHint')} value={s.telegramChatId} onSave={telegramChatId => save({ telegramChatId })} />
+      </Channel>
+    </>
+  )
+}
+
+function SourcesSection({ settings }: { settings: SettingsDto }) {
+  const t = useT()
+  const save = useSave()
+  const { sources } = useDevice()
+  const toggle = (name: string, enabled: boolean) => {
+    const disabled = new Set(settings.disabledProviders.map(p => p.toLowerCase()))
+    if (enabled) disabled.delete(name.toLowerCase())
+    else disabled.add(name.toLowerCase())
+    save({ disabledProviders: sources.map(s => s.name).filter(n => disabled.has(n.toLowerCase())) })
+  }
+  return (
+    <SettingGroup description={t('settings.sourcesHint')}>
+      {sources.map(s => (
+        <SettingRow key={s.name} title={s.name}>
+          <Switch label={s.name} checked={s.enabled} onChange={v => toggle(s.name, v)} />
+        </SettingRow>
+      ))}
+    </SettingGroup>
   )
 }
 
@@ -185,36 +304,39 @@ function AgentSection() {
   }
 
   return (
-    <Section icon={<Bot size={20} />} title={t('settings.agentAccess')} hint={t('settings.agentHint')}
-      toggle={<Toggle hideLabel label={t('settings.agentAccess')} checked={agent.enabled} onChange={enabled => void change({ enabled })} />}>
-      {connection.kind === 'local' && (
-        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-          <button type="button" className="btn btn-primary btn-sm self-start" disabled={connectingClaude} onClick={() => void connectClaude()}>
-            {connectingClaude ? <span className="loading loading-spinner loading-xs" /> : <Sparkles size={14} />}{t('settings.connectClaude')}
-          </button>
-          <p className="text-xs text-base-content/60">{t('settings.connectClaudeHint')}</p>
-        </div>
-      )}
+    <>
+      <SettingGroup>
+        <SettingRow title={t('settings.agentAccess')} description={t('settings.agentHint')}>
+          <Switch label={t('settings.agentAccess')} checked={agent.enabled} onChange={enabled => void change({ enabled })} />
+        </SettingRow>
+        {connection.kind === 'local' && (
+          <SettingRow layout="wide" title={t('settings.connectClaude')} description={t('settings.connectClaudeHint')}>
+            <button type="button" className="btn btn-primary btn-sm" disabled={connectingClaude} onClick={() => void connectClaude()}>
+              {connectingClaude ? <span className="loading loading-spinner loading-xs" /> : <Sparkles size={14} />}{t('settings.connectClaude')}
+            </button>
+          </SettingRow>
+        )}
+      </SettingGroup>
       {agent.enabled && (
-        <div className="flex flex-col gap-4">
-          <div role="alert" className="alert alert-info alert-outline text-sm">{t('settings.agentLoopbackHint')}</div>
-          <div>
-            <Toggle tone="toggle-warning" label={t('settings.agentRemote')} checked={agent.allowRemote} onChange={allowRemote => void change({ allowRemote })} />
-            <p className="mt-1 text-xs text-base-content/60">{t('settings.agentRemoteHint')}</p>
+        <SettingGroup title={t('settings.agentDetails')} description={t('settings.agentLoopbackHint')}>
+          <SettingRow title={t('settings.agentRemote')} description={t('settings.agentRemoteHint')}>
+            <input type="checkbox" role="switch" className="toggle toggle-warning" aria-label={t('settings.agentRemote')} checked={agent.allowRemote}
+              onChange={e => void change({ allowRemote: e.target.checked })} />
+          </SettingRow>
+          <div className="flex flex-col gap-4 py-4 last:pb-0">
+            <Field label={t('settings.agentToken')}>
+              <div className="join w-full">
+                <input readOnly className="input join-item w-full min-w-0 font-mono text-sm" type={reveal ? 'text' : 'password'} value={agent.token} />
+                <button type="button" className="btn join-item" title={t('settings.agentReveal')} aria-label={t('settings.agentReveal')} onClick={() => setReveal(r => !r)}>{reveal ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+                <button type="button" className="btn join-item" title={t('settings.agentCopy')} aria-label={t('settings.agentCopy')} onClick={() => void copy(agent.token)}><Copy size={16} /></button>
+                <button type="button" className="btn join-item" title={t('settings.agentRegenerate')} aria-label={t('settings.agentRegenerate')} onClick={() => setConfirming(true)}><RefreshCw size={16} /></button>
+              </div>
+            </Field>
+            <CopyField label={t('settings.agentMcpUrl')} value={agent.mcpUrl} onCopy={copy} />
+            <CopyField label={t('settings.agentClaudeCommand')} value={command} onCopy={copy} />
+            <p className="muted break-release text-xs">{t('settings.agentEndpointFile', agent.endpointFile)}</p>
           </div>
-          <div className="join w-full">
-            <label className="floating-label join-item w-full">
-              <span>{t('settings.agentToken')}</span>
-              <input readOnly className="input w-full font-mono text-sm" type={reveal ? 'text' : 'password'} value={agent.token} />
-            </label>
-            <button type="button" className="btn join-item" title={t('settings.agentReveal')} aria-label={t('settings.agentReveal')} onClick={() => setReveal(r => !r)}>{reveal ? <EyeOff size={16} /> : <Eye size={16} />}</button>
-            <button type="button" className="btn join-item" title={t('settings.agentCopy')} aria-label={t('settings.agentCopy')} onClick={() => void copy(agent.token)}><Copy size={16} /></button>
-            <button type="button" className="btn btn-warning join-item" title={t('settings.agentRegenerate')} aria-label={t('settings.agentRegenerate')} onClick={() => setConfirming(true)}><RefreshCw size={16} /></button>
-          </div>
-          <CopyField label={t('settings.agentMcpUrl')} value={agent.mcpUrl} onCopy={copy} />
-          <CopyField label={t('settings.agentClaudeCommand')} value={command} onCopy={copy} />
-          <p className="break-release text-xs text-base-content/60">{t('settings.agentEndpointFile', agent.endpointFile)}</p>
-        </div>
+        </SettingGroup>
       )}
       <ConfirmDialog open={confirming} title={t('settings.agentRegenerateConfirmTitle')} message={t('settings.agentRegenerateConfirm')}
         options={[{ label: t('common.cancel'), value: false, tone: 'ghost' }, { label: t('settings.agentRegenerate'), value: true, tone: 'error' }]}
@@ -227,124 +349,36 @@ function AgentSection() {
             toast(t('settings.agentRegenerated'), 'success')
           }
         }} />
-    </Section>
+    </>
   )
 }
 
 function CopyField({ label, value, onCopy }: { label: string; value: string; onCopy: (value: string) => void }) {
-  return (
-    <div className="join w-full">
-      <label className="floating-label join-item w-full">
-        <span>{label}</span>
-        <input readOnly className="input w-full font-mono text-sm" value={value} />
-      </label>
-      <button type="button" className="btn join-item" aria-label={label} onClick={() => onCopy(value)}><Copy size={16} /></button>
-    </div>
-  )
-}
-
-function SourcesSection({ settings }: { settings: SettingsDto }) {
   const t = useT()
-  const save = useSave()
-  const { sources } = useDevice()
-  const toggle = (name: string, enabled: boolean) => {
-    const disabled = new Set(settings.disabledProviders.map(p => p.toLowerCase()))
-    if (enabled) disabled.delete(name.toLowerCase())
-    else disabled.add(name.toLowerCase())
-    save({ disabledProviders: sources.map(s => s.name).filter(n => disabled.has(n.toLowerCase())) })
-  }
   return (
-    <Section icon={<Server size={20} />} title={t('settings.sources')} hint={t('settings.sourcesHint')}>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {sources.map(s => <Toggle key={s.name} label={s.name} checked={s.enabled} onChange={v => toggle(s.name, v)} />)}
+    <Field label={label}>
+      <div className="join w-full">
+        <input readOnly className="input join-item w-full min-w-0 font-mono text-sm" value={value} />
+        <button type="button" className="btn join-item" aria-label={`${t('settings.agentCopy')}: ${label}`} onClick={() => onCopy(value)}><Copy size={16} /></button>
       </div>
-    </Section>
-  )
-}
-
-function NotificationSections({ settings: s }: { settings: SettingsDto }) {
-  const t = useT()
-  const save = useSave()
-  const toast = useToast()
-  const run = useRun()
-  const { connection } = useDevice()
-  const [testing, setTesting] = useState(false)
-  const test = async () => {
-    setTesting(true)
-    const ok = await run(async () => { await connection.call('notifications.test'); return true }, 'settings.testFailed')
-    setTesting(false)
-    if (ok) toast(t('settings.testSent'), 'success')
-  }
-
-  return (
-    <>
-      <Section icon={<Bell size={20} />} title={t('settings.desktop')} hint={t('settings.desktopHint')}
-        toggle={<Toggle hideLabel label={t('settings.desktop')} checked={s.desktopEnabled} onChange={desktopEnabled => save({ desktopEnabled })} />} />
-      <Section icon={<Mail size={20} />} title={t('settings.email')}
-        toggle={<Toggle hideLabel label={t('settings.email')} checked={s.emailEnabled} onChange={emailEnabled => save({ emailEnabled })} />}>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
-          <TextSetting className="sm:col-span-5" label={t('settings.smtpHost')} value={s.smtpHost} onSave={smtpHost => save({ smtpHost })} />
-          <TextSetting className="sm:col-span-2" type="number" label={t('settings.port')} value={String(s.smtpPort)}
-            onSave={v => { const port = Number(v); if (port >= 1 && port <= 65535) save({ smtpPort: port }) }} />
-          <div className="flex items-center sm:col-span-2"><Toggle label={t('settings.ssl')} checked={s.smtpUseSsl} onChange={smtpUseSsl => save({ smtpUseSsl })} /></div>
-          <TextSetting className="sm:col-span-3" label={t('settings.username')} value={s.smtpUsername} onSave={smtpUsername => save({ smtpUsername })} />
-          <SecretSetting className="sm:col-span-4" label={t('settings.password')} isSet={s.smtpPasswordSet} onSave={smtpPassword => save({ smtpPassword })} />
-          <TextSetting className="sm:col-span-4" type="email" label={t('settings.from')} value={s.emailFrom} onSave={emailFrom => save({ emailFrom: emailFrom.trim() })} />
-          <TextSetting className="sm:col-span-4" type="email" label={t('settings.to')} value={s.emailTo} onSave={emailTo => save({ emailTo: emailTo.trim() })} />
-        </div>
-      </Section>
-      <Section icon={<Smartphone size={20} />} title={t('settings.push')}
-        toggle={<Toggle hideLabel label={t('settings.push')} checked={s.pushEnabled} onChange={pushEnabled => save({ pushEnabled })} />}>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <TextSetting label={t('settings.ntfyServer')} value={s.ntfyServer} onSave={ntfyServer => save({ ntfyServer: ntfyServer.trim() })} />
-          <TextSetting label={t('settings.topic')} help={t('settings.topicHint')} value={s.ntfyTopic} onSave={ntfyTopic => save({ ntfyTopic })} />
-        </div>
-      </Section>
-      <Section icon={<Send size={20} />} title={t('settings.telegram')}
-        toggle={<Toggle hideLabel label={t('settings.telegram')} checked={s.telegramEnabled} onChange={telegramEnabled => save({ telegramEnabled })} />}>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <SecretSetting label={t('settings.botToken')} help={t('settings.botTokenHint')} isSet={s.telegramBotTokenSet} onSave={telegramBotToken => save({ telegramBotToken })} />
-          <TextSetting label={t('settings.chatId')} help={t('settings.chatIdHint')} value={s.telegramChatId} onSave={telegramChatId => save({ telegramChatId })} />
-        </div>
-      </Section>
-      <div>
-        <button type="button" className="btn btn-primary" disabled={testing} onClick={() => void test()}>
-          {testing ? <span className="loading loading-spinner loading-sm" /> : <Bell size={16} />}{t('settings.sendTest')}
-        </button>
-      </div>
-    </>
+    </Field>
   )
 }
 
 function ImportSection() {
   const t = useT()
-  const toast = useToast()
-  const run = useRun()
-  const { connection } = useDevice()
-  const [status, setStatus] = useState<LegacyImportStatusDto | null>(null)
-  const [busy, setBusy] = useState(false)
-  useEffect(() => {
-    void connection.call('legacy.status').then(setStatus).catch(() => {})
-  }, [connection])
+  const { status, busy, runImport } = useLegacyImport()
   if (!status?.available) return null
 
-  const runImport = async () => {
-    setBusy(true)
-    const result = await run(() => connection.call('legacy.import'), 'import.failed')
-    setBusy(false)
-    if (!result) return
-    toast(t('import.done', result.downloads, result.seriesTasks), 'success')
-    if (result.secretsToReenter.length) toast(t('import.reenter', result.secretsToReenter.join(', ')), 'info')
-    setStatus(await connection.call('legacy.status'))
-  }
-
   return (
-    <Section icon={<HardDriveDownload size={20} />} title={t('import.title')} hint={t('import.hint', status.downloads, status.seriesTasks)}>
-      {status.imported && <p className="mb-3 text-sm text-success">{t('import.alreadyImported')}</p>}
-      <button type="button" className="btn btn-outline btn-primary" disabled={busy} onClick={() => void runImport()}>
-        {busy ? <span className="loading loading-spinner loading-sm" /> : <Upload size={16} />}{t('import.button')}
-      </button>
-    </Section>
+    <SettingGroup>
+      <SettingRow layout="wide" title={t('import.title')}
+        description={<>{t('import.hint', status.downloads, status.seriesTasks)}{status.imported && <span className="mt-1 block text-success">{t('import.alreadyImported')}</span>}</>}>
+        <button type="button" className="btn btn-sm" disabled={busy} onClick={() => void runImport()}>
+          {busy ? <span className="loading loading-spinner loading-xs" /> : <Upload size={14} />}{t('import.button')}
+        </button>
+      </SettingRow>
+    </SettingGroup>
   )
 }
 
@@ -365,33 +399,36 @@ function AboutSection() {
   }
   const statusText = updates.checking ? t('settings.checking')
     : updates.lastCheckError ? t('settings.lastCheckFailed', updates.lastCheckError)
-    : updates.available ? ''
+    : updates.available ? t('settings.updateAvailable', updates.available.tag)
     : updates.lastCheckedAt ? t('settings.checkedAt', formatDate(updates.lastCheckedAt, true))
     : t('settings.checkAuto')
 
   return (
-    <Section icon={<RefreshCw size={20} />} title={t('settings.about')}
-      toggle={<span className="text-sm text-base-content/60">{t('settings.version', updates.currentVersion)}</span>}>
-      {updates.available && (
-        <div role="alert" className="alert alert-info alert-soft mb-3 text-sm">
-          <span>{t('settings.updateAvailable', updates.available.tag)} <a className="link" href={updates.available.releaseUrl} target="_blank" rel="noreferrer noopener">{t('settings.releaseNotes')}</a></span>
-        </div>
-      )}
-      <div className="flex flex-wrap items-center gap-3">
-        <button type="button" className="btn btn-outline btn-primary" disabled={updates.checking} onClick={() => void check()}>
-          <RefreshCw size={16} className={updates.checking ? 'animate-spin' : ''} />{updates.checking ? t('settings.checking') : t('settings.checkUpdates')}
-        </button>
-        {updates.available && (updates.canSelfInstall ? (
-          <button type="button" className="btn btn-primary" disabled={updates.installing}
-            onClick={() => { toast(t('settings.installNote'), 'info'); void run(() => connection.call('updates.install')) }}>
-            {updates.installing ? t('settings.installing') : t('settings.install', updates.available.tag)}
+    <SettingGroup>
+      <SettingRow layout="wide" title={t('settings.version', updates.currentVersion)}
+        description={<>
+          <span className={updates.available ? 'font-medium text-primary' : ''}>{statusText}</span>
+          {updates.available && <> · <a className="link" href={updates.available.releaseUrl} target="_blank" rel="noreferrer noopener">{t('settings.releaseNotes')}</a></>}
+        </>}>
+        <div className="flex flex-wrap gap-2">
+          {updates.available && (updates.canSelfInstall ? (
+            <button type="button" className="btn btn-primary btn-sm" disabled={updates.installing}
+              onClick={() => { toast(t('settings.installNote'), 'info'); void run(() => connection.call('updates.install')) }}>
+              {updates.installing ? t('settings.installing') : t('settings.install', updates.available.tag)}
+            </button>
+          ) : (
+            <a className="btn btn-primary btn-sm" href={updates.available.releaseUrl} target="_blank" rel="noreferrer noopener">{t('settings.openRelease')}</a>
+          ))}
+          <button type="button" className="btn btn-sm" disabled={updates.checking} onClick={() => void check()}>
+            <RefreshCw size={14} className={updates.checking ? 'animate-spin' : ''} />{t('settings.checkUpdates')}
           </button>
-        ) : (
-          <a className="btn btn-primary" href={updates.available.releaseUrl} target="_blank" rel="noreferrer noopener">{t('settings.openRelease')}</a>
-        ))}
-        <span className="text-sm text-base-content/60">{statusText}</span>
-      </div>
-      {info && <p className="mt-3 text-xs text-base-content/50">{info.platform} · {info.arch} · {info.dataDirectory}</p>}
-    </Section>
+        </div>
+      </SettingRow>
+      {info && (
+        <SettingRow layout="wide" title={t('settings.dataFolder')} description={<span className="break-release font-mono text-xs">{info.dataDirectory}</span>}>
+          <span className="muted text-sm">{info.platform} · {info.arch}</span>
+        </SettingRow>
+      )}
+    </SettingGroup>
   )
 }

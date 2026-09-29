@@ -67,7 +67,7 @@ export function PairPage() {
   return (
     <CloudFrame>
       <div className="surface mx-auto flex max-w-md flex-col items-center gap-5 px-6 py-10 text-center">
-        <div className="grid size-14 place-items-center rounded-full bg-primary/10 text-primary"><Link2 size={28} /></div>
+        <div className="grid size-14 place-items-center rounded-box bg-primary/10 text-primary"><Link2 size={28} /></div>
         <h1 className="text-2xl font-bold">{t('pair.title')}</h1>
         {error && <div role="alert" className="alert alert-error alert-soft w-full text-sm">{error}</div>}
         {!info && !error && <span className="loading loading-spinner loading-lg text-primary" />}

@@ -1,5 +1,5 @@
-import { KeyRound, Lock, ShieldCheck } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { Download, KeyRound, MonitorSmartphone, ShieldCheck } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Navigate, useSearchParams } from 'react-router'
 import { cloud } from '../lib/cloudApi.ts'
 import { startGoogleSignIn, takeGoogleSignInResult } from '../lib/googleSignIn.ts'
@@ -60,33 +60,54 @@ export function LoginPage() {
   }
 
   return (
-    <CloudFrame>
-      <div className="surface mx-auto flex max-w-md flex-col items-center gap-5 px-6 py-10 text-center">
-        <div className="grid size-14 place-items-center rounded-full bg-primary/10 text-primary"><Lock size={28} /></div>
-        <div>
-          <h1 className="text-2xl font-bold">{t('cloud.signInTitle')}</h1>
-          <p className="mt-2 text-sm text-base-content/60">{t('cloud.signInHint')}</p>
+    <CloudFrame wide>
+      <div className="grid items-center gap-10 lg:grid-cols-[minmax(0,1fr)_26rem] lg:gap-16">
+        {/* Most arrive from the app to sign in, so on phones the sign-in card comes first. */}
+        <div className="order-2 lg:order-1">
+          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{t('cloud.heroTitle')}</h1>
+          <p className="muted mt-3 max-w-xl text-lg">{t('cloud.heroText')}</p>
+          <ul className="mt-8 flex flex-col gap-5">
+            <Point icon={<MonitorSmartphone size={20} />} title={t('cloud.pointAnywhere')} text={t('cloud.pointAnywhereText')} />
+            <Point icon={<ShieldCheck size={20} />} title={t('cloud.pointPrivate')} text={t('cloud.e2eNote')} />
+            <Point icon={<Download size={20} />} title={t('cloud.pointApp')}
+              text={<>{t('cloud.pointAppText')} <a className="link link-primary" href="https://github.com/XeonFX/MediaDownloader/releases/latest" target="_blank" rel="noreferrer noopener">{t('devices.download')}</a></>} />
+          </ul>
         </div>
-        {error && <div role="alert" className="alert alert-error alert-soft w-full text-sm">{error}</div>}
-        {config.googleClientId && (
-          <button type="button" className="btn btn-lg w-full gap-3 border-base-300 bg-base-100" disabled={busy} onClick={() => void signIn()}>
-            {busy ? <span className="loading loading-spinner" /> : <GoogleLogo />}{t('cloud.signInGoogle')}
-          </button>
-        )}
-        {config.devLogin && (
-          <div className="w-full rounded-box border border-dashed border-warning p-3 text-left">
-            <p className="mb-2 text-xs text-warning">{t('cloud.devLogin')}</p>
-            <div className="join w-full">
-              <input className="input join-item w-full" value={devEmail} onChange={e => setDevEmail(e.target.value)} aria-label="Email" />
-              <button type="button" className="btn btn-warning join-item" aria-label={t('cloud.devSignIn')} disabled={busy} onClick={() => void devSignIn()}><KeyRound size={16} /></button>
-            </div>
+        <div className="surface order-1 flex flex-col gap-5 p-6 sm:p-8 lg:order-2">
+          <div>
+            <h2 className="text-xl font-semibold">{t('cloud.signInTitle')}</h2>
+            <p className="muted mt-1 text-sm">{t('cloud.signInHint')}</p>
           </div>
-        )}
-        <p className="flex items-start gap-2 text-left text-xs text-base-content/60">
-          <ShieldCheck size={16} className="mt-0.5 shrink-0 text-success" />{t('cloud.e2eNote')}
-        </p>
+          {error && <div role="alert" className="alert alert-error alert-soft text-sm">{error}</div>}
+          {config.googleClientId && (
+            <button type="button" className="btn btn-lg w-full gap-3 border-base-300 bg-base-100 font-medium" disabled={busy} onClick={() => void signIn()}>
+              {busy ? <span className="loading loading-spinner" /> : <GoogleLogo />}{t('cloud.signInGoogle')}
+            </button>
+          )}
+          {config.devLogin && (
+            <div className="rounded-box border border-dashed border-warning p-3">
+              <p className="mb-2 text-xs text-warning">{t('cloud.devLogin')}</p>
+              <div className="join w-full">
+                <input className="input join-item w-full" value={devEmail} onChange={e => setDevEmail(e.target.value)} aria-label="Email" />
+                <button type="button" className="btn btn-warning join-item" aria-label={t('cloud.devSignIn')} disabled={busy} onClick={() => void devSignIn()}><KeyRound size={16} /></button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </CloudFrame>
+  )
+}
+
+function Point({ icon, title, text }: { icon: ReactNode; title: string; text: ReactNode }) {
+  return (
+    <li className="flex gap-4">
+      <span className="grid size-10 shrink-0 place-items-center rounded-field bg-primary/10 text-primary">{icon}</span>
+      <div>
+        <div className="font-semibold">{title}</div>
+        <div className="muted mt-0.5 text-sm">{text}</div>
+      </div>
+    </li>
   )
 }
 

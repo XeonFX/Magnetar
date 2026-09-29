@@ -1,58 +1,76 @@
 import type { DownloadDto, DownloadStatus } from '@md/protocol'
 import { formatBytes, formatRate } from '@md/protocol/bytes'
-import { Pause, Play, RotateCw, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Clock, Pause, Play, RotateCw, Trash2, Tv, Users } from 'lucide-react'
 import { useState } from 'react'
-import { useT } from '../../lib/i18n.tsx'
+import { useFormatEta, useT } from '../../lib/i18n.tsx'
 import { ConfirmDialog } from '../../ui/Modal.tsx'
 import { useDevice } from '../DeviceContext.tsx'
 import { useRun } from '../useRun.ts'
 
-const STATUS_KEYS: Record<DownloadStatus, string> = {
-  Queued: 'status.queued', FetchingMetadata: 'status.fetchingMetadata', Downloading: 'status.downloading',
-  Seeding: 'status.seeding', Paused: 'status.paused', Completed: 'status.completed', Error: 'status.error',
+const STATUS: Record<DownloadStatus, { key: string; text: string; bar: string }> = {
+  Queued: { key: 'status.queued', text: 'muted', bar: 'bg-base-content/30' },
+  FetchingMetadata: { key: 'status.fetchingMetadata', text: 'text-info', bar: 'bg-info' },
+  Downloading: { key: 'status.downloading', text: 'text-info', bar: 'bg-info' },
+  Seeding: { key: 'status.seeding', text: 'text-accent', bar: 'bg-accent' },
+  Paused: { key: 'status.paused', text: 'text-warning', bar: 'bg-warning' },
+  Completed: { key: 'status.completed', text: 'text-success', bar: 'bg-success' },
+  Error: { key: 'status.error', text: 'text-error', bar: 'bg-error' },
 }
 
-export function StatusBadge({ status }: { status: DownloadStatus }) {
-  const t = useT()
-  const tone = status === 'Downloading' ? 'badge-primary'
-    : status === 'Seeding' || status === 'Completed' ? 'badge-success'
-    : status === 'Paused' ? 'badge-warning'
-    : status === 'Error' ? 'badge-error'
-    : 'badge-ghost'
-  return <span className={`badge badge-soft badge-sm whitespace-nowrap ${tone}`}>{t(STATUS_KEYS[status])}</span>
+/** Doing something right now (and so shown in the tray and the Active filter). */
+export function isActive(d: DownloadDto): boolean {
+  return d.status === 'Downloading' || d.status === 'FetchingMetadata' || d.status === 'Queued' || d.status === 'Seeding'
 }
 
 export function ProgressBar({ download }: { download: DownloadDto }) {
-  const tone = download.status === 'Completed' || download.status === 'Seeding' ? 'progress-success'
-    : download.status === 'Error' ? 'progress-error'
-    : download.status === 'Paused' ? 'progress-warning'
-    : 'progress-primary'
-  const value = Math.round(download.progress * 10) / 10
+  const t = useT()
+  const value = Math.min(100, Math.max(0, download.progress))
+  const fetching = download.status === 'FetchingMetadata'
   return (
-    <div className="flex items-center gap-2">
-      {download.status === 'FetchingMetadata'
-        ? <progress className="progress progress-primary w-full" />
-        : <progress className={`progress w-full ${tone}`} value={value} max={100} />}
-      <span className="w-12 shrink-0 text-right text-xs tabular-nums text-base-content/70">{value}%</span>
+    <div className="h-1.5 overflow-hidden rounded-full bg-base-300" role="progressbar" aria-label={t(STATUS[download.status].key)}
+      aria-valuemin={0} aria-valuemax={100} aria-valuenow={fetching ? undefined : Math.round(value)}>
+      <div className={`h-full rounded-full transition-[width] duration-700 ${STATUS[download.status].bar} ${fetching ? 'w-1/3 animate-pulse' : ''}`}
+        style={fetching ? undefined : { width: `${value}%` }} />
     </div>
   )
 }
 
-export function Speed({ download }: { download: DownloadDto }) {
-  if (!download.downloadSpeed && !download.uploadSpeed) return null
-  return (
-    <span className="whitespace-nowrap text-xs tabular-nums text-base-content/70">
-      ↓ {formatRate(download.downloadSpeed)}<br />↑ {formatRate(download.uploadSpeed)}
-    </span>
-  )
-}
+/** One download: name, progress, and a line of what is happening; the actions on the right. */
+export function DownloadRow({ download: d, seriesName }: { download: DownloadDto; seriesName?: string }) {
+  const t = useT()
+  const formatEta = useFormatEta()
+  const status = STATUS[d.status]
+  const percent = Math.round(d.progress * 10) / 10
+  const done = d.status === 'Completed' || d.status === 'Seeding'
+  const remaining = d.totalBytes * (1 - d.progress / 100)
+  const eta = d.status === 'Downloading' && d.downloadSpeed > 0 && d.totalBytes > 0 ? remaining / d.downloadSpeed : null
 
-export function DownloadName({ download }: { download: DownloadDto }) {
+  const facts = [
+    <span key="status" className={`font-medium ${status.text}`}>{t(status.key)}{d.status === 'Downloading' || d.status === 'Paused' ? ` · ${percent}%` : ''}</span>,
+    d.totalBytes > 0 && (
+      <span key="size" className="tabular-nums">
+        {done ? formatBytes(d.totalBytes) : t('downloads.sizeOf', formatBytes(d.totalBytes * d.progress / 100), formatBytes(d.totalBytes))}
+      </span>
+    ),
+    d.downloadSpeed > 0 && <span key="down" className="inline-flex items-center gap-0.5 tabular-nums"><ArrowDown size={12} />{formatRate(d.downloadSpeed)}</span>,
+    d.uploadSpeed > 0 && <span key="up" className="inline-flex items-center gap-0.5 tabular-nums"><ArrowUp size={12} />{formatRate(d.uploadSpeed)}</span>,
+    eta !== null && <span key="eta" className="inline-flex items-center gap-1"><Clock size={12} />{formatEta(eta)}</span>,
+    isActive(d) && d.peers > 0 && <span key="peers" className="inline-flex items-center gap-1 tabular-nums"><Users size={12} />{d.peers}</span>,
+  ].filter(Boolean)
+
   return (
-    <div className="min-w-0">
-      <div className="break-release text-sm font-medium">{download.name}</div>
-      {download.error && <div className="break-release text-xs text-error">{download.error}</div>}
-    </div>
+    <li className="surface p-4">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="break-release font-medium leading-snug">{d.name}</div>
+          {seriesName && <div className="muted mt-1 inline-flex items-center gap-1 text-xs"><Tv size={12} />{seriesName}</div>}
+        </div>
+        <DownloadActions download={d} />
+      </div>
+      {d.status !== 'Completed' && d.status !== 'Error' && <div className="mt-3"><ProgressBar download={d} /></div>}
+      <div className="muted mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">{facts}</div>
+      {d.error && <p className="break-release mt-2 text-sm text-error">{d.error}</p>}
+    </li>
   )
 }
 
@@ -65,24 +83,21 @@ export function DownloadActions({ download }: { download: DownloadDto }) {
   const { connection } = useDevice()
   const run = useRun()
   const [confirming, setConfirming] = useState(false)
-  const active = ['Downloading', 'FetchingMetadata', 'Seeding', 'Queued'].includes(download.status)
+  const button = 'btn btn-ghost btn-square size-10 sm:size-9'
+  const primary = isActive(download)
+    ? { label: t('common.pause'), icon: <Pause size={18} />, method: 'downloads.pause' as const }
+    : download.status === 'Paused' ? { label: t('common.resume'), icon: <Play size={18} />, method: 'downloads.resume' as const }
+    : download.status === 'Error' ? { label: t('common.retry'), icon: <RotateCw size={18} />, method: 'downloads.resume' as const }
+    : null
 
   return (
-    <div className="flex justify-end gap-1">
-      {active && (
-        <button type="button" className="btn btn-ghost btn-sm btn-square" title={t('common.pause')} aria-label={t('common.pause')}
-          onClick={() => void run(() => connection.call('downloads.pause', { id: download.id }))}><Pause size={16} /></button>
+    <div className="-mr-2 -mt-2 flex shrink-0">
+      {primary && (
+        <button type="button" className={button} title={primary.label} aria-label={primary.label}
+          onClick={() => void run(() => connection.call(primary.method, { id: download.id }))}>{primary.icon}</button>
       )}
-      {download.status === 'Paused' && (
-        <button type="button" className="btn btn-ghost btn-sm btn-square" title={t('common.resume')} aria-label={t('common.resume')}
-          onClick={() => void run(() => connection.call('downloads.resume', { id: download.id }))}><Play size={16} /></button>
-      )}
-      {download.status === 'Error' && (
-        <button type="button" className="btn btn-ghost btn-sm btn-square" title={t('common.retry')} aria-label={t('common.retry')}
-          onClick={() => void run(() => connection.call('downloads.resume', { id: download.id }))}><RotateCw size={16} /></button>
-      )}
-      <button type="button" className="btn btn-ghost btn-sm btn-square text-error" title={t('common.delete')} aria-label={t('common.delete')}
-        onClick={() => setConfirming(true)}><Trash2 size={16} /></button>
+      <button type="button" className={`${button} muted hover:text-error`} title={t('common.delete')} aria-label={t('common.delete')}
+        onClick={() => setConfirming(true)}><Trash2 size={18} /></button>
       <ConfirmDialog
         open={confirming}
         title={t('downloads.deleteTitle')}
@@ -99,8 +114,4 @@ export function DownloadActions({ download }: { download: DownloadDto }) {
       />
     </div>
   )
-}
-
-export function Size({ bytes }: { bytes: number }) {
-  return <span className="whitespace-nowrap text-xs tabular-nums">{bytes ? formatBytes(bytes) : '—'}</span>
 }

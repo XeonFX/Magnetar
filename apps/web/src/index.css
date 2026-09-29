@@ -4,33 +4,38 @@
   themes: false;
 }
 
+/*
+ * Neutral surfaces and one accent (violet) for actions. Status has colours of its own that the
+ * accent never borrows: info = downloading, accent = seeding, success = finished, warning = paused,
+ * error = failed.
+ */
 @plugin "daisyui/theme" {
   name: "mdlight";
   default: true;
   color-scheme: light;
   --color-base-100: #ffffff;
-  --color-base-200: #f6f7fb;
-  --color-base-300: #e2e8f0;
-  --color-base-content: #1e293b;
-  --color-primary: #6366f1;
+  --color-base-200: #f4f4f6;
+  --color-base-300: #e4e4e9;
+  --color-base-content: #18181b;
+  --color-primary: #6d3df2;
   --color-primary-content: #ffffff;
-  --color-secondary: #0ea5e9;
+  --color-secondary: #52525b;
   --color-secondary-content: #ffffff;
-  --color-accent: #8b5cf6;
+  --color-accent: #0d9488;
   --color-accent-content: #ffffff;
-  --color-neutral: #334155;
-  --color-neutral-content: #f8fafc;
-  --color-info: #0284c7;
+  --color-neutral: #27272a;
+  --color-neutral-content: #fafafa;
+  --color-info: #2563eb;
   --color-info-content: #ffffff;
-  --color-success: #16a34a;
+  --color-success: #15803d;
   --color-success-content: #ffffff;
-  --color-warning: #d97706;
+  --color-warning: #b45309;
   --color-warning-content: #ffffff;
   --color-error: #dc2626;
   --color-error-content: #ffffff;
-  --radius-selector: 0.5rem;
-  --radius-field: 0.5rem;
-  --radius-box: 0.75rem;
+  --radius-selector: 0.625rem;
+  --radius-field: 0.625rem;
+  --radius-box: 1rem;
   --size-selector: 0.25rem;
   --size-field: 0.25rem;
   --border: 1px;
@@ -42,29 +47,29 @@
   name: "mddark";
   prefersdark: true;
   color-scheme: dark;
-  --color-base-100: #171a21;
-  --color-base-200: #0f1117;
-  --color-base-300: #252a33;
-  --color-base-content: #e2e8f0;
-  --color-primary: #818cf8;
-  --color-primary-content: #0b0d12;
-  --color-secondary: #38bdf8;
-  --color-secondary-content: #0b0d12;
-  --color-accent: #a78bfa;
-  --color-accent-content: #0b0d12;
-  --color-neutral: #cbd5e1;
-  --color-neutral-content: #0f1117;
-  --color-info: #38bdf8;
-  --color-info-content: #0b0d12;
+  --color-base-100: #18181c;
+  --color-base-200: #101013;
+  --color-base-300: #2a2a31;
+  --color-base-content: #e7e7ea;
+  --color-primary: #a48bff;
+  --color-primary-content: #17102e;
+  --color-secondary: #a1a1aa;
+  --color-secondary-content: #18181b;
+  --color-accent: #2dd4bf;
+  --color-accent-content: #04201d;
+  --color-neutral: #e4e4e7;
+  --color-neutral-content: #18181b;
+  --color-info: #60a5fa;
+  --color-info-content: #0b1a33;
   --color-success: #4ade80;
-  --color-success-content: #0b0d12;
+  --color-success-content: #05240f;
   --color-warning: #fbbf24;
-  --color-warning-content: #0b0d12;
+  --color-warning-content: #2b1d02;
   --color-error: #f87171;
-  --color-error-content: #0b0d12;
-  --radius-selector: 0.5rem;
-  --radius-field: 0.5rem;
-  --radius-box: 0.75rem;
+  --color-error-content: #2d0707;
+  --radius-selector: 0.625rem;
+  --radius-field: 0.625rem;
+  --radius-box: 1rem;
   --size-selector: 0.25rem;
   --size-field: 0.25rem;
   --border: 1px;
@@ -95,6 +100,42 @@ body {
   word-break: break-word;
 }
 
+/* A card: the one container style every page uses. */
 .surface {
-  @apply bg-base-100 border border-base-300 rounded-box;
+  @apply rounded-box border border-base-300 bg-base-100;
+  box-shadow: 0 1px 2px rgb(24 24 27 / 0.05);
+}
+
+[data-theme="mddark"] .surface {
+  box-shadow: none;
+}
+
+/* Secondary text, one step quieter than the body (and still above 4.5:1 contrast). */
+.muted {
+  color: color-mix(in oklab, var(--color-base-content) 64%, var(--color-base-100));
+}
+
+/* Room below the content for the phone tab bar and the home indicator. */
+.pb-tabbar {
+  padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 64rem) {
+  .pb-tabbar {
+    padding-bottom: 2.5rem;
+  }
+}
+
+/* A row of chips that scrolls sideways on narrow screens, without a scrollbar. */
+.scroll-strip {
+  scrollbar-width: none;
+}
+
+.scroll-strip::-webkit-scrollbar {
+  display: none;
+}
+
+/* Focused fields ring in the accent colour rather than near-black. */
+:root :is(.input, .select, .textarea):is(:focus, :focus-within) {
+  --input-color: var(--color-primary);
 }

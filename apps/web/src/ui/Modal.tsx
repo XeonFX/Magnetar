@@ -34,7 +34,8 @@ export function Modal({ open, title, icon, onClose, children, actions, wide = fa
           {actions && <div className="modal-action mt-0 flex-wrap border-t border-base-300 px-5 py-3">{actions}</div>}
         </div>
       )}
-      <form method="dialog" className="modal-backdrop"><button type="submit">{t('common.close')}</button></form>
+      {/* A button rather than <form method="dialog">, so a dialog rendered inside a form never nests forms. */}
+      <div className="modal-backdrop"><button type="button" onClick={onClose}>{t('common.close')}</button></div>
     </dialog>
   )
 }

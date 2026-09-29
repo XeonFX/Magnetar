@@ -59,3 +59,33 @@ export function useFormatDate(): (iso: string | null, withTime?: boolean) => str
       : date.toLocaleDateString(language, { year: 'numeric', month: '2-digit', day: '2-digit' })
   }, [language])
 }
+
+const STEPS: [Intl.RelativeTimeFormatUnit, number][] = [['second', 60], ['minute', 60], ['hour', 24], ['day', 30], ['month', 12], ['year', Infinity]]
+
+function relative(format: Intl.RelativeTimeFormat, seconds: number): string {
+  let value = seconds
+  for (const [unit, size] of STEPS) {
+    if (Math.abs(value) < size) return format.format(Math.round(value), unit)
+    value /= size
+  }
+  return ''
+}
+
+/** "3 yr. ago", "in 5 min." — in the dashboard language. */
+export function useFormatRelative(): (iso: string | null) => string {
+  const language = useLanguage()
+  return useCallback((iso: string | null) => {
+    if (!iso) return '—'
+    const format = new Intl.RelativeTimeFormat(language, { numeric: 'auto', style: 'short' })
+    return relative(format, (new Date(iso).getTime() - Date.now()) / 1000)
+  }, [language])
+}
+
+/** Time left, as "in 4 min." — from now plus `seconds`. */
+export function useFormatEta(): (seconds: number) => string {
+  const language = useLanguage()
+  return useCallback((seconds: number) => {
+    const format = new Intl.RelativeTimeFormat(language, { numeric: 'always', style: 'short' })
+    return relative(format, Math.max(1, seconds))
+  }, [language])
+}
