@@ -105,7 +105,7 @@ impl App {
         let updates = Arc::new(UpdateService::new(events.clone(), notifications.clone(), downloads.clone(), http.clone()));
         let agent = AgentAccess::new(settings.clone(), secrets.clone(), paths.clone());
         let legacy = LegacyImporter::new(db.clone(), kv.clone(), settings.clone(), legacy_database);
-        Ok(Arc::new_cyclic(|app| {
+        let app = Arc::new_cyclic(|app| {
             let remote = Arc::new(RemoteService::new(
                 kv,
                 secrets,
@@ -134,7 +134,9 @@ impl App {
                 rpc: RpcServer::new(app.clone()),
                 streams: StreamGrants::default(),
             }
-        }))
+        });
+        app.notifications.send_to_browsers_through(app.remote.clone());
+        Ok(app)
     }
 
     /// Starts the background work: resuming downloads, series checks, update checks, the relay.

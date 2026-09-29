@@ -27,7 +27,8 @@
   "ratelimits": [
     { "name": "PAIR_LIMITER", "namespace_id": "3101", "simple": { "limit": 10, "period": 60 } },
     { "name": "AUTH_LIMITER", "namespace_id": "3102", "simple": { "limit": 20, "period": 60 } },
-    { "name": "TELEMETRY_LIMITER", "namespace_id": "3103", "simple": { "limit": 10, "period": 60 } }
+    { "name": "TELEMETRY_LIMITER", "namespace_id": "3103", "simple": { "limit": 10, "period": 60 } },
+    { "name": "PUSH_LIMITER", "namespace_id": "3104", "simple": { "limit": 120, "period": 60 } }
   ],
   "observability": { "enabled": true, "head_sampling_rate": 1, "logs": { "invocation_logs": false } },
   // CodeFusion Console: one trace per invocation, and browser/desktop failures via AppTelemetry.
@@ -38,7 +39,10 @@
     "APP_ENV": "production",
     "ORIGIN": "https://mediadownloader.codefusion.cc",
     // The OAuth client created for this app in Google Cloud Console.
-    "GOOGLE_CLIENT_ID": ""
+    "GOOGLE_CLIENT_ID": "",
+    // Web Push: `bun scripts/vapid-keys.ts` prints a pair; the private half is a secret
+    // (`wrangler secret put VAPID_PRIVATE_KEY`). Empty turns browser notifications off.
+    "VAPID_PUBLIC_KEY": ""
   },
   "env": {
     // `wrangler dev --env dev`: a passwordless dev sign-in, local D1, no console.
@@ -52,7 +56,8 @@
       "ratelimits": [
         { "name": "PAIR_LIMITER", "namespace_id": "3101", "simple": { "limit": 100, "period": 60 } },
         { "name": "AUTH_LIMITER", "namespace_id": "3102", "simple": { "limit": 100, "period": 60 } },
-        { "name": "TELEMETRY_LIMITER", "namespace_id": "3103", "simple": { "limit": 100, "period": 60 } }
+        { "name": "TELEMETRY_LIMITER", "namespace_id": "3103", "simple": { "limit": 100, "period": 60 } },
+        { "name": "PUSH_LIMITER", "namespace_id": "3104", "simple": { "limit": 600, "period": 60 } }
       ],
       "tail_consumers": [],
       "services": [],

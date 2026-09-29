@@ -426,6 +426,24 @@
     "player.unsupportedRemote": "Prueba otro navegador (Chrome reproduce más formatos) o míralo en el ordenador donde funciona MediaDownloader.",
     "player.openInPlayer": "Abrir en tu reproductor",
     "player.copyLink": "Copiar enlace para VLC",
-    "player.copyLinkHint": "Funciona en reproductores de este ordenador durante 12 horas"
+    "player.copyLinkHint": "Funciona en reproductores de este ordenador durante 12 horas",
+    "push.title": "Notificaciones en este dispositivo",
+    "push.hint": "Recibe aviso aquí cuando las descargas empiecen o terminen, incluso con esta página cerrada. Se cifran para este navegador antes de salir de tu ordenador.",
+    "push.installFirst": "En iPhone y iPad, primero añade este sitio a la pantalla de inicio (Compartir → Añadir a pantalla de inicio) y ábrelo desde allí.",
+    "push.blocked": "Las notificaciones están bloqueadas para este sitio. Permítelas en los ajustes del sitio del navegador y luego actívalo.",
+    "push.noServer": "Este servidor no está configurado para enviar notificaciones.",
+    "push.unsupported": "Este navegador no puede recibir notificaciones con la página cerrada.",
+    "push.failed": "No se pudieron cambiar las notificaciones: {0}",
+    "install.button": "Instalar app",
+    "install.hint": "Abre la web como una app, desde el Dock, la barra de tareas o la pantalla de inicio",
+    "get.title": "Consigue la app",
+    "get.for": "Descargar para {0}",
+    "get.version": "Descargar la versión {0}",
+    "get.onComputer": "La app funciona en Mac, Windows o Linux. Abre esta página allí para descargarla.",
+    "get.others": "Otros sistemas",
+    "get.releaseNotes": "Novedades y todos los archivos",
+    "get.first.macos": "Descomprímelo y mueve MediaDownloader a Aplicaciones. Vive en la barra de menús; tu panel se abre en el navegador.",
+    "get.first.windows": "Ejecútalo: vive en el área de notificación y abre tu panel en el navegador. Si Windows avisa, elige Más información → Ejecutar de todas formas.",
+    "get.first.linux": "Hazlo ejecutable (chmod +x) y ejecútalo; tu panel se abre en el navegador."
   }
 }

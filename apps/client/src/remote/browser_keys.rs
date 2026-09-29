@@ -19,6 +19,10 @@ impl BrowserKeyStore {
         Self { db, sealer }
     }
 
+    pub fn db(&self) -> Db {
+        self.db.clone()
+    }
+
     /// Mints a key; `active` false keeps it unusable until pairing completes.
     pub fn mint(&self, label: &str, active: bool) -> anyhow::Result<(String, Vec<u8>)> {
         let key_id = random_id(9);

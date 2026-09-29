@@ -12,6 +12,7 @@ import { ConfirmDialog } from '../../ui/Modal.tsx'
 import { useTheme, type ThemeMode } from '../../ui/theme.ts'
 import { useCopy, useToast } from '../../ui/toast.tsx'
 import { useDevice } from '../DeviceContext.tsx'
+import { BrowserPushChannel } from '../components/browserPush.tsx'
 import { FolderField } from '../components/folders.tsx'
 import { useLegacyImport } from '../components/legacyImport.tsx'
 import { RemoteAccessSection } from '../components/remoteAccess.tsx'
@@ -205,7 +206,8 @@ function NotificationsSection({ settings: s }: { settings: SettingsDto }) {
     // The prompt resolves on its own; read the answer once it has.
     setTimeout(() => setPermission(Notification.permission), 1500)
   }
-  const anyOn = s.desktopEnabled || s.emailEnabled || s.pushEnabled || s.telegramEnabled
+  const [browserPush, setBrowserPush] = useState(false)
+  const anyOn = s.desktopEnabled || s.emailEnabled || s.pushEnabled || s.telegramEnabled || browserPush
 
   return (
     <>
@@ -215,6 +217,7 @@ function NotificationsSection({ settings: s }: { settings: SettingsDto }) {
           {testing ? <span className="loading loading-spinner loading-xs" /> : <Bell size={14} />}{t('settings.sendTest')}
         </button>
       </div>
+      {connection.kind === 'remote' && <BrowserPushChannel onChange={setBrowserPush} />}
       <Channel icon={<Bell size={18} />} title={t('settings.desktop')} enabled={s.desktopEnabled}
         onToggle={desktopEnabled => { if (desktopEnabled) askNotificationPermission(); save({ desktopEnabled }) }}
         description={<>

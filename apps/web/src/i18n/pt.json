@@ -426,6 +426,24 @@
     "player.unsupportedRemote": "Experimente outro navegador (o Chrome reproduz mais formatos) ou veja-o no computador onde o MediaDownloader corre.",
     "player.openInPlayer": "Abrir no leitor",
     "player.copyLink": "Copiar ligação para o VLC",
-    "player.copyLinkHint": "Funciona em leitores deste computador durante 12 horas"
+    "player.copyLinkHint": "Funciona em leitores deste computador durante 12 horas",
+    "push.title": "Notificações neste dispositivo",
+    "push.hint": "Seja avisado aqui quando as transferências começarem ou terminarem, mesmo com esta página fechada. São cifradas para este navegador antes de saírem do seu computador.",
+    "push.installFirst": "No iPhone e iPad, adicione primeiro este site ao ecrã principal (Partilhar → Adicionar ao ecrã principal) e abra-o a partir daí.",
+    "push.blocked": "As notificações estão bloqueadas para este site. Permita-as nas definições do site do navegador e depois ative isto.",
+    "push.noServer": "Este servidor não está configurado para enviar notificações.",
+    "push.unsupported": "Este navegador não recebe notificações com a página fechada.",
+    "push.failed": "Não foi possível alterar as notificações: {0}",
+    "install.button": "Instalar app",
+    "install.hint": "Abra o site como uma app, a partir da Dock, da barra de tarefas ou do ecrã principal",
+    "get.title": "Obter a app",
+    "get.for": "Transferir para {0}",
+    "get.version": "Transferir a versão {0}",
+    "get.onComputer": "A app funciona num Mac, Windows ou Linux. Abra esta página lá para a transferir.",
+    "get.others": "Outros sistemas",
+    "get.releaseNotes": "Novidades e todos os ficheiros",
+    "get.first.macos": "Descomprima e mova o MediaDownloader para Aplicações. Fica na barra de menus; o painel abre no navegador.",
+    "get.first.windows": "Execute-o: fica na área de notificação e abre o painel no navegador. Se o Windows avisar, escolha Mais informações → Executar mesmo assim.",
+    "get.first.linux": "Torne-o executável (chmod +x) e execute-o; o painel abre no navegador."
   }
 }

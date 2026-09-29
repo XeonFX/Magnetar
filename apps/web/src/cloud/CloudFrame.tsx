@@ -1,7 +1,8 @@
-import { LogOut, Moon, Sun } from 'lucide-react'
+import { MonitorDown, LogOut, Moon, Sun } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { useT } from '../lib/i18n.tsx'
+import { useInstallOffer } from '../lib/install.ts'
 import { useTheme } from '../ui/theme.ts'
 import { useAccount } from './CloudApp.tsx'
 import { BrandMark } from '../ui/BrandMark.tsx'
@@ -11,6 +12,7 @@ export function CloudFrame({ children, wide = false }: { children: ReactNode; wi
   const t = useT()
   const { theme, setMode } = useTheme()
   const { account } = useAccount()
+  const install = useInstallOffer()
   const next = theme === 'dark' ? 'light' : 'dark'
   return (
     <div className="flex min-h-screen flex-col">
@@ -20,6 +22,11 @@ export function CloudFrame({ children, wide = false }: { children: ReactNode; wi
             <BrandMark />
             <span className="font-semibold tracking-tight">MediaDownloader</span>
           </Link>
+          {install && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={install} title={t('install.hint')}>
+              <MonitorDown size={16} /><span className="hidden sm:inline">{t('install.button')}</span>
+            </button>
+          )}
           {account && <AccountMenu />}
           <button type="button" className="btn btn-ghost btn-square btn-sm" onClick={() => setMode(next)} aria-label={t(`theme.${next}`)} title={t(`theme.${next}`)}>
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}

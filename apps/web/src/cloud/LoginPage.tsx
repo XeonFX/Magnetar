@@ -6,6 +6,7 @@ import { startGoogleSignIn, takeGoogleSignInResult } from '../lib/googleSignIn.t
 import { useLanguage, useT } from '../lib/i18n.tsx'
 import { useAccount } from './CloudApp.tsx'
 import { CloudFrame } from './CloudFrame.tsx'
+import { DownloadApp } from './DownloadApp.tsx'
 
 function safeNext(value: string | null): string {
   return value && value.startsWith('/') && !value.startsWith('//') ? value : '/'
@@ -69,9 +70,12 @@ export function LoginPage() {
           <ul className="mt-8 flex flex-col gap-5">
             <Point icon={<MonitorSmartphone size={20} />} title={t('cloud.pointAnywhere')} text={t('cloud.pointAnywhereText')} />
             <Point icon={<ShieldCheck size={20} />} title={t('cloud.pointPrivate')} text={t('cloud.e2eNote')} />
-            <Point icon={<Download size={20} />} title={t('cloud.pointApp')}
-              text={<>{t('cloud.pointAppText')} <a className="link link-primary" href="https://github.com/XeonFX/MediaDownloader/releases/latest" target="_blank" rel="noreferrer noopener">{t('devices.download')}</a></>} />
+            <Point icon={<Download size={20} />} title={t('cloud.pointApp')} text={t('cloud.pointAppText')} />
           </ul>
+          <section className="surface mt-8 max-w-md p-5" aria-labelledby="md-get-app">
+            <h2 id="md-get-app" className="mb-3 font-semibold">{t('get.title')}</h2>
+            <DownloadApp />
+          </section>
         </div>
         <div className="surface order-1 flex flex-col gap-5 p-6 sm:p-8 lg:order-2">
           <div>

@@ -92,7 +92,12 @@ struct Client {
 
 impl Client {
     fn new(app: &App, local: bool) -> Self {
-        let (session, replies) = app.rpc.connect(local);
+        Self::with_key(app, (!local).then_some("relayed-test"))
+    }
+
+    /// A relayed browser holding this key, or the local dashboard without one.
+    fn with_key(app: &App, key_id: Option<&str>) -> Self {
+        let (session, replies) = app.rpc.connect(key_id.map(str::to_owned));
         Self { session, replies, next_id: 0, events: Vec::new() }
     }
 
@@ -289,4 +294,46 @@ async fn agent_access_writes_an_owner_only_endpoint_file() {
         assert_eq!(mode & 0o777, 0o600);
     }
     assert_ne!(c.ok("agent.regenerateToken", json!({})).await["token"], token.as_str());
+}
+
+#[tokio::test]
+async fn linked_browsers_ask_for_push_and_lose_it_with_their_key() {
+    use base64::Engine as _;
+    let h = harness();
+    h.app
+        .db
+        .lock()
+        .execute(
+            "INSERT INTO browser_keys (key_id, key, label, created_at, active) VALUES ('k1', 'sealed', 'Phone', '2026-09-29', 1)",
+            [],
+        )
+        .unwrap();
+    let b64 = |bytes: &[u8]| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
+    let mut point = vec![4u8];
+    point.extend([7u8; 64]);
+    let endpoint = "https://fcm.googleapis.com/fcm/send/abc:123";
+    let subscription = json!({ "endpoint": endpoint, "p256dh": b64(&point), "auth": b64(&[1u8; 16]) });
+
+    let mut local = Client::new(&h.app, true);
+    let refused = local.call("push.subscribe", subscription.clone()).await.unwrap_err();
+    assert!(refused.starts_with("bad_request") && refused.contains("desktop notifications"), "{refused}");
+
+    let mut phone = Client::with_key(&h.app, Some("k1"));
+    assert_eq!(phone.ok("push.status", json!({ "endpoint": endpoint })).await["subscribed"], false);
+    phone.ok("push.subscribe", subscription.clone()).await;
+    assert_eq!(phone.ok("push.status", json!({ "endpoint": endpoint })).await["subscribed"], true);
+    for bad in [
+        json!({ "endpoint": "https://evil.example/push", "p256dh": b64(&point), "auth": b64(&[1u8; 16]) }),
+        json!({ "endpoint": endpoint, "p256dh": b64(&[4u8; 33]), "auth": b64(&[1u8; 16]) }),
+        json!({ "endpoint": endpoint, "p256dh": b64(&point), "auth": b64(&[1u8; 8]) }),
+    ] {
+        assert!(phone.call("push.subscribe", bad).await.unwrap_err().starts_with("bad_request"));
+    }
+
+    h.app.remote.revoke_browser("k1");
+    assert_eq!(
+        phone.ok("push.status", json!({ "endpoint": endpoint })).await["subscribed"],
+        false,
+        "revoking the key drops its subscription"
+    );
 }

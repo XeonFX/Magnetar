@@ -9,6 +9,7 @@ import { Empty } from '../ui/Empty.tsx'
 import { ConfirmDialog } from '../ui/Modal.tsx'
 import { useToast } from '../ui/toast.tsx'
 import { CloudFrame } from './CloudFrame.tsx'
+import { DownloadApp } from './DownloadApp.tsx'
 
 export function DevicesPage() {
   const t = useT()
@@ -28,10 +29,16 @@ export function DevicesPage() {
       setDevices([])
     }
   }, [toast])
+  // Online dots stay current while the page is looked at; a hidden tab doesn't poll.
   useEffect(() => {
     void load()
-    const timer = setInterval(() => void load(), 15_000)
-    return () => clearInterval(timer)
+    const timer = setInterval(() => { if (!document.hidden) void load() }, 15_000)
+    const visible = () => { if (!document.hidden) void load() }
+    document.addEventListener('visibilitychange', visible)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', visible)
+    }
   }, [load])
 
   return (
@@ -42,7 +49,7 @@ export function DevicesPage() {
         <div className="flex justify-center py-16"><span className="loading loading-spinner loading-lg text-primary" /></div>
       ) : devices.length === 0 ? (
         <Empty icon={<MonitorSmartphone size={40} strokeWidth={1.5} className="text-primary" />} title={t('devices.emptyTitle')} text={t('devices.emptyHint')}>
-          <a className="btn btn-primary" href="https://github.com/XeonFX/MediaDownloader/releases/latest" target="_blank" rel="noreferrer noopener">{t('devices.download')}</a>
+          <div className="mx-auto w-full max-w-sm text-left"><DownloadApp /></div>
         </Empty>
       ) : (
         <>

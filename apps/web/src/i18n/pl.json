@@ -426,6 +426,24 @@
     "player.unsupportedRemote": "Spróbuj innej przeglądarki (Chrome odtwarza najwięcej formatów) albo obejrzyj na komputerze z MediaDownloaderem.",
     "player.openInPlayer": "Otwórz w odtwarzaczu",
     "player.copyLink": "Kopiuj link do VLC",
-    "player.copyLinkHint": "Działa w odtwarzaczach na tym komputerze przez 12 godzin"
+    "player.copyLinkHint": "Działa w odtwarzaczach na tym komputerze przez 12 godzin",
+    "push.title": "Powiadomienia na tym urządzeniu",
+    "push.hint": "Dostawaj tu powiadomienia o rozpoczęciu i zakończeniu pobierania, nawet przy zamkniętej stronie. Są szyfrowane dla tej przeglądarki, zanim opuszczą Twój komputer.",
+    "push.installFirst": "Na iPhonie i iPadzie najpierw dodaj stronę do ekranu początkowego (Udostępnij → Do ekranu początk.) i otwórz ją stamtąd.",
+    "push.blocked": "Powiadomienia są zablokowane dla tej strony. Zezwól na nie w ustawieniach strony w przeglądarce, a potem to włącz.",
+    "push.noServer": "Ten serwer nie jest skonfigurowany do wysyłania powiadomień.",
+    "push.unsupported": "Ta przeglądarka nie odbiera powiadomień przy zamkniętej stronie.",
+    "push.failed": "Nie udało się zmienić powiadomień: {0}",
+    "install.button": "Zainstaluj aplikację",
+    "install.hint": "Otwieraj stronę jak aplikację — z Docka, paska zadań lub ekranu początkowego",
+    "get.title": "Pobierz aplikację",
+    "get.for": "Pobierz na {0}",
+    "get.version": "Pobierz wersję {0}",
+    "get.onComputer": "Aplikacja działa na komputerach z macOS, Windows i Linuksem. Otwórz tę stronę na komputerze, żeby ją pobrać.",
+    "get.others": "Inne systemy",
+    "get.releaseNotes": "Nowości i wszystkie pliki",
+    "get.first.macos": "Rozpakuj i przenieś MediaDownloader do Aplikacji. Działa na pasku menu, a panel otwiera się w przeglądarce.",
+    "get.first.windows": "Uruchom — działa w obszarze powiadomień i otwiera panel w przeglądarce. Jeśli Windows ostrzeże, wybierz Więcej informacji → Uruchom mimo to.",
+    "get.first.linux": "Nadaj prawa wykonywania (chmod +x) i uruchom; panel otworzy się w przeglądarce."
   }
 }

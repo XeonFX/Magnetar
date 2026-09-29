@@ -4,6 +4,7 @@ import type {
 } from '@md/protocol'
 import { mergeByInfoHash } from '@md/protocol/merge'
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { pushEnabledFor } from '../lib/push.ts'
 import type { ConnectionState, RpcClient } from '../lib/rpcClient.ts'
 
 /** What the Search page keeps while you browse other pages, like the legacy app did. */
@@ -124,7 +125,8 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
       connection.on('search.done', ({ searchId }) =>
         setSearch(s => (s.searchId === searchId ? { ...s, searching: false } : s))),
       connection.on('notification', event => {
-        if (!('Notification' in window) || Notification.permission !== 'granted') return
+        // Pushed notifications arrive through the service worker; don't show them twice.
+        if (!('Notification' in window) || Notification.permission !== 'granted' || pushEnabledFor(connection)) return
         try {
           new Notification(event.title, { body: event.message, icon: '/favicon.png' })
         } catch {

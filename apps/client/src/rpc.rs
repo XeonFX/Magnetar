@@ -39,6 +39,8 @@ pub struct RpcSession {
 
 struct SessionInner {
     local: bool,
+    /// The browser key of a relayed session.
+    key_id: Option<String>,
     out: mpsc::UnboundedSender<Value>,
     /// Cancelled when the dashboard disconnects.
     closed: CancellationToken,
@@ -69,11 +71,12 @@ impl RpcServer {
         Self { app }
     }
 
-    /// Opens a session; `local` is the device's own dashboard, as opposed to a relayed browser.
-    pub fn connect(&self, local: bool) -> (RpcSession, mpsc::UnboundedReceiver<Value>) {
+    /// Opens a session: the device's own dashboard without a key, a relayed browser with its key.
+    pub fn connect(&self, key_id: Option<String>) -> (RpcSession, mpsc::UnboundedReceiver<Value>) {
         let (out, receiver) = mpsc::unbounded_channel();
         let inner = Arc::new(SessionInner {
-            local,
+            local: key_id.is_none(),
+            key_id,
             out,
             closed: CancellationToken::new(),
             searches: Mutex::default(),
@@ -210,6 +213,20 @@ struct StreamRead {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct StreamId {
     stream_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PushSubscribe {
+    endpoint: String,
+    p256dh: String,
+    auth: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PushEndpoint {
+    endpoint: String,
 }
 
 #[derive(Deserialize)]
@@ -440,6 +457,23 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
                 message: "If you can read this, notifications are working.".into(),
             };
             app.notifications.dispatch(event, true).await?;
+            ok(Value::Null)
+        }
+
+        "push.status" => {
+            let PushEndpoint { endpoint } = parse(params)?;
+            ok(json!({ "subscribed": app.remote.pushes.contains(&endpoint) }))
+        }
+        "push.subscribe" => {
+            let PushSubscribe { endpoint, p256dh, auth } = parse(params)?;
+            let key_id = session.key_id.as_deref().ok_or_else(|| {
+                ApiError::bad("The dashboard on this computer uses desktop notifications; push is for linked browsers.")
+            })?;
+            app.remote.pushes.add(key_id, &endpoint, &p256dh, &auth)?;
+            ok(Value::Null)
+        }
+        "push.unsubscribe" => {
+            app.remote.pushes.remove(&parse::<PushEndpoint>(params)?.endpoint);
             ok(Value::Null)
         }
 

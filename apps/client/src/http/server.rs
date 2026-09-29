@@ -169,7 +169,7 @@ async fn agent(app: &Arc<App>, request: Request, path: &str) -> Response {
 
 /// The local dashboard's RPC socket.
 async fn dashboard_socket(app: Arc<App>, socket: WebSocket) {
-    let (session, mut outgoing) = app.rpc.connect(true);
+    let (session, mut outgoing) = app.rpc.connect(None);
     let (mut sink, mut stream) = socket.split();
     let writer = tokio::spawn(async move {
         while let Some(message) = outgoing.recv().await {

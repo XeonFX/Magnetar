@@ -426,6 +426,24 @@
     "player.unsupportedRemote": "Probiere einen anderen Browser (Chrome spielt die meisten Formate) oder sieh sie auf dem Computer an, auf dem MediaDownloader läuft.",
     "player.openInPlayer": "Im Player öffnen",
     "player.copyLink": "Link für VLC kopieren",
-    "player.copyLinkHint": "Funktioniert 12 Stunden lang in Playern auf diesem Computer"
+    "player.copyLinkHint": "Funktioniert 12 Stunden lang in Playern auf diesem Computer",
+    "push.title": "Benachrichtigungen auf diesem Gerät",
+    "push.hint": "Erfahre hier, wenn Downloads starten oder fertig sind – auch bei geschlossener Seite. Sie werden für diesen Browser verschlüsselt, bevor sie deinen Computer verlassen.",
+    "push.installFirst": "Auf iPhone und iPad füge die Seite zuerst zum Home-Bildschirm hinzu (Teilen → Zum Home-Bildschirm) und öffne sie von dort.",
+    "push.blocked": "Benachrichtigungen sind für diese Seite blockiert. Erlaube sie in den Website-Einstellungen des Browsers und schalte dies dann ein.",
+    "push.noServer": "Dieser Server ist nicht zum Senden von Benachrichtigungen eingerichtet.",
+    "push.unsupported": "Dieser Browser kann keine Benachrichtigungen bei geschlossener Seite empfangen.",
+    "push.failed": "Benachrichtigungen konnten nicht geändert werden: {0}",
+    "install.button": "App installieren",
+    "install.hint": "Die Website wie eine App öffnen – aus Dock, Taskleiste oder Home-Bildschirm",
+    "get.title": "Die App holen",
+    "get.for": "Für {0} herunterladen",
+    "get.version": "Version {0} herunterladen",
+    "get.onComputer": "Die App läuft auf Mac, Windows oder Linux. Öffne diese Seite dort, um sie herunterzuladen.",
+    "get.others": "Andere Systeme",
+    "get.releaseNotes": "Neuigkeiten und alle Dateien",
+    "get.first.macos": "Entpacken und MediaDownloader in „Programme“ ziehen. Die App sitzt in der Menüleiste; das Dashboard öffnet sich im Browser.",
+    "get.first.windows": "Starte sie – sie sitzt im Infobereich und öffnet das Dashboard im Browser. Warnt Windows, wähle „Weitere Informationen“ → „Trotzdem ausführen“.",
+    "get.first.linux": "Mach sie ausführbar (chmod +x) und starte sie; das Dashboard öffnet sich im Browser."
   }
 }

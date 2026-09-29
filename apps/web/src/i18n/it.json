@@ -426,6 +426,24 @@
     "player.unsupportedRemote": "Prova un altro browser (Chrome riproduce più formati) o guardalo sul computer dove gira MediaDownloader.",
     "player.openInPlayer": "Apri nel lettore",
     "player.copyLink": "Copia link per VLC",
-    "player.copyLinkHint": "Funziona nei lettori di questo computer per 12 ore"
+    "player.copyLinkHint": "Funziona nei lettori di questo computer per 12 ore",
+    "push.title": "Notifiche su questo dispositivo",
+    "push.hint": "Ricevi un avviso qui quando i download iniziano o finiscono, anche con la pagina chiusa. Sono cifrati per questo browser prima di lasciare il tuo computer.",
+    "push.installFirst": "Su iPhone e iPad, prima aggiungi il sito alla schermata Home (Condividi → Aggiungi alla schermata Home) e aprilo da lì.",
+    "push.blocked": "Le notifiche sono bloccate per questo sito. Consentile nelle impostazioni del sito del browser, poi attiva questa opzione.",
+    "push.noServer": "Questo server non è configurato per inviare notifiche.",
+    "push.unsupported": "Questo browser non può ricevere notifiche a pagina chiusa.",
+    "push.failed": "Impossibile modificare le notifiche: {0}",
+    "install.button": "Installa app",
+    "install.hint": "Apri il sito come un'app, dal Dock, dalla barra delle applicazioni o dalla schermata Home",
+    "get.title": "Scarica l'app",
+    "get.for": "Scarica per {0}",
+    "get.version": "Scarica la versione {0}",
+    "get.onComputer": "L'app funziona su Mac, Windows o Linux. Apri questa pagina lì per scaricarla.",
+    "get.others": "Altri sistemi",
+    "get.releaseNotes": "Novità e tutti i file",
+    "get.first.macos": "Decomprimi e sposta MediaDownloader in Applicazioni. Vive nella barra dei menu; la dashboard si apre nel browser.",
+    "get.first.windows": "Avvialo: vive nell'area di notifica e apre la dashboard nel browser. Se Windows avvisa, scegli Ulteriori informazioni → Esegui comunque.",
+    "get.first.linux": "Rendilo eseguibile (chmod +x) e avvialo; la dashboard si apre nel browser."
   }
 }

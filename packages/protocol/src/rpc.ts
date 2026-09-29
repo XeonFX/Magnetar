@@ -42,6 +42,11 @@ export const RPC_PARAMS = {
   'stream.read': z.strictObject({ streamId: z.string(), offset: z.number().int().min(0), length: z.number().int().min(1) }),
   'stream.close': z.strictObject({ streamId: z.string() }),
 
+  /** Web Push for a linked browser: whether its subscription is known, and adding or removing it. */
+  'push.status': z.strictObject({ endpoint: z.string() }),
+  'push.subscribe': z.strictObject({ endpoint: z.url({ protocol: /^https$/ }).max(1000), p256dh: z.string().max(200), auth: z.string().max(100) }),
+  'push.unsubscribe': z.strictObject({ endpoint: z.string() }),
+
   'transfer.status': none,
   'network.interfaces': none,
 
@@ -110,6 +115,9 @@ export interface RpcResults {
   /** base64; shorter than asked at the end of the file, and at most 448 KiB. */
   'stream.read': { data: string }
   'stream.close': null
+  'push.status': { subscribed: boolean }
+  'push.subscribe': null
+  'push.unsubscribe': null
   'transfer.status': TransferStatusDto
   'network.interfaces': { supported: boolean; interfaces: NetworkInterfaceDto[] }
   'series.list': SeriesTaskDto[]

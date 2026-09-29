@@ -12,11 +12,19 @@ export interface Env {
   PAIR_LIMITER: RateLimit
   AUTH_LIMITER: RateLimit
   TELEMETRY_LIMITER: RateLimit
+  PUSH_LIMITER: RateLimit
   CONSOLE_TELEMETRY?: ConsoleTelemetry
   APP_ID: string
   APP_ENV: string
   ORIGIN: string
   GOOGLE_CLIENT_ID: string
+  /** GitHub owner/name whose releases the website offers for download. */
+  RELEASES_REPO?: string
+  /** Web Push (VAPID) key pair, base64url: the 65-byte public point and the 32-byte private scalar (a secret). */
+  VAPID_PUBLIC_KEY?: string
+  VAPID_PRIVATE_KEY?: string
+  /** Contact for push services; the site's origin by default. */
+  VAPID_SUBJECT?: string
   /** "enabled" only in the dev environment: passwordless sign-in for local testing. */
   DEV_LOGIN?: string
 }

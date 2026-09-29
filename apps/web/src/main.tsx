@@ -4,9 +4,12 @@ import './index.css'
 import { LocalApp } from './LocalApp.tsx'
 import { loadAppConfig, type AppConfig } from './lib/cloudApi.ts'
 import { installErrorReporting } from './lib/errorReport.ts'
+import { captureInstallOffer } from './lib/install.ts'
 import { ToastProvider } from './ui/toast.tsx'
 
 const CloudApp = lazy(() => import('./cloud/CloudApp.tsx'))
+
+captureInstallOffer()
 
 /** One build, two homes: the device serves it on localhost, the Worker at mediadownloader.codefusion.cc. */
 function Root() {
@@ -14,7 +17,11 @@ function Root() {
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     loadAppConfig().then(c => {
-      if (c.mode === 'cloud') installErrorReporting()
+      if (c.mode === 'cloud') {
+        installErrorReporting()
+        // Push, playback through the relay and installing as an app all go through it.
+        void navigator.serviceWorker?.register('/sw.js', { scope: '/' }).catch(() => {})
+      }
       setConfig(c)
     }, e => setError(e instanceof Error ? e.message : String(e)))
   }, [])

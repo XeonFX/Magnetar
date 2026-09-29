@@ -426,6 +426,24 @@
     "player.unsupportedRemote": "Essayez un autre navigateur (Chrome lit le plus de formats), ou regardez-le sur l'ordinateur où tourne MediaDownloader.",
     "player.openInPlayer": "Ouvrir dans votre lecteur",
     "player.copyLink": "Copier le lien pour VLC",
-    "player.copyLinkHint": "Fonctionne dans les lecteurs de cet ordinateur pendant 12 heures"
+    "player.copyLinkHint": "Fonctionne dans les lecteurs de cet ordinateur pendant 12 heures",
+    "push.title": "Notifications sur cet appareil",
+    "push.hint": "Soyez prévenu ici quand un téléchargement commence ou se termine, même page fermée. Ils sont chiffrés pour ce navigateur avant de quitter votre ordinateur.",
+    "push.installFirst": "Sur iPhone et iPad, ajoutez d'abord ce site à l'écran d'accueil (Partager → Sur l'écran d'accueil) et ouvrez-le de là.",
+    "push.blocked": "Les notifications sont bloquées pour ce site. Autorisez-les dans les paramètres du site du navigateur, puis activez ceci.",
+    "push.noServer": "Ce serveur n'est pas configuré pour envoyer des notifications.",
+    "push.unsupported": "Ce navigateur ne peut pas recevoir de notifications quand la page est fermée.",
+    "push.failed": "Impossible de modifier les notifications : {0}",
+    "install.button": "Installer l'app",
+    "install.hint": "Ouvrez le site comme une app, depuis le Dock, la barre des tâches ou l'écran d'accueil",
+    "get.title": "Obtenir l'app",
+    "get.for": "Télécharger pour {0}",
+    "get.version": "Télécharger la version {0}",
+    "get.onComputer": "L'app fonctionne sur Mac, Windows ou Linux. Ouvrez cette page sur cet ordinateur pour la télécharger.",
+    "get.others": "Autres systèmes",
+    "get.releaseNotes": "Nouveautés et tous les fichiers",
+    "get.first.macos": "Décompressez-le et placez MediaDownloader dans Applications. Il vit dans la barre des menus ; votre tableau de bord s'ouvre dans le navigateur.",
+    "get.first.windows": "Lancez-le : il vit dans la zone de notification et ouvre votre tableau de bord dans le navigateur. Si Windows vous avertit, choisissez Informations complémentaires → Exécuter quand même.",
+    "get.first.linux": "Rendez-le exécutable (chmod +x) et lancez-le ; votre tableau de bord s'ouvre dans le navigateur."
   }
 }

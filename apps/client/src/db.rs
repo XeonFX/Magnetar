@@ -66,6 +66,16 @@ ALTER TABLE downloads ADD COLUMN uploaded_bytes INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE downloads ADD COLUMN selected_files TEXT;
 ALTER TABLE downloads ADD COLUMN episode INTEGER;
 ",
+    r"
+CREATE TABLE push_subscriptions (
+  endpoint TEXT PRIMARY KEY,
+  key_id TEXT NOT NULL REFERENCES browser_keys(key_id) ON DELETE CASCADE,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX push_subscriptions_key ON push_subscriptions(key_id);
+",
 ];
 
 /// The app database. Statements are short, so one connection behind a mutex serves every service.

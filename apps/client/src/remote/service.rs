@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
+use futures::future::join_all;
 use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -18,6 +19,7 @@ use tokio_tungstenite::tungstenite::{Bytes, Message};
 use tokio_util::sync::CancellationToken;
 
 use super::browser_keys::BrowserKeyStore;
+use super::push::{PushPayload, PushSubscriptions};
 use crate::app::App;
 use crate::config::{CLOUD_URL, PLATFORM, USER_AGENT, VERSION};
 use crate::db::{KeyValue, SecretName, SecretStore};
@@ -31,7 +33,8 @@ use crate::protocol::encoding::{encode_uri_component, parse_iso, to_base64url};
 use crate::protocol::relay::{
     CLOSE_DEVICE_REMOVED, DeviceToRelay, MAX_RELAY_FRAME, RELAY_PING, RelayToDevice, unwrap_from_device, wrap_for_device,
 };
-use crate::protocol::{PendingPairingDto, RemoteStatusDto};
+use crate::protocol::webpush::{self, SubscriptionKeys};
+use crate::protocol::{NotificationEvent, PendingPairingDto, RemoteStatusDto};
 use crate::rpc::RpcSession;
 
 const POLL: Duration = Duration::from_secs(2);
@@ -86,6 +89,8 @@ enum Closed {
 }
 
 pub struct RemoteService {
+    /// Linked browsers' push subscriptions.
+    pub pushes: PushSubscriptions,
     kv: KeyValue,
     secrets: Arc<SecretStore>,
     keys: BrowserKeyStore,
@@ -126,7 +131,44 @@ impl RemoteService {
         http: reqwest::Client,
         app: Weak<App>,
     ) -> Self {
-        Self { kv, secrets, keys, events, http, app, state: Mutex::default(), stop: CancellationToken::new() }
+        let pushes = PushSubscriptions::new(keys.db());
+        Self { pushes, kv, secrets, keys, events, http, app, state: Mutex::default(), stop: CancellationToken::new() }
+    }
+
+    /// Sends a notification to every linked browser that asked for them, sealed for each. The Worker
+    /// passes it to the browser's push service; a subscription the service no longer knows is dropped.
+    pub async fn push(&self, event: &NotificationEvent) -> anyhow::Result<()> {
+        let subscriptions = self.pushes.all();
+        let (Some(device_id), false) = (self.device_id(), subscriptions.is_empty()) else { return Ok(()) };
+        let token = self.secrets.get(SecretName::DeviceToken);
+        anyhow::ensure!(!token.is_empty(), "This device is not connected to an account");
+        let payload = serde_json::to_vec(&PushPayload {
+            title: &event.title,
+            body: &event.message,
+            kind: event.kind,
+            url: format!("/d/{}", encode_uri_component(&device_id)),
+        })?;
+        let outcomes = join_all(subscriptions.iter().map(|subscription| async {
+            let keys = SubscriptionKeys { p256dh: &subscription.p256dh, auth: &subscription.auth };
+            let body = to_base64url(&webpush::encrypt(&keys, &payload)?);
+            let answer = self
+                .cloud(
+                    "POST",
+                    "/api/device/push",
+                    Some(json!({ "endpoint": subscription.endpoint, "body": body, "ttl": 24 * 60 * 60, "urgency": "normal" })),
+                    Some(&token),
+                )
+                .await?;
+            // 404 and 410: the browser unsubscribed or the subscription expired.
+            if matches!(answer["status"].as_u64(), Some(404 | 410)) {
+                self.pushes.remove(&subscription.endpoint);
+            } else if answer["status"].as_u64().is_none_or(|s| !(200..300).contains(&s)) {
+                anyhow::bail!("the push service answered HTTP {}", answer["status"]);
+            }
+            anyhow::Ok(())
+        }))
+        .await;
+        outcomes.into_iter().find(Result::is_err).unwrap_or(Ok(()))
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -531,7 +573,7 @@ impl RemoteService {
                     }
                 };
                 let Some(app) = self.app.upgrade() else { return };
-                let (rpc, mut replies) = app.rpc.connect(false);
+                let (rpc, mut replies) = app.rpc.connect(Some(kid.clone()));
                 let session = Arc::new(Mutex::new(session));
                 send(&encode_handshake(&welcome));
                 // Replies and events are sealed in the order they are produced, after the welcome.

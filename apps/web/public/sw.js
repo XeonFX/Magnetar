@@ -84,3 +84,38 @@ async function stream(event, key) {
   if (range.partial) headers['content-range'] = `bytes ${range.start}-${end}/${meta.size}`
   return new Response(body, { status: range.partial ? 206 : 200, headers })
 }
+
+/*
+ * Notifications from linked devices, sealed on the device for this browser and opened by the
+ * browser's push service before they arrive here.
+ */
+self.addEventListener('push', event => {
+  let message = {}
+  try {
+    message = event.data ? event.data.json() : {}
+  } catch {
+    message = { body: event.data ? event.data.text() : '' }
+  }
+  event.waitUntil(self.registration.showNotification(message.title || 'MediaDownloader', {
+    body: message.body || '',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    tag: message.kind === 'completed' ? `md-${message.body}` : undefined,
+    data: { url: typeof message.url === 'string' && message.url.startsWith('/') ? message.url : '/' },
+  }))
+})
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close()
+  const target = new URL(event.notification.data?.url || '/', self.location.origin).href
+  event.waitUntil((async () => {
+    const pages = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    const open = pages.find(page => page.url === target) || pages[0]
+    if (open) {
+      await open.focus()
+      if (open.url !== target) await open.navigate(target)
+      return
+    }
+    await self.clients.openWindow(target)
+  })())
+})

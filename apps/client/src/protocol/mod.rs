@@ -7,5 +7,6 @@ pub mod encoding;
 pub mod model;
 pub mod relay;
 pub mod scrub;
+pub mod webpush;
 
 pub use model::*;

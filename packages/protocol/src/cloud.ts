@@ -63,6 +63,26 @@ export type PairPollResponse =
   | { state: 'expired' }
   | { state: 'approved'; deviceId: string; deviceToken: string; accountEmail: string }
 
+export type ReleasePlatform = 'macos' | 'windows' | 'linux'
+export type ReleaseArch = 'arm64' | 'x64'
+
+/** One download of the app, from the latest GitHub release. */
+export interface ReleaseAssetDto {
+  name: string
+  url: string
+  size: number
+  platform: ReleasePlatform
+  arch: ReleaseArch
+}
+
+/** `/api/releases/latest`: the app's newest release, for the website's download buttons. */
+export interface LatestReleaseDto {
+  version: string
+  publishedAt: string
+  pageUrl: string
+  assets: ReleaseAssetDto[]
+}
+
 /** Error report forwarded to CodeFusion Console. Scrubbed by the sender. */
 export interface FailureReport {
   source: 'error' | 'rejection' | 'render'

@@ -1,4 +1,4 @@
-import type { AccountDto, AppConfig, CloudDeviceDto, PairApproveResponse, PairingInfoDto } from '@md/protocol/cloud'
+import type { AccountDto, AppConfig, CloudDeviceDto, LatestReleaseDto, PairApproveResponse, PairingInfoDto } from '@md/protocol/cloud'
 
 export type { AppConfig }
 
@@ -50,5 +50,6 @@ export const cloud = {
   devices: () => api<CloudDeviceDto[]>('/api/devices'),
   removeDevice: (id: string) => api<void>(`/api/devices/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   pairing: (id: string) => api<PairingInfoDto>(`/api/pair/${encodeURIComponent(id)}`),
+  latestRelease: () => api<LatestReleaseDto>('/api/releases/latest'),
   approvePairing: (id: string) => api<PairApproveResponse>(`/api/pair/${encodeURIComponent(id)}/approve`, { method: 'POST', body: '{}' }),
 }

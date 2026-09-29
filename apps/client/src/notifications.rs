@@ -1,7 +1,8 @@
 //! Notification channels: desktop (every open dashboard shows it through the browser Notification
-//! API), e-mail, ntfy push and Telegram. One failing channel never stops the others.
+//! API), e-mail, ntfy push, Telegram, and push to linked browsers. One failing channel never stops
+//! the others.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use base64::Engine;
@@ -15,6 +16,7 @@ use crate::db::SecretName;
 use crate::error::{ApiError, ApiResult};
 use crate::events::EventBus;
 use crate::protocol::{NotificationEvent, is_email};
+use crate::remote::RemoteService;
 use crate::settings::{AppSettings, SettingsService};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -25,6 +27,8 @@ enum Channel {
     Email,
     Push,
     Telegram,
+    /// Linked browsers that turned notifications on (see `remote::push`).
+    Browsers,
 }
 
 impl Channel {
@@ -34,6 +38,7 @@ impl Channel {
             Self::Email => "Email",
             Self::Push => "Push (ntfy)",
             Self::Telegram => "Telegram",
+            Self::Browsers => "Browser push",
         }
     }
 }
@@ -42,11 +47,17 @@ pub struct NotificationDispatcher {
     settings: Arc<SettingsService>,
     events: EventBus,
     http: reqwest::Client,
+    /// Set once the remote service exists (it is built after this).
+    browsers: OnceLock<Arc<RemoteService>>,
 }
 
 impl NotificationDispatcher {
     pub fn new(settings: Arc<SettingsService>, events: EventBus, http: reqwest::Client) -> Self {
-        Self { settings, events, http }
+        Self { settings, events, http, browsers: OnceLock::new() }
+    }
+
+    pub fn send_to_browsers_through(&self, remote: Arc<RemoteService>) {
+        let _ = self.browsers.set(remote);
     }
 
     fn enabled(&self, s: &AppSettings) -> Vec<Channel> {
@@ -63,6 +74,9 @@ impl NotificationDispatcher {
         if s.telegram_enabled && !s.telegram_chat_id.trim().is_empty() && self.settings.secrets.has(SecretName::TelegramBotToken)
         {
             channels.push(Channel::Telegram);
+        }
+        if self.browsers.get().is_some_and(|remote| !remote.pushes.is_empty()) {
+            channels.push(Channel::Browsers);
         }
         channels
     }
@@ -109,6 +123,10 @@ impl NotificationDispatcher {
             Channel::Email => self.email(event, s).await,
             Channel::Push => self.ntfy(event, s).await,
             Channel::Telegram => self.telegram(event, s).await,
+            Channel::Browsers => match self.browsers.get() {
+                Some(remote) => remote.push(event).await,
+                None => Ok(()),
+            },
         }
     }
 

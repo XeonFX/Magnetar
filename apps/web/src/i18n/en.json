@@ -426,6 +426,24 @@
     "player.unsupportedRemote": "Try another browser (Chrome plays the most formats), or watch it on the computer running MediaDownloader.",
     "player.openInPlayer": "Open in your player",
     "player.copyLink": "Copy link for VLC",
-    "player.copyLinkHint": "Works in players on this computer for 12 hours"
+    "player.copyLinkHint": "Works in players on this computer for 12 hours",
+    "push.title": "Notifications on this device",
+    "push.hint": "Get told here when downloads start or finish, even with this page closed. They're encrypted for this browser before they leave your computer.",
+    "push.installFirst": "On iPhone and iPad, first add this site to the Home Screen (Share → Add to Home Screen) and open it from there.",
+    "push.blocked": "Notifications are blocked for this site. Allow them in the browser's site settings, then turn this on.",
+    "push.noServer": "This server isn't set up to send notifications.",
+    "push.unsupported": "This browser can't receive notifications while the page is closed.",
+    "push.failed": "Could not change notifications: {0}",
+    "install.button": "Install app",
+    "install.hint": "Open the website like an app, from the Dock, taskbar or Home Screen",
+    "get.title": "Get the app",
+    "get.for": "Download for {0}",
+    "get.version": "Download version {0}",
+    "get.onComputer": "The app runs on a Mac, Windows or Linux computer. Open this page there to download it.",
+    "get.others": "Other systems",
+    "get.releaseNotes": "What's new, and every file",
+    "get.first.macos": "Unzip it and move MediaDownloader to Applications. It lives in the menu bar; your dashboard opens in the browser.",
+    "get.first.windows": "Run it — it lives in the notification area and opens your dashboard in the browser. If Windows warns you, choose More info → Run anyway.",
+    "get.first.linux": "Make it executable (chmod +x) and run it; your dashboard opens in the browser."
   }
 }
