@@ -15,6 +15,7 @@ use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::{ARCH, GITHUB_REPO, IS_DEV, PLATFORM, RELEASE_PUBLIC_KEY, VERSION};
+use crate::downloads::DownloadManager;
 use crate::events::EventBus;
 use crate::notifications::NotificationDispatcher;
 use crate::paths::mac_app_bundle;
@@ -84,6 +85,7 @@ pub fn find_checksum(manifest: &str, asset: &str) -> Option<String> {
 pub struct UpdateService {
     events: EventBus,
     notifications: Arc<NotificationDispatcher>,
+    downloads: Arc<DownloadManager>,
     http: reqwest::Client,
     state: Mutex<State>,
     cancel: CancellationToken,
@@ -92,8 +94,21 @@ pub struct UpdateService {
 }
 
 impl UpdateService {
-    pub fn new(events: EventBus, notifications: Arc<NotificationDispatcher>, http: reqwest::Client) -> Self {
-        Self { events, notifications, http, state: Mutex::default(), cancel: CancellationToken::new(), on_quit: OnceLock::new() }
+    pub fn new(
+        events: EventBus,
+        notifications: Arc<NotificationDispatcher>,
+        downloads: Arc<DownloadManager>,
+        http: reqwest::Client,
+    ) -> Self {
+        Self {
+            events,
+            notifications,
+            downloads,
+            http,
+            state: Mutex::default(),
+            cancel: CancellationToken::new(),
+            on_quit: OnceLock::new(),
+        }
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -275,6 +290,9 @@ impl UpdateService {
         }
     }
 
+    /// Downloads and checks the new version, pauses the active downloads, then swaps it in (on macOS
+    /// a helper swaps once this app has exited). The new version resumes those downloads on start;
+    /// if the swap fails, this one resumes them.
     async fn stage(&self, update: &Release, staging: &Path) -> anyhow::Result<()> {
         std::fs::create_dir_all(staging)?;
         let asset_name = update.asset_name.as_deref().expect("checked by can_self_install");
@@ -282,7 +300,16 @@ impl UpdateService {
         self.verify(&asset, asset_name, update).await?;
         let asset_path = staging.join(asset_name);
         std::fs::write(&asset_path, &asset)?;
-        if PLATFORM == "macos" { install_mac(&asset_path, staging).await } else { install_executable(&asset_path) }
+        let mac_installer = if PLATFORM == "macos" { Some(MacInstaller::prepare(&asset_path, staging).await?) } else { None };
+        self.downloads.pause_for_update().await;
+        let swapped = match mac_installer {
+            Some(installer) => installer.launch(),
+            None => install_executable(&asset_path),
+        };
+        if swapped.is_err() {
+            self.downloads.resume_after_update();
+        }
+        swapped
     }
 
     async fn download(&self, url: &str, timeout: Duration) -> anyhow::Result<Vec<u8>> {
@@ -324,37 +351,52 @@ async fn run(program: &str, args: &[&std::ffi::OsStr]) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn install_mac(zip: &Path, staging: &Path) -> anyhow::Result<()> {
-    let bundle = mac_app_bundle().expect("checked by can_self_install");
-    run("/usr/bin/ditto", &["-x".as_ref(), "-k".as_ref(), zip.as_os_str(), staging.as_os_str()]).await?;
-    let new_app = staging.join("MediaDownloader.app");
-    anyhow::ensure!(
-        new_app.join("Contents/MacOS/MediaDownloader").exists(),
-        "The downloaded bundle has no MediaDownloader executable"
-    );
-    // Copy beside the destination and validate it while this app still runs; the helper only
-    // renames bundles once we have exited.
-    let work = bundle.parent().unwrap_or(Path::new("/Applications")).join(format!(".MediaDownloader-update-{}", random_id(6)));
-    std::fs::create_dir_all(&work)?;
-    let script = work.join("install.sh");
-    crate::db::write_private(&script, MAC_INSTALL_SCRIPT.as_bytes(), false)?;
-    #[cfg(unix)]
-    std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o700))?;
-    run("/bin/bash", &[script.as_os_str(), "prepare".as_ref(), bundle.as_os_str(), new_app.as_os_str(), work.as_os_str()])
-        .await?;
-    std::process::Command::new("/usr/bin/nohup")
-        .arg("/bin/bash")
-        .arg(&script)
-        .arg("install")
-        .arg(&bundle)
-        .arg("")
-        .arg(&work)
-        .arg(std::process::id().to_string())
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()?;
-    Ok(())
+/// The macOS bundle swap: prepared while this app still runs, carried out by a helper once it exits.
+struct MacInstaller {
+    script: PathBuf,
+    bundle: PathBuf,
+    work: PathBuf,
+}
+
+impl MacInstaller {
+    async fn prepare(zip: &Path, staging: &Path) -> anyhow::Result<Self> {
+        let bundle = mac_app_bundle().expect("checked by can_self_install");
+        run("/usr/bin/ditto", &["-x".as_ref(), "-k".as_ref(), zip.as_os_str(), staging.as_os_str()]).await?;
+        let new_app = staging.join("MediaDownloader.app");
+        anyhow::ensure!(
+            new_app.join("Contents/MacOS/MediaDownloader").exists(),
+            "The downloaded bundle has no MediaDownloader executable"
+        );
+        // Copy beside the destination and validate it while this app still runs; the helper only
+        // renames bundles once we have exited.
+        let work =
+            bundle.parent().unwrap_or(Path::new("/Applications")).join(format!(".MediaDownloader-update-{}", random_id(6)));
+        std::fs::create_dir_all(&work)?;
+        let script = work.join("install.sh");
+        crate::db::write_private(&script, MAC_INSTALL_SCRIPT.as_bytes(), false)?;
+        #[cfg(unix)]
+        std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o700))?;
+        run("/bin/bash", &[script.as_os_str(), "prepare".as_ref(), bundle.as_os_str(), new_app.as_os_str(), work.as_os_str()])
+            .await?;
+        Ok(Self { script, bundle, work })
+    }
+
+    /// Starts the helper, which waits for this process to exit before swapping the bundles.
+    fn launch(self) -> anyhow::Result<()> {
+        std::process::Command::new("/usr/bin/nohup")
+            .arg("/bin/bash")
+            .arg(&self.script)
+            .arg("install")
+            .arg(&self.bundle)
+            .arg("")
+            .arg(&self.work)
+            .arg(std::process::id().to_string())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()?;
+        Ok(())
+    }
 }
 
 fn previous_executable_path(current: &Path) -> PathBuf {

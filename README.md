@@ -20,8 +20,10 @@ is Rust, the dashboard and website TypeScript. It can import everything from a 1
 - **Per-source outcomes** above the results, so a failing site or an over-eager relevance filter never looks like
   "no results". Turn any source off in Settings.
 - **Built-in BitTorrent engine** (librqbit, with DHT and trackers): live progress, speed and peers;
-  pause, resume, retry and delete (optionally with the files). Torrents that can't find peers fail after 3 minutes
-  instead of sitting on "Fetching metadata" forever.
+  pause, resume, retry and delete (optionally with the files). Restarts and pauses resume without re-reading what
+  is already downloaded, and the peer port is forwarded on your router (UPnP). Torrents that can't find peers fail
+  after 3 minutes instead of sitting on "Fetching metadata" forever. Updates pause active downloads only once the new
+  version is downloaded and verified, and resume them when it starts; downloaded files are never touched.
 - **Series tasks** that check for the next episode on a schedule and download it. They understand `S01E05`, `1x05`,
   `Episode 5`, `Ep05` and anime-style `Show - 05`.
 - **Stop or keep seeding** when a download finishes.

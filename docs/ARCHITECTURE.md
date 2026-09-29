@@ -107,8 +107,10 @@ builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the ser
   (1.5 s) and remembers the fastest, `SearchService` fans out and reports per-source outcomes, `SearchResultCache`
   hands out 30-minute result ids.
 - **Downloads**: `DownloadManager` over librqbit (`downloads/engine.rs`). A magnet's metadata is fetched first and
-  cached as a `.torrent` file, so pause/resume and restarts re-attach instantly; a torrent with no peers fails after
-  3 minutes. Multi-file torrents get a folder of their own inside the save folder. Deleting files goes through the
+  cached as a `.torrent` file; a torrent with no peers fails after 3 minutes. librqbit keeps its own torrent list in
+  `session/` with each torrent's verified pieces (fast resume), so pausing and restarting never re-read the files; at
+  start the manager reconciles that list with the database, which stays the source of truth (`Engine::reconcile`).
+  The peer port is forwarded with UPnP. Multi-file torrents get a folder of their own inside the save folder. Deleting files goes through the
   torrent's own file list and never removes the save folder itself. The DHT bootstraps from `dht.libtorrent.org`
   first (on some filtered networks the classic routers answer with one node repeated, which stalls the lookup) and its
   routing table is kept in `dht.json` between runs.
@@ -121,6 +123,8 @@ builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the ser
   has no tray; the dashboard opens in the browser.
 - **Updates**: GitHub Releases every 6 hours. Installs require `SHA256SUMS.txt.sig`, an Ed25519 signature checked
   against the public key compiled into the app. macOS swaps the `.app` bundle after exit with rollback
-  (`updates/mac-install.sh`); Windows and Linux rename the running executable aside.
+  (`updates/mac-install.sh`); Windows and Linux rename the running executable aside. The new version is downloaded
+  and verified first; only then are active downloads paused (their ids kept under `downloads.pausedForUpdate`) and
+  the app swapped. The next start resumes exactly those, or this one does if the swap fails.
 - **Telemetry**: logged errors are scrubbed (quoted text, paths, URLs, addresses, hashes, tokens) and sent, at most
   10 an hour, to the Worker, which forwards them to CodeFusion Console. Off in development; switchable in Settings.

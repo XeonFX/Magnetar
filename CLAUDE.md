@@ -19,4 +19,6 @@ See docs/ARCHITECTURE.md before touching the relay, pairing or either `e2e` impl
 - New user-facing strings: add the key to all eight `apps/web/src/i18n/*.json` catalogs.
 - Never let librqbit delete files (`Session::delete(.., true)` also removes an emptied output folder, which can be the
   user's download folder); `downloads::engine::delete_files` does it.
+- librqbit restores the torrents it had (`session/`) on start; the downloads table decides what runs
+  (`Engine::reconcile`). Pause with `Engine::pause` so fast-resume data survives; `Engine::remove` drops it.
 - Dev ports: app 47820, Vite 5173, Worker 8790.

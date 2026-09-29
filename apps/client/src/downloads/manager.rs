@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -9,7 +9,7 @@ use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use super::engine::{Engine, Metadata, TorrentHandle, delete_files};
-use crate::db::Db;
+use crate::db::{Db, KeyValue};
 use crate::error::{ApiError, ApiResult};
 use crate::events::EventBus;
 use crate::notifications::NotificationDispatcher;
@@ -22,6 +22,8 @@ use crate::settings::SettingsService;
 pub const METADATA_TIMEOUT: Duration = Duration::from_secs(3 * 60);
 const TICK: Duration = Duration::from_secs(1);
 const PERSIST_EVERY_TICKS: u64 = 20;
+/// Ids of the downloads an update paused, for the next start to resume.
+const PAUSED_FOR_UPDATE_KEY: &str = "downloads.pausedForUpdate";
 
 struct Item {
     id: i64,
@@ -178,17 +180,26 @@ impl DownloadManager {
 
     pub fn start(self: &Arc<Self>) {
         let mut resumed = 0;
+        let paused_for_update = self.take_paused_for_update();
         {
             let mut items = self.items();
             for mut item in self.load_rows() {
-                if item.progress >= 100.0 && !matches!(item.status, DownloadStatus::Completed | DownloadStatus::Seeding) {
+                if item.status == DownloadStatus::Paused && paused_for_update.contains(&item.id) {
+                    item.status = DownloadStatus::Queued;
+                } else if item.progress >= 100.0 && !matches!(item.status, DownloadStatus::Completed | DownloadStatus::Seeding) {
                     item.status = DownloadStatus::Completed;
                     item.completed_at.get_or_insert_with(now_iso);
                     self.persist(&item);
                 }
                 items.insert(item.id, item);
             }
-            if self.engine.is_some() {
+            if let Some(engine) = self.engine.clone() {
+                let wanted: HashMap<String, bool> = items
+                    .values()
+                    .filter(|i| !matches!(i.status, DownloadStatus::Completed | DownloadStatus::Error))
+                    .map(|i| (i.info_hash.to_lowercase(), i.status != DownloadStatus::Paused))
+                    .collect();
+                tokio::spawn(async move { engine.reconcile(&wanted).await });
                 for item in items.values_mut() {
                     if !matches!(item.status, DownloadStatus::Completed | DownloadStatus::Error | DownloadStatus::Paused) {
                         self.attach(item);
@@ -295,9 +306,35 @@ impl DownloadManager {
         };
         self.changed();
         if let (Some(handle), Some(engine)) = (handle, &self.engine) {
-            engine.remove(&handle).await;
+            engine.pause(&handle).await;
         }
         Ok(dto)
+    }
+
+    /// Pauses every active download before an update replaces the app, and remembers which, so the
+    /// new version resumes them on start — or this one does, if the update fails.
+    pub async fn pause_for_update(&self) {
+        let active: Vec<i64> = self.items().values().filter(|i| i.is_engaged()).map(|i| i.id).collect();
+        let ids = active.iter().map(i64::to_string).collect::<Vec<_>>().join(",");
+        KeyValue(self.db.clone()).set(PAUSED_FOR_UPDATE_KEY, Some(&ids));
+        for id in active {
+            let _ = self.pause(id).await;
+        }
+        tracing::info!("Paused downloads [{ids}] for the update");
+    }
+
+    /// Undoes `pause_for_update` when the update did not go ahead.
+    pub fn resume_after_update(self: &Arc<Self>) {
+        for id in self.take_paused_for_update() {
+            let _ = self.resume(id);
+        }
+    }
+
+    fn take_paused_for_update(&self) -> Vec<i64> {
+        let kv = KeyValue(self.db.clone());
+        let ids = kv.get(PAUSED_FOR_UPDATE_KEY).unwrap_or_default();
+        kv.set(PAUSED_FOR_UPDATE_KEY, None);
+        ids.split(',').filter_map(|id| id.parse().ok()).collect()
     }
 
     /// Resume a paused download, or retry a failed one.
@@ -324,12 +361,13 @@ impl DownloadManager {
         // Drop it from the live list first so the tick and attach tasks leave it alone.
         let mut item = self.items().remove(&id).ok_or_else(|| not_found(id))?;
         self.changed();
-        let handle = item.detach();
+        item.detach();
         let save_path = PathBuf::from(&item.save_path);
         let cached = self.cached_torrent_path(&item.info_hash);
         let metadata = std::fs::read(&cached).ok().and_then(|bytes| Metadata::from_torrent(bytes).ok());
-        if let (Some(handle), Some(engine)) = (handle, &self.engine) {
-            engine.remove(&handle).await;
+        // By hash: a paused download has no handle, but the engine still keeps it.
+        if let Some(engine) = &self.engine {
+            engine.remove(&item.info_hash).await;
         }
         if delete_files_too && let Some(metadata) = &metadata {
             delete_files(metadata, &save_path);
@@ -394,25 +432,29 @@ impl DownloadManager {
         };
         self.on_metadata(id, attempt, &metadata, cached);
         let handle = engine.add(&metadata, save_path).await?;
-        let superseded = {
+        let shutting_down = self.shutting_down.load(Ordering::SeqCst);
+        let still_listed = {
             let mut items = self.items();
-            match items.get_mut(&id).filter(|i| i.attempt == attempt && !self.shutting_down.load(Ordering::SeqCst)) {
-                Some(item) => {
-                    item.handle = Some(handle.clone());
+            match items.get_mut(&id) {
+                Some(item) if item.attempt == attempt && !shutting_down => {
+                    item.handle = Some(handle);
                     item.attaching = None;
                     if item.status == DownloadStatus::FetchingMetadata {
                         item.status = DownloadStatus::Downloading;
                     }
                     self.persist(item);
-                    false
+                    drop(items);
+                    self.changed();
+                    return Ok(());
                 }
-                None => true,
+                other => other.is_some(),
             }
         };
-        if superseded {
-            engine.remove(&handle).await;
-        } else {
-            self.changed();
+        // Paused, failed or deleted while it was starting. On shutdown the engine keeps it as it is.
+        if !still_listed {
+            engine.remove(&handle.info_hash().as_string()).await;
+        } else if !shutting_down {
+            engine.pause(&handle).await;
         }
         Ok(())
     }
@@ -454,9 +496,10 @@ impl DownloadManager {
         self.remove_in_background(handle);
     }
 
+    /// Drops a failed or finished torrent from the engine, so a retry starts from a full check.
     fn remove_in_background(&self, handle: Option<TorrentHandle>) {
         if let (Some(handle), Some(engine)) = (handle, self.engine.clone()) {
-            tokio::spawn(async move { engine.remove(&handle).await });
+            tokio::spawn(async move { engine.remove(&handle.info_hash().as_string()).await });
         }
     }
 

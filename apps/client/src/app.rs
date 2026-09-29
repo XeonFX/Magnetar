@@ -94,7 +94,7 @@ impl App {
             caller: Caller::User,
         };
         let agent_actions = actions.as_caller(Caller::Agent);
-        let updates = Arc::new(UpdateService::new(events.clone(), notifications.clone(), http.clone()));
+        let updates = Arc::new(UpdateService::new(events.clone(), notifications.clone(), downloads.clone(), http.clone()));
         let agent = AgentAccess::new(settings.clone(), secrets.clone(), paths.clone());
         let legacy = LegacyImporter::new(db.clone(), kv.clone(), settings.clone(), legacy_database);
         Ok(Arc::new_cyclic(|app| {
