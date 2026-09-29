@@ -418,6 +418,14 @@
     "settings.networkBound": "Ruch torrentów idzie tylko przez {0}.",
     "settings.networkMissing": "{0} nie jest połączone, więc pobieranie czeka.",
     "settings.networkMissingOption": "{0} (niepołączone)",
-    "settings.networkUnsupported": "Wybór połączenia nie jest dostępny w Windows. Użyj kill switcha w aplikacji VPN."
+    "settings.networkUnsupported": "Wybór połączenia nie jest dostępny w Windows. Użyj kill switcha w aplikacji VPN.",
+    "player.play": "Odtwórz {0}",
+    "player.partial": "Odtwarzanie w trakcie pobierania (jest {0}%). Brakujące części wczytają się, gdy do nich dojdziesz.",
+    "player.unsupported": "Ta przeglądarka nie odtworzy formatu tego pliku.",
+    "player.unsupportedLocal": "Otwórz go w swoim odtwarzaczu albo skopiuj link do VLC, żeby oglądać w trakcie pobierania.",
+    "player.unsupportedRemote": "Spróbuj innej przeglądarki (Chrome odtwarza najwięcej formatów) albo obejrzyj na komputerze z MediaDownloaderem.",
+    "player.openInPlayer": "Otwórz w odtwarzaczu",
+    "player.copyLink": "Kopiuj link do VLC",
+    "player.copyLinkHint": "Działa w odtwarzaczach na tym komputerze przez 12 godzin"
   }
 }

@@ -418,6 +418,14 @@
     "settings.networkBound": "Torrent traffic only goes through {0}.",
     "settings.networkMissing": "{0} isn't connected, so downloads are waiting.",
     "settings.networkMissingOption": "{0} (not connected)",
-    "settings.networkUnsupported": "Choosing a connection isn't available on Windows. Use your VPN app's own kill switch instead."
+    "settings.networkUnsupported": "Choosing a connection isn't available on Windows. Use your VPN app's own kill switch instead.",
+    "player.play": "Play {0}",
+    "player.partial": "Playing while it downloads ({0}% here). Parts that aren't here yet load when you reach them.",
+    "player.unsupported": "This browser can't play this file's format.",
+    "player.unsupportedLocal": "Open it in your usual player, or copy the link into VLC to watch it while it downloads.",
+    "player.unsupportedRemote": "Try another browser (Chrome plays the most formats), or watch it on the computer running MediaDownloader.",
+    "player.openInPlayer": "Open in your player",
+    "player.copyLink": "Copy link for VLC",
+    "player.copyLinkHint": "Works in players on this computer for 12 hours"
   }
 }

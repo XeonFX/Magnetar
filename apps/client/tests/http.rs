@@ -150,3 +150,49 @@ async fn mcp_initializes_lists_and_calls_tools() {
     assert_eq!(bad["result"]["isError"], true);
     assert!(bad["result"]["content"][0]["text"].as_str().unwrap().contains("No download with id 42"));
 }
+
+#[tokio::test]
+async fn a_stream_link_serves_byte_ranges_of_one_file_and_nothing_else() {
+    use librqbit::spawn_utils::BlockingSpawner;
+    use librqbit::{CreateTorrentOptions, create_torrent};
+    let (app, base, dir) = start().await;
+    let folder = dir.path().join("Downloads");
+    std::fs::create_dir_all(&folder).unwrap();
+    let content: Vec<u8> = (0..200_000u32).map(|i| (i % 253) as u8).collect();
+    std::fs::write(folder.join("clip.mp4"), &content).unwrap();
+    let torrent =
+        create_torrent(&folder.join("clip.mp4"), CreateTorrentOptions::default(), &BlockingSpawner::new(1)).await.unwrap();
+    let download = app
+        .downloads
+        .add_torrent_file(torrent.as_bytes().unwrap().to_vec(), "Torrent file", Some(folder.display().to_string()))
+        .unwrap();
+    let token = app.streams.grant(download.id, 0);
+    let url = format!("{base}/stream/{token}");
+    let http = client();
+
+    let whole = http.get(&url).send().await.unwrap();
+    assert_eq!(whole.status(), 200);
+    assert_eq!(whole.headers()["content-type"], "video/mp4");
+    assert_eq!(whole.headers()["accept-ranges"], "bytes");
+    assert_eq!(whole.bytes().await.unwrap().to_vec(), content);
+
+    let part = http.get(&url).header("range", "bytes=1000-1999").send().await.unwrap();
+    assert_eq!(part.status(), 206);
+    assert_eq!(part.headers()["content-range"], "bytes 1000-1999/200000");
+    assert_eq!(part.bytes().await.unwrap().to_vec(), content[1000..2000]);
+
+    let tail = http.get(&url).header("range", "bytes=-10").send().await.unwrap();
+    assert_eq!(tail.bytes().await.unwrap().to_vec(), content[199_990..]);
+
+    let past_the_end = http.get(&url).header("range", "bytes=200000-").send().await.unwrap();
+    assert_eq!(past_the_end.status(), 416);
+    assert_eq!(past_the_end.headers()["content-range"], "bytes */200000");
+
+    let head = http.head(&url).send().await.unwrap();
+    assert_eq!((head.status().as_u16(), head.headers()["content-length"].to_str().unwrap()), (200, "200000"));
+
+    assert_eq!(http.get(format!("{base}/stream/guessed-token")).send().await.unwrap().status(), 404);
+    assert_eq!(http.post(&url).send().await.unwrap().status(), 405);
+    let rebound = http.get(&url).header("host", "evil.example").send().await.unwrap();
+    assert_eq!(rebound.status(), 404, "only under a loopback name");
+}

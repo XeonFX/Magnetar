@@ -1,12 +1,13 @@
 import type { DownloadDto, DownloadFileDto } from '@md/protocol'
 import { formatBytes } from '@md/protocol/bytes'
-import { FileAudio, FileText, FileVideo, FolderOpen, Info } from 'lucide-react'
+import { FileAudio, FileText, FileVideo, FolderOpen, Info, Play } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useFormatDate, useT } from '../../lib/i18n.tsx'
 import { Modal } from '../../ui/Modal.tsx'
 import { useDevice, useDownloads } from '../DeviceContext.tsx'
 import { useRun } from '../useRun.ts'
 import { ProgressBar, ratioOf } from './downloads.tsx'
+import { PlayerDialog, subtitlesFor, type PlayTarget } from './player.tsx'
 
 /** While the download is running, the file list's progress is read again this often. */
 const REFRESH_MS = 2000
@@ -75,6 +76,7 @@ function FileList({ download: d }: { download: DownloadDto }) {
   const [error, setError] = useState<string | null>(null)
   const [chosen, setChosen] = useState<Set<number> | null>(null)
   const [saving, setSaving] = useState(false)
+  const [playing, setPlaying] = useState<PlayTarget | null>(null)
   const running = d.status === 'Downloading' || d.status === 'Seeding'
   const hasMetadata = d.totalBytes > 0
 
@@ -140,6 +142,12 @@ function FileList({ download: d }: { download: DownloadDto }) {
                   {!selected.has(file.index) && ` · ${t('details.skipped')}`}
                 </div>
               </div>
+              {file.playable && file.selected && (file.done > 0 || running) && (
+                <button type="button" className="btn btn-ghost btn-sm btn-square text-primary" aria-label={t('player.play', file.path)} title={t('player.play', file.path)}
+                  onClick={() => setPlaying({ downloadId: d.id, file, subtitles: subtitlesFor(file, files) })}>
+                  <Play size={16} />
+                </button>
+              )}
             </li>
           )
         })}
@@ -153,6 +161,7 @@ function FileList({ download: d }: { download: DownloadDto }) {
           </button>
         </div>
       )}
+      <PlayerDialog target={playing} finished={d.status === 'Completed' || d.status === 'Seeding'} onClose={() => setPlaying(null)} />
     </section>
   )
 }

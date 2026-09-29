@@ -35,6 +35,13 @@ export const RPC_PARAMS = {
   /** Opens a finished video or audio file in its usual player. Only offered on the local dashboard. */
   'downloads.openFile': z.strictObject({ id: z.number().int(), index: z.number().int().min(0) }),
 
+  /** A link to play a file straight from this computer (`/stream/<token>`). Local dashboard only. */
+  'downloads.streamUrl': z.strictObject({ id: z.number().int(), index: z.number().int().min(0) }),
+  /** Playback through the relay: open a file, read it in pieces, close it. */
+  'stream.open': z.strictObject({ id: z.number().int(), index: z.number().int().min(0) }),
+  'stream.read': z.strictObject({ streamId: z.string(), offset: z.number().int().min(0), length: z.number().int().min(1) }),
+  'stream.close': z.strictObject({ streamId: z.string() }),
+
   'transfer.status': none,
   'network.interfaces': none,
 
@@ -98,6 +105,11 @@ export interface RpcResults {
   'downloads.selectFiles': DownloadDto
   'downloads.reveal': null
   'downloads.openFile': null
+  'downloads.streamUrl': { url: string }
+  'stream.open': { streamId: string; size: number; name: string; type: string }
+  /** base64; shorter than asked at the end of the file, and at most 448 KiB. */
+  'stream.read': { data: string }
+  'stream.close': null
   'transfer.status': TransferStatusDto
   'network.interfaces': { supported: boolean; interfaces: NetworkInterfaceDto[] }
   'series.list': SeriesTaskDto[]
@@ -157,4 +169,6 @@ export type ServerMessage =
   | { event: string; data: unknown }
 
 /** Methods that act on the device's own screen or programs, not offered through the relay. */
-export const LOCAL_ONLY_METHODS: ReadonlySet<RpcMethod> = new Set(['fs.pickNative', 'agent.connectClaude', 'downloads.reveal', 'downloads.openFile'])
+export const LOCAL_ONLY_METHODS: ReadonlySet<RpcMethod> = new Set([
+  'fs.pickNative', 'agent.connectClaude', 'downloads.reveal', 'downloads.openFile', 'downloads.streamUrl',
+])

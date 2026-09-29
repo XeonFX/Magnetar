@@ -418,6 +418,14 @@
     "settings.networkBound": "Торрент-трафик идёт только через {0}.",
     "settings.networkMissing": "{0} не подключено, поэтому загрузки ждут.",
     "settings.networkMissingOption": "{0} (не подключено)",
-    "settings.networkUnsupported": "Выбор соединения недоступен в Windows. Используйте kill switch в приложении VPN."
+    "settings.networkUnsupported": "Выбор соединения недоступен в Windows. Используйте kill switch в приложении VPN.",
+    "player.play": "Воспроизвести {0}",
+    "player.partial": "Воспроизведение во время загрузки ({0}% уже есть). Недостающие части подгрузятся, когда вы до них дойдёте.",
+    "player.unsupported": "Этот браузер не может воспроизвести формат этого файла.",
+    "player.unsupportedLocal": "Откройте его в своём плеере или скопируйте ссылку в VLC, чтобы смотреть во время загрузки.",
+    "player.unsupportedRemote": "Попробуйте другой браузер (Chrome воспроизводит больше форматов) или посмотрите на компьютере, где работает MediaDownloader.",
+    "player.openInPlayer": "Открыть в плеере",
+    "player.copyLink": "Копировать ссылку для VLC",
+    "player.copyLinkHint": "Работает в плеерах на этом компьютере 12 часов"
   }
 }

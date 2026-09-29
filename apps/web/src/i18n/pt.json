@@ -418,6 +418,14 @@
     "settings.networkBound": "O tráfego torrent passa apenas por {0}.",
     "settings.networkMissing": "{0} não está ligada, por isso as transferências estão à espera.",
     "settings.networkMissingOption": "{0} (sem ligação)",
-    "settings.networkUnsupported": "Escolher uma ligação não está disponível no Windows. Use o kill switch da sua app de VPN."
+    "settings.networkUnsupported": "Escolher uma ligação não está disponível no Windows. Use o kill switch da sua app de VPN.",
+    "player.play": "Reproduzir {0}",
+    "player.partial": "A reproduzir enquanto transfere ({0}% disponível). As partes em falta carregam quando lá chegar.",
+    "player.unsupported": "Este navegador não consegue reproduzir o formato deste ficheiro.",
+    "player.unsupportedLocal": "Abra-o no seu leitor habitual ou copie a ligação para o VLC para o ver enquanto transfere.",
+    "player.unsupportedRemote": "Experimente outro navegador (o Chrome reproduz mais formatos) ou veja-o no computador onde o MediaDownloader corre.",
+    "player.openInPlayer": "Abrir no leitor",
+    "player.copyLink": "Copiar ligação para o VLC",
+    "player.copyLinkHint": "Funciona em leitores deste computador durante 12 horas"
   }
 }

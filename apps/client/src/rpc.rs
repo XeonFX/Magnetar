@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 
+use base64::Engine as _;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -13,6 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::app::App;
 use crate::config::{ARCH, PLATFORM, VERSION};
+use crate::downloads::media::{MediaReader, media_type, open_reader, read_at};
 use crate::error::{ApiError, ApiResult, ErrorCode};
 use crate::protocol::encoding::random_id;
 use crate::protocol::{
@@ -22,7 +24,12 @@ use crate::search::cache::to_result_dto;
 use crate::system;
 
 /// Methods that act on the device's own screen or programs, not offered through the relay.
-const LOCAL_ONLY_METHODS: [&str; 4] = ["fs.pickNative", "agent.connectClaude", "downloads.reveal", "downloads.openFile"];
+const LOCAL_ONLY_METHODS: [&str; 5] =
+    ["fs.pickNative", "agent.connectClaude", "downloads.reveal", "downloads.openFile", "downloads.streamUrl"];
+/// Streams a relayed browser may hold open at once, and the most one read returns: base64 in
+/// JSON in a sealed frame must stay under the relay's 1 MiB.
+const MAX_STREAMS: usize = 4;
+const MAX_STREAM_READ: usize = 448 * 1024;
 
 /// One connected dashboard. Messages for it arrive on the receiver handed back by `connect`.
 pub struct RpcSession {
@@ -37,6 +44,8 @@ struct SessionInner {
     closed: CancellationToken,
     /// In-flight searches, for cancellation.
     searches: Mutex<HashMap<String, CancellationToken>>,
+    /// Files being played through this session, oldest first.
+    streams: Mutex<Vec<(String, Arc<tokio::sync::Mutex<MediaReader>>)>>,
 }
 
 impl SessionInner {
@@ -63,7 +72,13 @@ impl RpcServer {
     /// Opens a session; `local` is the device's own dashboard, as opposed to a relayed browser.
     pub fn connect(&self, local: bool) -> (RpcSession, mpsc::UnboundedReceiver<Value>) {
         let (out, receiver) = mpsc::unbounded_channel();
-        let inner = Arc::new(SessionInner { local, out, closed: CancellationToken::new(), searches: Mutex::default() });
+        let inner = Arc::new(SessionInner {
+            local,
+            out,
+            closed: CancellationToken::new(),
+            searches: Mutex::default(),
+            streams: Mutex::default(),
+        });
         if let Some(app) = self.app.upgrade() {
             let mut events = app.events.subscribe();
             let forward = inner.clone();
@@ -111,6 +126,7 @@ impl RpcSession {
 
     pub fn close(&self) {
         self.inner.closed.cancel();
+        self.inner.streams.lock().unwrap().clear();
         for (_, search) in self.inner.searches.lock().unwrap().drain() {
             search.cancel();
         }
@@ -180,6 +196,20 @@ struct SelectFiles {
 struct FileRef {
     id: i64,
     index: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct StreamRead {
+    stream_id: String,
+    offset: u64,
+    length: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct StreamId {
+    stream_id: String,
 }
 
 #[derive(Deserialize)]
@@ -339,6 +369,35 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
                 crate::downloads::manager::FileSource::Disk(path) => system::open_with_system(path),
                 _ => return Err(ApiError::bad("That file is not finished yet.")),
             }
+            ok(Value::Null)
+        }
+        "downloads.streamUrl" => {
+            let FileRef { id, index } = parse(params)?;
+            app.downloads.open_file(id, index)?;
+            ok(json!({ "url": format!("/stream/{}", app.streams.grant(id, index)) }))
+        }
+        "stream.open" => {
+            let FileRef { id, index } = parse(params)?;
+            let file = app.downloads.open_file(id, index)?;
+            let reader = open_reader(&file).await?;
+            let stream_id = random_id(9);
+            let mut streams = session.streams.lock().unwrap();
+            if streams.len() >= MAX_STREAMS {
+                streams.remove(0);
+            }
+            streams.push((stream_id.clone(), Arc::new(tokio::sync::Mutex::new(reader))));
+            ok(json!({ "streamId": stream_id, "size": file.size, "name": file.name, "type": media_type(&file.name) }))
+        }
+        "stream.read" => {
+            let StreamRead { stream_id, offset, length } = parse(params)?;
+            let reader = session.streams.lock().unwrap().iter().find(|(id, _)| *id == stream_id).map(|(_, r)| r.clone());
+            let reader = reader.ok_or_else(|| ApiError::not_found("That stream was closed. Open the player again."))?;
+            let bytes = read_at(&mut *reader.lock().await, offset, length.min(MAX_STREAM_READ)).await?;
+            ok(json!({ "data": base64::engine::general_purpose::STANDARD.encode(bytes) }))
+        }
+        "stream.close" => {
+            let StreamId { stream_id } = parse(params)?;
+            session.streams.lock().unwrap().retain(|(id, _)| *id != stream_id);
             ok(Value::Null)
         }
         "transfer.status" => {

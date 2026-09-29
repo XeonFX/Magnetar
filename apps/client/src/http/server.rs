@@ -125,6 +125,10 @@ async fn handle(State(app): State<Arc<App>>, ConnectInfo(peer): ConnectInfo<Sock
             }
         }
         "/health" => Json(json!({ "ok": true })).into_response(),
+        _ if path.starts_with("/stream/") => {
+            let (parts, _) = request.into_parts();
+            super::stream::serve(&app, &path["/stream/".len()..], &parts.method, &parts.headers).await
+        }
         "/app-config.json" => ([(header::CACHE_CONTROL, "no-store")], Json(json!({ "mode": "local" }))).into_response(),
         _ => assets::serve(&path),
     }

@@ -16,6 +16,7 @@ export default defineConfig({
     proxy: {
       '/app-config.json': { target, changeOrigin: true },
       '/api': { target, changeOrigin: true, ws: true },
+      '/stream': { target, changeOrigin: true },
       '/ws': { target: target.replace('http', 'ws'), ws: true },
     },
   },

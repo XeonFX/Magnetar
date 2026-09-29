@@ -8,6 +8,7 @@ use crate::db::{Db, KeyValue, SecretBox, SecretStore};
 use crate::downloads::DownloadManager;
 use crate::downloads::manager::EngineSource;
 use crate::events::EventBus;
+use crate::http::stream::StreamGrants;
 use crate::legacy::LegacyImporter;
 use crate::notifications::NotificationDispatcher;
 use crate::paths::{Paths, legacy_database_path};
@@ -62,6 +63,8 @@ pub struct App {
     pub remote: Arc<RemoteService>,
     pub legacy: LegacyImporter,
     pub rpc: RpcServer,
+    /// Tokens for `/stream/…` links to download files.
+    pub streams: StreamGrants,
 }
 
 impl App {
@@ -129,6 +132,7 @@ impl App {
                 remote,
                 legacy,
                 rpc: RpcServer::new(app.clone()),
+                streams: StreamGrants::default(),
             }
         }))
     }
