@@ -507,6 +507,9 @@
     "watch.failed": "Controllo non riuscito: {0}",
     "watch.fromSearch": "Attendi questo",
     "watch.fromSearchHint": "Non è ciò che volevi? Ti avvisiamo quando compare una release adatta",
-    "transfer.scheduleOff": "Cambiato a mano, quindi l'orario è disattivato. Riattivalo in Impostazioni → Download."
+    "transfer.scheduleOff": "Cambiato a mano, quindi l'orario è disattivato. Riattivalo in Impostazioni → Download.",
+    "add.magnetOne": "1 link magnet trovato",
+    "add.startedOne": "Download avviato",
+    "series.failedOne": "Una release non aveva seeder; il prossimo controllo ne prova un'altra."
   }
 }

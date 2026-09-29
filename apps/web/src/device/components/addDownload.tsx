@@ -93,7 +93,7 @@ export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; i
       }
     }
     setBusy(false)
-    if (started > 0) toast(t('add.started', started), 'success')
+    if (started > 0) toast(started === 1 ? t('add.startedOne') : t('add.started', started), 'success')
     if (failures.length) setError(failures.join('\n'))
     else onClose()
   }
@@ -110,7 +110,7 @@ export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; i
         <span className="text-sm font-medium">{t('add.magnets')}</span>
         <textarea className="textarea h-28 w-full font-mono text-xs" placeholder="magnet:?xt=urn:btih:…" value={text}
           onChange={e => setText(e.target.value)} data-autofocus spellCheck={false} />
-        <span className="muted text-xs">{magnets.length > 0 ? t('add.magnetCount', magnets.length) : t('add.magnetsHint')}</span>
+        <span className="muted text-xs">{magnets.length === 1 ? t('add.magnetOne') : magnets.length > 1 ? t('add.magnetCount', magnets.length) : t('add.magnetsHint')}</span>
       </label>
       <div className="my-4 flex items-center gap-3 text-xs"><span className="h-px flex-1 bg-base-300" /><span className="muted">{t('add.or')}</span><span className="h-px flex-1 bg-base-300" /></div>
       <input ref={picker} type="file" accept=".torrent,application/x-bittorrent" multiple hidden onChange={e => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }} />

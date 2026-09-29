@@ -507,6 +507,9 @@
     "watch.failed": "Vérification impossible : {0}",
     "watch.fromSearch": "Attendre ceci",
     "watch.fromSearchHint": "Pas ce que vous cherchiez ? Soyez prévenu quand une version adaptée apparaît",
-    "transfer.scheduleOff": "Basculé à la main, l'horaire est donc désactivé. Réactivez-le dans Réglages → Téléchargements."
+    "transfer.scheduleOff": "Basculé à la main, l'horaire est donc désactivé. Réactivez-le dans Réglages → Téléchargements.",
+    "add.magnetOne": "1 lien magnet trouvé",
+    "add.startedOne": "Téléchargement lancé",
+    "series.failedOne": "Une version n'avait aucun seeder ; la prochaine vérification en essaie une autre."
   }
 }

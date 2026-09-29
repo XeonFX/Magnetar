@@ -166,7 +166,7 @@ const SeriesCard = memo(function SeriesCard({ task, downloads, onEdit }: {
             <p className="muted mt-2 text-xs">
               {!task.enabled ? t('series.pausedHint') : task.lastCheckedAt ? t('series.checkedAgo', formatRelative(task.lastCheckedAt)) : t('series.notCheckedYet')}
             </p>
-            {failed > 0 && <p className="mt-1 text-xs text-warning">{t('series.failedHint', failed)}</p>}
+            {failed > 0 && <p className="mt-1 text-xs text-warning">{failed === 1 ? t('series.failedOne') : t('series.failedHint', failed)}</p>}
           </>
         )}
       </div>

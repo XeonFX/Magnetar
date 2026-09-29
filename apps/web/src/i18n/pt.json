@@ -507,6 +507,9 @@
     "watch.failed": "Não foi possível verificar: {0}",
     "watch.fromSearch": "Esperar isto",
     "watch.fromSearchHint": "Não é o que queria? Seja avisado quando aparecer uma versão adequada",
-    "transfer.scheduleOff": "Mudado à mão, por isso o horário está desligado. Volte a ligá-lo em Definições → Transferências."
+    "transfer.scheduleOff": "Mudado à mão, por isso o horário está desligado. Volte a ligá-lo em Definições → Transferências.",
+    "add.magnetOne": "1 ligação magnet encontrada",
+    "add.startedOne": "Transferência iniciada",
+    "series.failedOne": "Uma versão não tinha seeders; a próxima verificação tenta outra."
   }
 }

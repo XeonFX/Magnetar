@@ -507,6 +507,9 @@
     "watch.failed": "Could not check: {0}",
     "watch.fromSearch": "Watch for this",
     "watch.fromSearchHint": "Not what you wanted? Get told when a release that fits appears",
-    "transfer.scheduleOff": "Switched by hand, so the schedule is off. Turn it back on in Settings → Downloads."
+    "transfer.scheduleOff": "Switched by hand, so the schedule is off. Turn it back on in Settings → Downloads.",
+    "add.magnetOne": "1 magnet link found",
+    "add.startedOne": "Download started",
+    "series.failedOne": "A release had no seeders; the next check tries another."
   }
 }

@@ -507,6 +507,9 @@
     "watch.failed": "Prüfung fehlgeschlagen: {0}",
     "watch.fromSearch": "Darauf warten",
     "watch.fromSearchHint": "Nicht das Richtige? Benachrichtigung, sobald ein passendes Release erscheint",
-    "transfer.scheduleOff": "Von Hand umgeschaltet, der Zeitplan ist daher aus. In Einstellungen → Downloads wieder einschalten."
+    "transfer.scheduleOff": "Von Hand umgeschaltet, der Zeitplan ist daher aus. In Einstellungen → Downloads wieder einschalten.",
+    "add.magnetOne": "1 Magnet-Link gefunden",
+    "add.startedOne": "Download gestartet",
+    "series.failedOne": "Ein Release hatte keine Seeder; die nächste Prüfung versucht ein anderes."
   }
 }
