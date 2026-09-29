@@ -1,10 +1,10 @@
 import type { DownloadDto, DownloadStatus } from '@md/protocol'
 import { formatBytes, formatRate } from '@md/protocol/bytes'
-import { ArrowDown, ArrowUp, Clock, Pause, Play, RotateCw, Trash2, Tv, Users } from 'lucide-react'
-import { useState } from 'react'
+import { ArrowDown, ArrowUp, Clock, Files, Pause, Play, RotateCw, Trash2, Tv, Users } from 'lucide-react'
+import { memo, useState } from 'react'
 import { useFormatEta, useT } from '../../lib/i18n.tsx'
 import { ConfirmDialog } from '../../ui/Modal.tsx'
-import { useDevice } from '../DeviceContext.tsx'
+import { useConnection } from '../DeviceContext.tsx'
 import { useRun } from '../useRun.ts'
 
 const STATUS: Record<DownloadStatus, { key: string; text: string; bar: string }> = {
@@ -35,8 +35,18 @@ export function ProgressBar({ download }: { download: DownloadDto }) {
   )
 }
 
-/** One download: name, progress, and a line of what is happening; the actions on the right. */
-export function DownloadRow({ download: d, seriesName }: { download: DownloadDto; seriesName?: string }) {
+/** Uploaded ÷ size, the usual measure of how much a download has given back. */
+export const ratioOf = (d: DownloadDto) => (d.totalBytes > 0 ? d.uploadedBytes / d.totalBytes : 0)
+
+/**
+ * One download: name, progress, and a line of what is happening; the actions on the right. The
+ * name opens its details. Memoized: once-a-second updates keep unchanged rows' objects.
+ */
+export const DownloadRow = memo(function DownloadRow({ download: d, seriesName, onOpen }: {
+  download: DownloadDto
+  seriesName?: string
+  onOpen: (id: number) => void
+}) {
   const t = useT()
   const formatEta = useFormatEta()
   const status = STATUS[d.status]
@@ -56,13 +66,15 @@ export function DownloadRow({ download: d, seriesName }: { download: DownloadDto
     d.uploadSpeed > 0 && <span key="up" className="inline-flex items-center gap-0.5 tabular-nums"><ArrowUp size={12} />{formatRate(d.uploadSpeed)}</span>,
     eta !== null && <span key="eta" className="inline-flex items-center gap-1"><Clock size={12} />{formatEta(eta)}</span>,
     isActive(d) && d.peers > 0 && <span key="peers" className="inline-flex items-center gap-1 tabular-nums"><Users size={12} />{d.peers}</span>,
+    d.status === 'Seeding' && d.uploadedBytes > 0 && <span key="ratio" className="tabular-nums">{t('downloads.ratio', ratioOf(d).toFixed(2))}</span>,
+    d.partialFiles && <span key="files" className="inline-flex items-center gap-1"><Files size={12} />{t('downloads.someFiles', d.partialFiles.selected, d.partialFiles.total)}</span>,
   ].filter(Boolean)
 
   return (
     <li className="surface p-4">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <div className="break-release font-medium leading-snug">{d.name}</div>
+          <button type="button" className="break-release text-left font-medium leading-snug hover:underline" onClick={() => onOpen(d.id)}>{d.name}</button>
           {seriesName && <div className="muted mt-1 inline-flex items-center gap-1 text-xs"><Tv size={12} />{seriesName}</div>}
         </div>
         <DownloadActions download={d} />
@@ -72,7 +84,7 @@ export function DownloadRow({ download: d, seriesName }: { download: DownloadDto
       {d.error && <p className="break-release mt-2 text-sm text-error">{d.error}</p>}
     </li>
   )
-}
+})
 
 /**
  * Pause while doing anything, resume while paused, retry after an error; delete always —
@@ -80,7 +92,7 @@ export function DownloadRow({ download: d, seriesName }: { download: DownloadDto
  */
 export function DownloadActions({ download }: { download: DownloadDto }) {
   const t = useT()
-  const { connection } = useDevice()
+  const connection = useConnection()
   const run = useRun()
   const [confirming, setConfirming] = useState(false)
   const button = 'btn btn-ghost btn-square size-10 sm:size-9'
@@ -98,8 +110,8 @@ export function DownloadActions({ download }: { download: DownloadDto }) {
       )}
       <button type="button" className={`${button} muted hover:text-error`} title={t('common.delete')} aria-label={t('common.delete')}
         onClick={() => setConfirming(true)}><Trash2 size={18} /></button>
-      <ConfirmDialog
-        open={confirming}
+      {confirming && <ConfirmDialog
+        open
         title={t('downloads.deleteTitle')}
         message={t('downloads.deleteMessage', download.name)}
         options={[
@@ -111,7 +123,7 @@ export function DownloadActions({ download }: { download: DownloadDto }) {
           setConfirming(false)
           if (deleteFiles !== null) void run(() => connection.call('downloads.delete', { id: download.id, deleteFiles }))
         }}
-      />
+      />}
     </div>
   )
 }

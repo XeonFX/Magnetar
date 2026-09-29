@@ -220,7 +220,7 @@ function SeriesDialog({ task, onClose }: { task: SeriesTaskDto | 'new' | null; o
       </>}>
       <div className="flex flex-col gap-5">
         <FormSection title={t('series.whatTitle')}>
-          <TextField label={t('series.query')} help={t('series.queryHelp')} value={form.query} onChange={set('query')} autoFocus required />
+          <TextField label={t('series.query')} help={t('series.queryHelp')} value={form.query} onChange={set('query')} data-autofocus required />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <TextField label={t('series.name')} help={t('series.nameHelp')} value={form.name} placeholder={form.query} onChange={set('name')} />
             <TextField label={t('series.titleFilter')} help={t('series.titleFilterHelp')} value={form.titleFilter} onChange={set('titleFilter')} />

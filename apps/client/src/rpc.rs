@@ -22,7 +22,7 @@ use crate::search::cache::to_result_dto;
 use crate::system;
 
 /// Methods that act on the device's own screen or programs, not offered through the relay.
-const LOCAL_ONLY_METHODS: [&str; 2] = ["fs.pickNative", "agent.connectClaude"];
+const LOCAL_ONLY_METHODS: [&str; 4] = ["fs.pickNative", "agent.connectClaude", "downloads.reveal", "downloads.openFile"];
 
 /// One connected dashboard. Messages for it arrive on the receiver handed back by `connect`.
 pub struct RpcSession {
@@ -170,6 +170,20 @@ struct DeleteDownload {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct SelectFiles {
+    id: i64,
+    files: Vec<usize>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FileRef {
+    id: i64,
+    index: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SeriesUpdate {
     id: i64,
     patch: SeriesTaskPatch,
@@ -303,6 +317,40 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
             let DeleteDownload { id, delete_files } = parse(params)?;
             a.delete_download(id, delete_files).await?;
             ok(Value::Null)
+        }
+
+        "downloads.files" => ok(app.downloads.files(parse::<IdParams>(params)?.id)?),
+        "downloads.selectFiles" => {
+            let SelectFiles { id, files } = parse(params)?;
+            ok(app.downloads.select_files(id, files).await?)
+        }
+        "downloads.reveal" => {
+            system::reveal_in_file_manager(&app.downloads.location(parse::<IdParams>(params)?.id)?);
+            ok(Value::Null)
+        }
+        "downloads.openFile" => {
+            let FileRef { id, index } = parse(params)?;
+            // Media only: a torrent can carry programs, and those are never opened from here.
+            let file = app.downloads.files(id)?.into_iter().find(|f| f.index == index);
+            if !file.as_ref().is_some_and(|f| f.playable && f.done == f.size) {
+                return Err(ApiError::bad("Only finished video and audio files open from here."));
+            }
+            match app.downloads.open_file(id, index)?.source {
+                crate::downloads::manager::FileSource::Disk(path) => system::open_with_system(path),
+                _ => return Err(ApiError::bad("That file is not finished yet.")),
+            }
+            ok(Value::Null)
+        }
+        "transfer.status" => {
+            parse::<NoParams>(params)?;
+            ok(app.downloads.transfer_status())
+        }
+        "network.interfaces" => {
+            parse::<NoParams>(params)?;
+            ok(json!({
+                "supported": crate::downloads::transfer::INTERFACE_BINDING,
+                "interfaces": crate::downloads::transfer::list_interfaces(),
+            }))
         }
 
         "series.list" => {

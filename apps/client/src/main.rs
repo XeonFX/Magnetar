@@ -6,7 +6,6 @@ use std::time::Duration;
 
 use mediadownloader::app::{App, AppOptions};
 use mediadownloader::config::{DEFAULT_PORT, IS_DEV, VERSION};
-use mediadownloader::downloads::engine::Engine;
 use mediadownloader::http::server;
 use mediadownloader::instance::{self, Acquired};
 use mediadownloader::paths::Paths;
@@ -57,14 +56,7 @@ fn main() -> anyhow::Result<()> {
                 std::process::exit(0);
             }
         };
-        let engine = match Engine::start(&paths).await {
-            Ok(engine) => Some(Arc::new(engine)),
-            Err(error) => {
-                tracing::error!("The torrent engine could not start: {error:#}");
-                None
-            }
-        };
-        let app = App::new(AppOptions::production(paths.clone(), engine))?;
+        let app = App::new(AppOptions::production(paths.clone()))?;
         mediadownloader::telemetry::start(app.settings.clone(), app.http.clone());
         app.start();
         let port = std::env::var("MD_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(DEFAULT_PORT);

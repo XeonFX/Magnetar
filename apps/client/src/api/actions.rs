@@ -1,4 +1,6 @@
 use std::sync::Arc;
+
+use base64::Engine as _;
 use std::time::Duration;
 
 use serde::Serialize;
@@ -42,12 +44,13 @@ pub struct AgentSettings {
     pub post_download_action: crate::protocol::PostDownloadAction,
 }
 
-/// Starts a download for a search result, resolving a lazy source's magnet first.
+/// Starts a download for a search result, resolving a lazy source's magnet first. `series` is the
+/// series task and episode it was found for.
 pub async fn start_from_result(
     search: &SearchService,
     downloads: &Arc<DownloadManager>,
     shared: SharedResult,
-    series_task_id: Option<i64>,
+    series: Option<(i64, i64)>,
     save_folder: Option<String>,
     cancel: &CancellationToken,
 ) -> ApiResult<DownloadDto> {
@@ -65,7 +68,8 @@ pub async fn start_from_result(
         name: result.title,
         magnet_uri: result.magnet_uri,
         source: result.source,
-        series_task_id,
+        series_task_id: series.map(|(task, _)| task),
+        episode: series.map(|(_, episode)| episode),
         save_folder,
     })
 }
@@ -169,13 +173,23 @@ impl Actions {
                 magnet_uri: magnet.to_owned(),
                 source: source.into(),
                 series_task_id: None,
+                episode: None,
                 save_folder: folder,
             })?;
             tracing::info!("Started download from a supplied magnet: {}", item.name);
             return Ok(item);
         }
+        if let Some(torrent) = input.torrent.as_deref().filter(|t| !t.is_empty()) {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(torrent)
+                .map_err(|_| ApiError::bad("`torrent` must be a base64-encoded .torrent file."))?;
+            let source = if self.caller == Caller::Agent { "Agent" } else { "Torrent file" };
+            let item = self.downloads.add_torrent_file(bytes, source, folder)?;
+            tracing::info!("Started download from a .torrent file: {}", item.name);
+            return Ok(item);
+        }
         Err(ApiError::bad(
-            "Provide either `resultId` (from a search) or `magnet`. For sources that resolve magnets lazily, only `resultId` works.",
+            "Provide `resultId` (from a search), `magnet` or `torrent`. For sources that resolve magnets lazily, only `resultId` works.",
         ))
     }
 

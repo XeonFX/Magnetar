@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::downloads::engine::MIN_SPEED_LIMIT;
 use crate::error::{ApiError, ApiResult};
 
 pub const DOWNLOAD_STATUSES: [&str; 7] = ["Queued", "FetchingMetadata", "Downloading", "Seeding", "Paused", "Completed", "Error"];
@@ -36,6 +37,76 @@ pub enum PostDownloadAction {
     #[default]
     StopSeeding,
     KeepSeeding,
+    /// Seed until as much has been uploaded as `seedRatio` times the download's size.
+    SeedToRatio,
+}
+
+/// When the alternative speed limits apply instead of the usual ones.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum AltSpeedMode {
+    #[default]
+    Off,
+    On,
+    Scheduled,
+}
+
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum EngineState {
+    Running,
+    Starting,
+    /// The chosen network interface (a VPN) is not up, so nothing downloads.
+    WaitingForNetwork,
+    Failed,
+    /// No engine at all (tests).
+    Off,
+}
+
+/// The torrent engine and its limits, as the Downloads page shows them.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferStatusDto {
+    pub engine: EngineState,
+    pub message: Option<String>,
+    pub network_interface: Option<String>,
+    pub alt_speed_active: bool,
+    /// The caps in force now, bytes per second; 0 is none.
+    pub download_limit: u64,
+    pub upload_limit: u64,
+    /// Free space where new downloads go.
+    pub free_bytes: Option<u64>,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkInterfaceDto {
+    pub name: String,
+    pub addresses: Vec<String>,
+    /// Named like a VPN tunnel (utun, tun, wg, ppp, ipsec…).
+    pub vpn: bool,
+}
+
+/// One file of a download's torrent.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadFileDto {
+    pub index: usize,
+    /// Relative to the download's folder, with `/` separators.
+    pub path: String,
+    pub size: u64,
+    /// Verified bytes so far.
+    pub done: u64,
+    pub selected: bool,
+    /// A video or audio file the dashboard can play.
+    pub playable: bool,
+}
+
+/// How many of a torrent's files are being downloaded, when not all of them.
+#[derive(Serialize, Clone, Copy, Debug, PartialEq)]
+pub struct FileSelectionDto {
+    pub selected: u32,
+    pub total: u32,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -103,6 +174,8 @@ pub struct DownloadDto {
     pub completed_at: Option<String>,
     pub error: Option<String>,
     pub series_task_id: Option<i64>,
+    pub uploaded_bytes: u64,
+    pub partial_files: Option<FileSelectionDto>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -131,6 +204,16 @@ pub struct SeriesTaskDto {
 pub struct SettingsDto {
     pub download_folder: String,
     pub post_download_action: PostDownloadAction,
+    pub seed_ratio: f64,
+    pub download_limit: u64,
+    pub upload_limit: u64,
+    pub alt_download_limit: u64,
+    pub alt_upload_limit: u64,
+    pub alt_speed_mode: AltSpeedMode,
+    pub alt_schedule_from: u16,
+    pub alt_schedule_to: u16,
+    pub alt_schedule_days: Vec<u8>,
+    pub network_interface: String,
     pub disabled_providers: Vec<String>,
     pub language: String,
     pub notify_on_start: bool,
@@ -426,6 +509,8 @@ impl SeriesTaskInput {
 pub struct StartDownloadInput {
     pub result_id: Option<String>,
     pub magnet: Option<String>,
+    /// A .torrent file, base64.
+    pub torrent: Option<String>,
     pub folder: Option<String>,
 }
 
@@ -435,6 +520,16 @@ pub struct StartDownloadInput {
 pub struct SettingsPatch {
     pub download_folder: Option<String>,
     pub post_download_action: Option<PostDownloadAction>,
+    pub seed_ratio: Option<f64>,
+    pub download_limit: Option<u64>,
+    pub upload_limit: Option<u64>,
+    pub alt_download_limit: Option<u64>,
+    pub alt_upload_limit: Option<u64>,
+    pub alt_speed_mode: Option<AltSpeedMode>,
+    pub alt_schedule_from: Option<u16>,
+    pub alt_schedule_to: Option<u16>,
+    pub alt_schedule_days: Option<Vec<u8>>,
+    pub network_interface: Option<String>,
     pub disabled_providers: Option<Vec<String>>,
     pub language: Option<String>,
     pub notify_on_start: Option<bool>,
@@ -476,6 +571,7 @@ impl SettingsPatch {
         };
         for field in [
             &mut self.download_folder,
+            &mut self.network_interface,
             &mut self.smtp_host,
             &mut self.smtp_username,
             &mut self.ntfy_topic,
@@ -492,6 +588,34 @@ impl SettingsPatch {
             && (language.len() != 2 || !language.bytes().all(|b| b.is_ascii_lowercase()))
         {
             problems.push("language: expected a two-letter language code".to_owned());
+        }
+        if self.seed_ratio.is_some_and(|r| !(0.1..=100.0).contains(&r)) {
+            problems.push("seedRatio: must be between 0.1 and 100".to_owned());
+        }
+        for (name, value) in [
+            ("downloadLimit", self.download_limit),
+            ("uploadLimit", self.upload_limit),
+            ("altDownloadLimit", self.alt_download_limit),
+            ("altUploadLimit", self.alt_upload_limit),
+        ] {
+            if value.is_some_and(|v| v != 0 && !(MIN_SPEED_LIMIT..=u32::MAX as u64).contains(&v)) {
+                problems.push(format!("{name}: must be 0 (no limit) or at least {} KiB/s", MIN_SPEED_LIMIT / 1024));
+            }
+        }
+        for (name, value) in [("altScheduleFrom", self.alt_schedule_from), ("altScheduleTo", self.alt_schedule_to)] {
+            if value.is_some_and(|m| m >= 24 * 60) {
+                problems.push(format!("{name}: minutes after midnight, below 1440"));
+            }
+        }
+        if let Some(days) = &mut self.alt_schedule_days {
+            days.sort_unstable();
+            days.dedup();
+            if days.iter().any(|d| *d > 6) {
+                problems.push("altScheduleDays: days are 0 (Monday) to 6 (Sunday)".to_owned());
+            }
+        }
+        if self.network_interface.as_deref().is_some_and(|n| n.len() > 64 || n.contains(['/', '\\', '\0'])) {
+            problems.push("networkInterface: not an interface name".to_owned());
         }
         if self.smtp_port.is_some_and(|p| !(1..=65535).contains(&p)) {
             problems.push("smtpPort: must be between 1 and 65535".to_owned());

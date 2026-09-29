@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use mediadownloader::app::{App, AppOptions};
+use mediadownloader::downloads::manager::EngineSource;
 use mediadownloader::paths::Paths;
 use mediadownloader::rpc::RpcSession;
 use mediadownloader::search::types::{Provider, TorrentSearchResult};
@@ -76,7 +77,8 @@ fn harness() -> Harness {
     let legacy = legacy_database(dir.path());
     let paths = Paths::new(dir.path().join("data")).unwrap();
     let app =
-        App::new(AppOptions { paths, engine: None, providers: vec![Arc::new(Fake)], legacy_database: Some(legacy) }).unwrap();
+        App::new(AppOptions { paths, engine: EngineSource::Off, providers: vec![Arc::new(Fake)], legacy_database: Some(legacy) })
+            .unwrap();
     app.start();
     Harness { app, dir }
 }

@@ -1,6 +1,6 @@
 import type {
   AppInfoDto, DownloadDto, RemoteStatusDto, SearchResultDto, SeriesTaskDto, SettingsDto, SourceDto, SourceOutcomeDto,
-  UpdateStatusDto,
+  TransferStatusDto, UpdateStatusDto,
 } from '@md/protocol'
 import { mergeByInfoHash } from '@md/protocol/merge'
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
@@ -28,6 +28,7 @@ interface DeviceState {
   sources: SourceDto[]
   updates: UpdateStatusDto | null
   remote: RemoteStatusDto | null
+  transfer: TransferStatusDto | null
   search: SearchState
   setSearch: (update: (state: SearchState) => SearchState) => void
   /** Base path of this device's pages: '' locally, '/d/<id>' through the relay. */
@@ -35,9 +36,28 @@ interface DeviceState {
   deviceName: string
 }
 
+/**
+ * Applies a progress update: changed rows are replaced, every other row keeps its object, so views
+ * memoized per row skip the ones that did not change.
+ */
+export function mergeRows(list: DownloadDto[], rows: DownloadDto[]): DownloadDto[] {
+  if (rows.length === 0) return list
+  const updates = new Map(rows.map(r => [r.id, r]))
+  let changed = false
+  const next = list.map(d => {
+    const update = updates.get(d.id)
+    if (!update) return d
+    changed = true
+    return update
+  })
+  return changed ? next : list
+}
+
 const DeviceContext = createContext<DeviceState | null>(null)
 /** Separate so the once-a-second progress updates re-render only the views that show downloads. */
 const DownloadsContext = createContext<DownloadDto[]>([])
+/** Just the connection, which never changes for a device: for per-row views that only make calls. */
+const ConnectionContext = createContext<RpcClient | null>(null)
 
 export function DeviceProvider({ connection, basePath, deviceName, children }: {
   connection: RpcClient
@@ -53,15 +73,18 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
   const [sources, setSources] = useState<SourceDto[]>([])
   const [updates, setUpdates] = useState<UpdateStatusDto | null>(null)
   const [remote, setRemote] = useState<RemoteStatusDto | null>(null)
+  const [transfer, setTransfer] = useState<TransferStatusDto | null>(null)
   const [search, setSearch] = useState<SearchState>(EMPTY_SEARCH)
 
   useEffect(() => {
     const refresh = async () => {
       try {
-        const [i, d, s, st, src, u, r] = await Promise.all([
+        // The website can be newer than the device's app: what an older app lacks is left out.
+        const optional = <T,>(call: Promise<T>) => call.catch(() => null)
+        const [i, d, s, st, src, u, r, tr] = await Promise.all([
           connection.call('app.info'), connection.call('downloads.list'), connection.call('series.list'),
           connection.call('settings.get'), connection.call('sources.list'), connection.call('updates.status'),
-          connection.call('remote.status'),
+          connection.call('remote.status'), optional(connection.call('transfer.status')),
         ])
         setInfo(i)
         setDownloads(d)
@@ -70,6 +93,7 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
         setSources(src)
         setUpdates(u)
         setRemote(r)
+        setTransfer(tr)
       } catch {
         // The state listener retries on the next successful (re)connect.
       }
@@ -84,6 +108,8 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
     const off = [
       offState,
       connection.on('downloads.changed', setDownloads),
+      connection.on('downloads.updated', rows => setDownloads(list => mergeRows(list, rows))),
+      connection.on('transfer.changed', setTransfer),
       connection.on('series.changed', setSeries),
       connection.on('settings.changed', next => {
         setSettings(next)
@@ -110,13 +136,15 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
   }, [connection])
 
   const value = useMemo<DeviceState>(() => ({
-    connection, connectionState, info, series, settings, sources, updates, remote, search, setSearch, basePath, deviceName,
-  }), [connection, connectionState, info, series, settings, sources, updates, remote, search, basePath, deviceName])
+    connection, connectionState, info, series, settings, sources, updates, remote, transfer, search, setSearch, basePath, deviceName,
+  }), [connection, connectionState, info, series, settings, sources, updates, remote, transfer, search, basePath, deviceName])
 
   return (
-    <DeviceContext.Provider value={value}>
-      <DownloadsContext.Provider value={downloads}>{children}</DownloadsContext.Provider>
-    </DeviceContext.Provider>
+    <ConnectionContext.Provider value={connection}>
+      <DeviceContext.Provider value={value}>
+        <DownloadsContext.Provider value={downloads}>{children}</DownloadsContext.Provider>
+      </DeviceContext.Provider>
+    </ConnectionContext.Provider>
   )
 }
 
@@ -126,6 +154,12 @@ export function useDevice(): DeviceState {
   return value
 }
 
+
+export function useConnection(): RpcClient {
+  const value = useContext(ConnectionContext)
+  if (!value) throw new Error('useConnection outside DeviceProvider')
+  return value
+}
 
 export function useDownloads(): DownloadDto[] {
   return useContext(DownloadsContext)

@@ -5,7 +5,48 @@ export const DOWNLOAD_STATUSES = [
 ] as const
 export type DownloadStatus = (typeof DOWNLOAD_STATUSES)[number]
 
-export type PostDownloadAction = 'StopSeeding' | 'KeepSeeding'
+export type PostDownloadAction = 'StopSeeding' | 'KeepSeeding' | 'SeedToRatio'
+
+/** When the alternative speed limits apply instead of the usual ones. */
+export type AltSpeedMode = 'off' | 'on' | 'scheduled'
+
+/** The engine refuses caps below this (bytes per second); 0 is no cap. */
+export const MIN_SPEED_LIMIT = 32 * 1024
+
+export type EngineState = 'running' | 'starting' | 'waitingForNetwork' | 'failed' | 'off'
+
+/** The torrent engine and its limits, as the Downloads page shows them. */
+export interface TransferStatusDto {
+  engine: EngineState
+  message: string | null
+  networkInterface: string | null
+  altSpeedActive: boolean
+  /** The caps in force now, bytes per second; 0 is none. */
+  downloadLimit: number
+  uploadLimit: number
+  /** Free space where new downloads go. */
+  freeBytes: number | null
+}
+
+export interface NetworkInterfaceDto {
+  name: string
+  addresses: string[]
+  /** Named like a VPN tunnel (utun, tun, wg, ppp, ipsec…). */
+  vpn: boolean
+}
+
+/** One file of a download's torrent. */
+export interface DownloadFileDto {
+  index: number
+  /** Relative to the download's folder, with / separators. */
+  path: string
+  size: number
+  /** Verified bytes so far. */
+  done: number
+  selected: boolean
+  /** A video or audio file the dashboard can play. */
+  playable: boolean
+}
 
 /** A search source and whether the user has it switched on. */
 export interface SourceDto {
@@ -68,6 +109,9 @@ export interface DownloadDto {
   completedAt: string | null
   error: string | null
   seriesTaskId: number | null
+  uploadedBytes: number
+  /** Set when only some of the torrent's files are downloaded. */
+  partialFiles: { selected: number; total: number } | null
 }
 
 export interface SeriesTaskDto {
@@ -92,6 +136,20 @@ export interface SeriesTaskDto {
 export interface SettingsDto {
   downloadFolder: string
   postDownloadAction: PostDownloadAction
+  seedRatio: number
+  /** Bytes per second; 0 is no limit. */
+  downloadLimit: number
+  uploadLimit: number
+  altDownloadLimit: number
+  altUploadLimit: number
+  altSpeedMode: AltSpeedMode
+  /** Local time, minutes after midnight; an end before the start runs overnight. */
+  altScheduleFrom: number
+  altScheduleTo: number
+  /** Days (0 = Monday) a scheduled window starts on. */
+  altScheduleDays: number[]
+  /** Empty: any. Otherwise torrent traffic only uses this interface, and stops without it. */
+  networkInterface: string
   disabledProviders: string[]
   language: string
   notifyOnStart: boolean
@@ -115,11 +173,23 @@ export interface SettingsDto {
 }
 
 const emailOrEmpty = z.union([z.literal(''), z.email()])
+const speedLimit = z.number().int().refine(v => v === 0 || (v >= MIN_SPEED_LIMIT && v <= 0xffffffff), { message: 'Use 0 (no limit) or at least 32 KiB/s' })
+const minuteOfDay = z.number().int().min(0).max(24 * 60 - 1)
 
 /** A partial settings change. Secrets are set by value and cleared with an empty string. */
 export const SettingsPatch = z.strictObject({
   downloadFolder: z.string().trim().min(1, 'Download folder is required').optional(),
-  postDownloadAction: z.enum(['StopSeeding', 'KeepSeeding']).optional(),
+  postDownloadAction: z.enum(['StopSeeding', 'KeepSeeding', 'SeedToRatio']).optional(),
+  seedRatio: z.number().min(0.1).max(100).optional(),
+  downloadLimit: speedLimit.optional(),
+  uploadLimit: speedLimit.optional(),
+  altDownloadLimit: speedLimit.optional(),
+  altUploadLimit: speedLimit.optional(),
+  altSpeedMode: z.enum(['off', 'on', 'scheduled']).optional(),
+  altScheduleFrom: minuteOfDay.optional(),
+  altScheduleTo: minuteOfDay.optional(),
+  altScheduleDays: z.array(z.number().int().min(0).max(6)).optional(),
+  networkInterface: z.string().trim().max(64).optional(),
   disabledProviders: z.array(z.string()).optional(),
   language: z.string().regex(/^[a-z]{2}$/).optional(),
   notifyOnStart: z.boolean().optional(),
@@ -194,9 +264,14 @@ export const SeriesTaskPatch = z.strictObject({
 })
 export type SeriesTaskPatch = z.infer<typeof SeriesTaskPatch>
 
+/** Largest .torrent file accepted, before base64. */
+export const MAX_TORRENT_FILE = 4 * 1024 * 1024
+
 export const StartDownloadInput = z.strictObject({
   resultId: z.string().optional(),
   magnet: z.string().optional(),
+  /** A .torrent file, base64. */
+  torrent: z.string().max(Math.ceil(MAX_TORRENT_FILE / 3) * 4).optional(),
   folder: z.string().optional(),
 })
 export type StartDownloadInput = z.infer<typeof StartDownloadInput>

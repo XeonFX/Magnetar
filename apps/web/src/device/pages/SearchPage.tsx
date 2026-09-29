@@ -1,7 +1,7 @@
 import type { SearchResultDto, SourceOutcomeDto, TorrentDetailsDto } from '@md/protocol'
 import { formatBytes } from '@md/protocol/bytes'
 import { Check, CircleAlert, Copy, Download, ExternalLink, FolderOpen, SearchIcon, SearchX, Sprout, Telescope, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useFormatDate, useFormatRelative, useT } from '../../lib/i18n.tsx'
 import { askNotificationPermission } from '../../lib/notifications.ts'
@@ -9,6 +9,7 @@ import { releaseTags } from '../../lib/releaseTags.ts'
 import { PageHeader, Segmented } from '../../ui/controls.tsx'
 import { Empty } from '../../ui/Empty.tsx'
 import { Modal } from '../../ui/Modal.tsx'
+import { PAGE_SIZE, ShowMore } from '../../ui/ShowMore.tsx'
 import { useCopy, useToast } from '../../ui/toast.tsx'
 import { useDevice } from '../DeviceContext.tsx'
 import { FolderField } from '../components/folders.tsx'
@@ -17,9 +18,6 @@ import { useRun } from '../useRun.ts'
 const RESOLUTIONS = [['', 'search.resolutionAny'], ['720p', '720p'], ['1080p', '1080p'], ['2160p', '4K']] as const
 
 type Sort = 'seeders' | 'newest' | 'largest' | 'smallest'
-/** Rows rendered at first and added each time the list is scrolled to its end. */
-const PAGE = 50
-
 const SORTS: Record<Sort, (a: SearchResultDto, b: SearchResultDto) => number> = {
   seeders: (a, b) => b.seeders - a.seeders,
   newest: (a, b) => (b.publishedAt ?? '').localeCompare(a.publishedAt ?? ''),
@@ -51,14 +49,14 @@ export function SearchPage() {
   const [details, setDetails] = useState<SearchResultDto | null>(null)
   const [sort, setSort] = useState<Sort>('seeders')
   const [added, setAdded] = useState<Set<string>>(new Set())
-  const [shown, setShown] = useState(PAGE)
+  const [shown, setShown] = useState(PAGE_SIZE)
   const [params, setParams] = useSearchParams()
 
   const start = async (text: string) => {
     const query = [text.trim(), search.resolution].filter(Boolean).join(' ')
     if (!text.trim()) return
     if (search.searchId && search.searching) void connection.call('search.cancel', { searchId: search.searchId }).catch(() => {})
-    setShown(PAGE)
+    setShown(PAGE_SIZE)
     setSearch(s => ({ ...s, query: text, searching: true, results: [], outcomes: [], searchId: null }))
     const started = await run(() => connection.call('search.start', { query, source: search.source || undefined }), 'search.failed')
     if (!started) return setSearch(s => ({ ...s, searching: false, results: null }))
@@ -124,7 +122,7 @@ export function SearchPage() {
           <ul className="flex flex-col gap-2">
             {results.slice(0, shown).map(r => <ResultRow key={r.resultId} result={r} added={added.has(r.resultId)} onOpen={() => setDetails(r)} onDownload={() => void download(r)} />)}
           </ul>
-          {results.length > shown && <ShowMore remaining={results.length - shown} onMore={() => setShown(n => n + PAGE)} />}
+          {results.length > shown && <ShowMore remaining={results.length - shown} onMore={() => setShown(n => n + PAGE_SIZE)} />}
         </>
       )}
 
@@ -132,20 +130,6 @@ export function SearchPage() {
         onDownload={(r, folder) => { setDetails(null); void download(r, folder) }} />
     </>
   )
-}
-
-/** Loads the next rows as the end of the list comes into view, with a button for keyboards. */
-function ShowMore({ remaining, onMore }: { remaining: number; onMore: () => void }) {
-  const t = useT()
-  const ref = useRef<HTMLButtonElement>(null)
-  useEffect(() => {
-    const button = ref.current
-    if (!button || !('IntersectionObserver' in window)) return
-    const observer = new IntersectionObserver(entries => { if (entries.some(e => e.isIntersecting)) onMore() }, { rootMargin: '400px' })
-    observer.observe(button)
-    return () => observer.disconnect()
-  }, [onMore, remaining])
-  return <button ref={ref} type="button" className="btn btn-ghost btn-block mt-3" onClick={onMore}>{t('search.showMore', remaining)}</button>
 }
 
 function Health({ seeders }: { seeders: number }) {

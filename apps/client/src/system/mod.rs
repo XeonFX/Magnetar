@@ -18,21 +18,48 @@ pub fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
 }
 
 pub fn open_in_browser(url: &str) {
+    open_with_system(url);
+}
+
+/// Shows a file or folder selected in Finder, Explorer or the Linux file manager.
+pub fn reveal_in_file_manager(path: &std::path::Path) {
     let mut command = if cfg!(target_os = "macos") {
         let mut c = hidden_command("/usr/bin/open");
-        c.arg(url);
+        c.arg("-R").arg(path);
         c
     } else if cfg!(windows) {
-        let mut c = hidden_command("rundll32");
-        c.args(["url.dll,FileProtocolHandler", url]);
+        let mut c = hidden_command("explorer");
+        c.arg(format!("/select,{}", path.display()));
         c
     } else {
+        // No portable "select this file": open the folder that holds it.
         let mut c = hidden_command("xdg-open");
-        c.arg(url);
+        c.arg(if path.is_dir() { path } else { path.parent().unwrap_or(path) });
         c
     };
     if let Err(error) = command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
-        tracing::warn!("Could not open {url}: {error}");
+        tracing::warn!("Could not show {}: {error}", path.display());
+    }
+}
+
+/// Opens a file or URL with the program the system uses for it.
+pub fn open_with_system(target: impl AsRef<std::ffi::OsStr>) {
+    let target = target.as_ref();
+    let mut command = if cfg!(target_os = "macos") {
+        let mut c = hidden_command("/usr/bin/open");
+        c.arg(target);
+        c
+    } else if cfg!(windows) {
+        let mut c = hidden_command("rundll32");
+        c.arg("url.dll,FileProtocolHandler").arg(target);
+        c
+    } else {
+        let mut c = hidden_command("xdg-open");
+        c.arg(target);
+        c
+    };
+    if let Err(error) = command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
+        tracing::warn!("Could not open {}: {error}", target.to_string_lossy());
     }
 }
 

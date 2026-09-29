@@ -2,7 +2,11 @@ import { X } from 'lucide-react'
 import { useEffect, useRef, type ReactNode } from 'react'
 import { useT } from '../lib/i18n.tsx'
 
-/** A native <dialog>: focus trapping, Escape and the backdrop come from the browser. */
+/**
+ * A native <dialog>: focus trapping, Escape and the backdrop come from the browser. The browser
+ * focuses the first focusable element (the close button); mark a field `data-autofocus` to start
+ * there instead.
+ */
 export function Modal({ open, title, icon, onClose, children, actions, wide = false }: {
   open: boolean
   title: ReactNode
@@ -17,7 +21,10 @@ export function Modal({ open, title, icon, onClose, children, actions, wide = fa
   useEffect(() => {
     const dialog = ref.current
     if (!dialog) return
-    if (open && !dialog.open) dialog.showModal()
+    if (open && !dialog.open) {
+      dialog.showModal()
+      dialog.querySelector<HTMLElement>('[data-autofocus]')?.focus()
+    }
     if (!open && dialog.open) dialog.close()
   }, [open])
 

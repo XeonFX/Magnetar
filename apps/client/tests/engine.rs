@@ -9,14 +9,20 @@ use librqbit::spawn_utils::BlockingSpawner;
 use librqbit::{CreateTorrentOptions, create_torrent};
 use mediadownloader::app::{App, AppOptions};
 use mediadownloader::downloads::AddDownload;
-use mediadownloader::downloads::engine::Engine;
+use mediadownloader::downloads::engine::{Engine, NetworkOptions, SpeedLimits};
+use mediadownloader::downloads::manager::{EngineSource, FileSource};
 use mediadownloader::paths::Paths;
 use mediadownloader::protocol::{DownloadStatus, PostDownloadAction};
 
 async fn start_app(paths: &Paths) -> Arc<App> {
-    let engine = Arc::new(Engine::start(paths).await.unwrap());
-    let app = App::new(AppOptions { paths: paths.clone(), engine: Some(engine), providers: Vec::new(), legacy_database: None })
-        .unwrap();
+    let engine = Arc::new(Engine::start(paths, &NetworkOptions::default(), SpeedLimits::default()).await.unwrap());
+    let app = App::new(AppOptions {
+        paths: paths.clone(),
+        engine: EngineSource::Fixed(engine),
+        providers: Vec::new(),
+        legacy_database: None,
+    })
+    .unwrap();
     app.settings.update(|s| s.post_download_action = PostDownloadAction::KeepSeeding);
     app.start();
     app
@@ -46,6 +52,65 @@ async fn seed_file(folder: &Path, paths: &Paths) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_torrent_file_starts_at_once_and_its_files_can_be_chosen() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("Downloads");
+    let paths = Paths::new(dir.path().join("data")).unwrap();
+    let pack = folder.join("Show S01");
+    std::fs::create_dir_all(&pack).unwrap();
+    std::fs::write(pack.join("e01.mkv"), vec![7u8; 600_000]).unwrap();
+    std::fs::write(pack.join("e01.srt"), b"1\n00:00:01,000 --> 00:00:02,000\nHello\n").unwrap();
+    let options = CreateTorrentOptions { trackers: vec!["udp://tracker.example:1337/announce".into()], ..Default::default() };
+    let torrent = create_torrent(&pack, options, &BlockingSpawner::new(2)).await.unwrap();
+
+    let app = start_app(&paths).await;
+    let added = app
+        .downloads
+        .add_torrent_file(torrent.as_bytes().unwrap().to_vec(), "Torrent file", Some(folder.display().to_string()))
+        .unwrap();
+    assert_eq!(added.name, "Show S01");
+    wait_for(&app, added.id, DownloadStatus::Seeding).await;
+
+    let files = app.downloads.files(added.id).unwrap();
+    let names: Vec<(&str, bool, bool)> = files.iter().map(|f| (f.path.as_str(), f.playable, f.done == f.size)).collect();
+    assert_eq!(names, [("e01.mkv", true, true), ("e01.srt", false, true)]);
+    assert!(files.iter().all(|f| f.selected));
+
+    // Finish it, so trimming and widening the choice can be seen not to restart it.
+    app.downloads.pause(added.id).await.unwrap();
+    app.stop().await;
+    let app = start_app(&paths).await;
+    wait_for(&app, added.id, DownloadStatus::Completed).await;
+    let partial = app.downloads.select_files(added.id, vec![0, 0]).await.unwrap();
+    assert_eq!(partial.partial_files.map(|p| (p.selected, p.total)), Some((1, 2)));
+    assert_eq!((partial.status, partial.total_bytes), (DownloadStatus::Completed, 600_000), "nothing new to fetch");
+    assert!(!app.downloads.files(added.id).unwrap()[1].selected);
+    assert!(app.downloads.select_files(added.id, vec![]).await.is_err(), "at least one file");
+    assert!(app.downloads.select_files(added.id, vec![2]).await.is_err(), "no such file");
+    let all = app.downloads.select_files(added.id, vec![1, 0]).await.unwrap();
+    assert_eq!(all.partial_files, None, "every file chosen is not partial");
+    assert_eq!(all.status, DownloadStatus::Completed, "the subtitle is already on disk");
+    std::fs::remove_file(pack.join("e01.srt")).unwrap();
+    app.downloads.select_files(added.id, vec![0]).await.unwrap();
+    let widened = app.downloads.select_files(added.id, vec![0, 1]).await.unwrap();
+    assert_ne!(widened.status, DownloadStatus::Completed, "a newly chosen missing file is fetched");
+    // Nobody seeds the subtitle, so it waits for peers.
+    wait_for(&app, added.id, DownloadStatus::Downloading).await;
+
+    let file = app.downloads.open_file(added.id, 0).unwrap();
+    assert_eq!(app.downloads.files(added.id).unwrap()[1].done, 0);
+    assert_eq!((file.name.as_str(), file.size), ("e01.mkv", 600_000));
+    assert!(matches!(file.source, FileSource::Disk(ref p) if p == &pack.join("e01.mkv")));
+    assert_eq!(app.downloads.location(added.id).unwrap(), pack);
+
+    // The same torrent again is the same download.
+    let again = app.downloads.add_torrent_file(torrent.as_bytes().unwrap().to_vec(), "Torrent file", None).unwrap();
+    assert_eq!(again.id, added.id);
+    assert!(app.downloads.add_torrent_file(b"d4:junke".to_vec(), "Torrent file", None).is_err());
+    app.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn an_update_pauses_downloads_and_the_next_start_resumes_only_those() {
     let dir = tempfile::tempdir().unwrap();
     let folder = dir.path().join("Downloads");
@@ -61,6 +126,7 @@ async fn an_update_pauses_downloads_and_the_next_start_resumes_only_those() {
             magnet_uri: format!("magnet:?xt=urn:btih:{hash}"),
             source: "Magnet".into(),
             series_task_id: None,
+            episode: None,
             save_folder: Some(folder.display().to_string()),
         })
         .unwrap();
@@ -91,5 +157,64 @@ async fn an_update_pauses_downloads_and_the_next_start_resumes_only_those() {
     assert!(!bitv.exists());
     app.downloads.delete(added.id, false).await.unwrap();
     assert!(folder.join("episode.mkv").exists());
+    app.stop().await;
+}
+
+/// The kill switch: with an interface chosen, nothing runs until it exists, and everything stops
+/// when it goes away.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn downloads_wait_for_the_chosen_interface_and_stop_without_it() {
+    use mediadownloader::protocol::EngineState;
+    let loopback = if cfg!(target_os = "macos") { "lo0" } else { "lo" };
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path().join("data")).unwrap();
+    let app = App::new(AppOptions {
+        paths: paths.clone(),
+        engine: EngineSource::Managed(paths.clone()),
+        providers: Vec::new(),
+        legacy_database: None,
+    })
+    .unwrap();
+    app.settings.update(|s| {
+        s.network_interface = "md-missing0".into();
+        s.download_folder = dir.path().join("Downloads").display().to_string();
+    });
+    app.start();
+    let wait_engine = |state: EngineState| {
+        let app = app.clone();
+        async move {
+            for _ in 0..200 {
+                if app.downloads.transfer_status().engine == state {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            panic!("engine never reached {state:?}: {:?}", app.downloads.transfer_status());
+        }
+    };
+    wait_engine(EngineState::WaitingForNetwork).await;
+    let magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Nobody+seeds+this";
+    let added = app
+        .downloads
+        .add(AddDownload {
+            name: String::new(),
+            magnet_uri: magnet.into(),
+            source: "Magnet".into(),
+            series_task_id: None,
+            episode: None,
+            save_folder: None,
+        })
+        .unwrap();
+    assert_eq!(added.status, DownloadStatus::Queued, "no engine, no traffic");
+
+    app.settings.update(|s| s.network_interface = loopback.into());
+    wait_engine(EngineState::Running).await;
+    wait_for(&app, added.id, DownloadStatus::FetchingMetadata).await;
+    assert_eq!(app.downloads.transfer_status().network_interface.as_deref(), Some(loopback));
+
+    app.settings.update(|s| s.network_interface = "md-missing0".into());
+    wait_engine(EngineState::WaitingForNetwork).await;
+    wait_for(&app, added.id, DownloadStatus::Queued).await;
     app.stop().await;
 }

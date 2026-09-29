@@ -1,10 +1,10 @@
 import { z } from 'zod'
 import {
   SeriesTaskInput, SeriesTaskPatch, SettingsPatch, StartDownloadInput,
-  type AgentStatusDto, type AppInfoDto, type ClaudeConnectResultDto, type DownloadDto, type FolderListing, type LegacyImportResultDto,
+  type AgentStatusDto, type AppInfoDto, type ClaudeConnectResultDto, type DownloadDto, type DownloadFileDto, type FolderListing, type LegacyImportResultDto,
   type LegacyImportStatusDto, type LoginStartupStatus, type RemoteStatusDto, type SearchResultDto,
-  type SeriesTaskDto, type SettingsDto, type SourceDto, type SourceOutcomeDto, type TorrentDetailsDto,
-  type UpdateStatusDto,
+  type NetworkInterfaceDto, type SeriesTaskDto, type SettingsDto, type SourceDto, type SourceOutcomeDto, type TorrentDetailsDto,
+  type TransferStatusDto, type UpdateStatusDto,
 } from './model.ts'
 
 const none = z.strictObject({})
@@ -28,6 +28,15 @@ export const RPC_PARAMS = {
   'downloads.pause': id,
   'downloads.resume': id,
   'downloads.delete': z.strictObject({ id: z.number().int(), deleteFiles: z.boolean().default(false) }),
+  'downloads.files': id,
+  'downloads.selectFiles': z.strictObject({ id: z.number().int(), files: z.array(z.number().int().min(0)).min(1) }),
+  /** Shows the download in Finder or Explorer. Only offered on the local dashboard. */
+  'downloads.reveal': id,
+  /** Opens a finished video or audio file in its usual player. Only offered on the local dashboard. */
+  'downloads.openFile': z.strictObject({ id: z.number().int(), index: z.number().int().min(0) }),
+
+  'transfer.status': none,
+  'network.interfaces': none,
 
   'series.list': none,
   'series.create': SeriesTaskInput,
@@ -85,6 +94,12 @@ export interface RpcResults {
   'downloads.pause': DownloadDto
   'downloads.resume': DownloadDto
   'downloads.delete': null
+  'downloads.files': DownloadFileDto[]
+  'downloads.selectFiles': DownloadDto
+  'downloads.reveal': null
+  'downloads.openFile': null
+  'transfer.status': TransferStatusDto
+  'network.interfaces': { supported: boolean; interfaces: NetworkInterfaceDto[] }
   'series.list': SeriesTaskDto[]
   'series.create': SeriesTaskDto
   'series.update': SeriesTaskDto
@@ -119,6 +134,9 @@ export interface RpcResults {
 /** Pushed from the device without a request. */
 export interface RpcEvents {
   'downloads.changed': DownloadDto[]
+  /** Once a second: the rows whose numbers changed. */
+  'downloads.updated': DownloadDto[]
+  'transfer.changed': TransferStatusDto
   'series.changed': SeriesTaskDto[]
   'search.results': { searchId: string; results: SearchResultDto[] }
   'search.source': { searchId: string; outcome: SourceOutcomeDto }
@@ -139,4 +157,4 @@ export type ServerMessage =
   | { event: string; data: unknown }
 
 /** Methods that act on the device's own screen or programs, not offered through the relay. */
-export const LOCAL_ONLY_METHODS: ReadonlySet<RpcMethod> = new Set(['fs.pickNative', 'agent.connectClaude'])
+export const LOCAL_ONLY_METHODS: ReadonlySet<RpcMethod> = new Set(['fs.pickNative', 'agent.connectClaude', 'downloads.reveal', 'downloads.openFile'])

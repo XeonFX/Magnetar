@@ -6,7 +6,7 @@ use crate::api::agent_access::AgentAccess;
 use crate::api::rate_limiter::RateLimiter;
 use crate::db::{Db, KeyValue, SecretBox, SecretStore};
 use crate::downloads::DownloadManager;
-use crate::downloads::engine::Engine;
+use crate::downloads::manager::EngineSource;
 use crate::events::EventBus;
 use crate::legacy::LegacyImporter;
 use crate::notifications::NotificationDispatcher;
@@ -23,16 +23,21 @@ use crate::updates::UpdateService;
 
 pub struct AppOptions {
     pub paths: Paths,
-    /// None runs everything without opening peer or DHT sockets (tests).
-    pub engine: Option<Arc<Engine>>,
+    pub engine: EngineSource,
     pub providers: Vec<Arc<dyn Provider>>,
     pub legacy_database: Option<PathBuf>,
 }
 
 impl AppOptions {
-    /// The real thing: every provider and the legacy database where the old app kept it.
-    pub fn production(paths: Paths, engine: Option<Arc<Engine>>) -> Self {
-        Self { paths, engine, providers: providers::all(), legacy_database: legacy_database_path() }
+    /// The real thing: an engine run as the settings say, every provider, and the legacy database
+    /// where the old app kept it.
+    pub fn production(paths: Paths) -> Self {
+        Self {
+            engine: EngineSource::Managed(paths.clone()),
+            paths,
+            providers: providers::all(),
+            legacy_database: legacy_database_path(),
+        }
     }
 }
 

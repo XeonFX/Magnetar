@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::db::{Db, SecretName, SecretStore};
 use crate::events::EventBus;
 use crate::paths::default_download_folder;
-use crate::protocol::{PostDownloadAction, SettingsDto, SettingsPatch};
+use crate::protocol::{AltSpeedMode, PostDownloadAction, SettingsDto, SettingsPatch};
 
 /// Everything persisted in the settings row. Secrets live in the SecretStore instead. New settings
 /// need no migration: missing keys take their default.
@@ -15,6 +15,21 @@ use crate::protocol::{PostDownloadAction, SettingsDto, SettingsPatch};
 pub struct AppSettings {
     pub download_folder: String,
     pub post_download_action: PostDownloadAction,
+    pub seed_ratio: f64,
+    /// Bytes per second; 0 is no limit.
+    pub download_limit: u64,
+    pub upload_limit: u64,
+    /// Used instead while the alternative limits are on (by hand or on schedule).
+    pub alt_download_limit: u64,
+    pub alt_upload_limit: u64,
+    pub alt_speed_mode: AltSpeedMode,
+    /// Local time, minutes after midnight. A window whose end is before its start runs overnight.
+    pub alt_schedule_from: u16,
+    pub alt_schedule_to: u16,
+    /// The days (0 = Monday) a scheduled window starts on.
+    pub alt_schedule_days: Vec<u8>,
+    /// Empty: any interface. Otherwise torrent traffic only uses this one, and stops without it.
+    pub network_interface: String,
     pub disabled_providers: Vec<String>,
     pub language: String,
     pub notify_on_start: bool,
@@ -45,6 +60,16 @@ impl Default for AppSettings {
         Self {
             download_folder: default_download_folder().to_string_lossy().into_owned(),
             post_download_action: PostDownloadAction::StopSeeding,
+            seed_ratio: 1.0,
+            download_limit: 0,
+            upload_limit: 0,
+            alt_download_limit: 2 * 1024 * 1024,
+            alt_upload_limit: 512 * 1024,
+            alt_speed_mode: AltSpeedMode::Off,
+            alt_schedule_from: 8 * 60,
+            alt_schedule_to: 23 * 60,
+            alt_schedule_days: (0..7).collect(),
+            network_interface: String::new(),
             disabled_providers: Vec::new(),
             language: "en".into(),
             notify_on_start: true,
@@ -125,6 +150,16 @@ impl SettingsService {
             apply!(
                 download_folder,
                 post_download_action,
+                seed_ratio,
+                download_limit,
+                upload_limit,
+                alt_download_limit,
+                alt_upload_limit,
+                alt_speed_mode,
+                alt_schedule_from,
+                alt_schedule_to,
+                alt_schedule_days,
+                network_interface,
                 disabled_providers,
                 language,
                 notify_on_start,
@@ -159,6 +194,16 @@ impl SettingsService {
         SettingsDto {
             download_folder: s.download_folder,
             post_download_action: s.post_download_action,
+            seed_ratio: s.seed_ratio,
+            download_limit: s.download_limit,
+            upload_limit: s.upload_limit,
+            alt_download_limit: s.alt_download_limit,
+            alt_upload_limit: s.alt_upload_limit,
+            alt_speed_mode: s.alt_speed_mode,
+            alt_schedule_from: s.alt_schedule_from,
+            alt_schedule_to: s.alt_schedule_to,
+            alt_schedule_days: s.alt_schedule_days,
+            network_interface: s.network_interface,
             disabled_providers: s.disabled_providers,
             language: s.language,
             notify_on_start: s.notify_on_start,

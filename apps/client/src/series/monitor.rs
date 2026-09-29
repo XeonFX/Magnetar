@@ -115,7 +115,7 @@ impl SeriesMonitor {
                 &self.search,
                 &self.downloads,
                 Arc::new(Mutex::new(result)),
-                Some(task.id),
+                Some((task.id, episode)),
                 task.download_folder.clone(),
                 &self.cancel,
             )

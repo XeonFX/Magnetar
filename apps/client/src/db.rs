@@ -12,7 +12,8 @@ use crate::protocol::encoding::random_bytes;
 
 /// Schema versions, applied in order and recorded in `PRAGMA user_version`. Append only: a shipped
 /// migration never changes, a new one is added after it.
-const MIGRATIONS: &[&str] = &[r"
+const MIGRATIONS: &[&str] = &[
+    r"
 CREATE TABLE series_tasks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
@@ -59,7 +60,13 @@ CREATE TABLE browser_keys (
   active INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-"];
+",
+    r"
+ALTER TABLE downloads ADD COLUMN uploaded_bytes INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE downloads ADD COLUMN selected_files TEXT;
+ALTER TABLE downloads ADD COLUMN episode INTEGER;
+",
+];
 
 /// The app database. Statements are short, so one connection behind a mutex serves every service.
 #[derive(Clone)]

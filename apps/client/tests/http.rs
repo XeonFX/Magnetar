@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use mediadownloader::app::{App, AppOptions};
+use mediadownloader::downloads::manager::EngineSource;
 use mediadownloader::http::server;
 use mediadownloader::paths::Paths;
 use serde_json::{Value, json};
@@ -10,9 +11,13 @@ use serde_json::{Value, json};
 async fn start() -> (Arc<App>, String, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path().join("data")).unwrap();
-    let app =
-        App::new(AppOptions { paths, engine: None, providers: mediadownloader::search::providers::all(), legacy_database: None })
-            .unwrap();
+    let app = App::new(AppOptions {
+        paths,
+        engine: EngineSource::Off,
+        providers: mediadownloader::search::providers::all(),
+        legacy_database: None,
+    })
+    .unwrap();
     app.start();
     // Clear of the real app's port range.
     let server = server::start(app.clone(), 48_700 + (std::process::id() % 200) as u16).await.unwrap();

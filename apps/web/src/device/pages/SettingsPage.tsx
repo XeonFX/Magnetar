@@ -15,6 +15,7 @@ import { useDevice } from '../DeviceContext.tsx'
 import { FolderField } from '../components/folders.tsx'
 import { useLegacyImport } from '../components/legacyImport.tsx'
 import { RemoteAccessSection } from '../components/remoteAccess.tsx'
+import { NetworkSettings, SeedingRow, SpeedSettings } from '../components/transferSettings.tsx'
 import { useRun } from '../useRun.ts'
 
 const SECTIONS = [
@@ -122,24 +123,23 @@ function DownloadsSection({ settings }: { settings: SettingsDto }) {
   const t = useT()
   const save = useSave()
   return (
-    <SettingGroup>
-      <SettingRow layout="stack" title={t('settings.downloadFolder')} description={t('settings.downloadFolderHint')}>
-        <FolderField hideLabel label={t('settings.downloadFolder')} value={settings.downloadFolder}
-          onChange={downloadFolder => downloadFolder.trim() && save({ downloadFolder })} />
-      </SettingRow>
-      <SettingRow layout="wide" title={t('settings.postDownload')}
-        description={t(settings.postDownloadAction === 'KeepSeeding' ? 'settings.keepSeedingHelp' : 'settings.stopSeedingHelp')}>
-        <Segmented label={t('settings.postDownload')} value={settings.postDownloadAction}
-          onChange={postDownloadAction => save({ postDownloadAction })}
-          options={[{ value: 'StopSeeding', label: t('settings.stopSeeding') }, { value: 'KeepSeeding', label: t('settings.keepSeeding') }]} />
-      </SettingRow>
-      <SettingRow title={t('settings.notifyStart')}>
-        <Switch label={t('settings.notifyStart')} checked={settings.notifyOnStart} onChange={notifyOnStart => save({ notifyOnStart })} />
-      </SettingRow>
-      <SettingRow title={t('settings.notifyFinish')}>
-        <Switch label={t('settings.notifyFinish')} checked={settings.notifyOnComplete} onChange={notifyOnComplete => save({ notifyOnComplete })} />
-      </SettingRow>
-    </SettingGroup>
+    <>
+      <SettingGroup>
+        <SettingRow layout="stack" title={t('settings.downloadFolder')} description={t('settings.downloadFolderHint')}>
+          <FolderField hideLabel label={t('settings.downloadFolder')} value={settings.downloadFolder}
+            onChange={downloadFolder => downloadFolder.trim() && save({ downloadFolder })} />
+        </SettingRow>
+        <SeedingRow settings={settings} save={save} />
+        <SettingRow title={t('settings.notifyStart')}>
+          <Switch label={t('settings.notifyStart')} checked={settings.notifyOnStart} onChange={notifyOnStart => save({ notifyOnStart })} />
+        </SettingRow>
+        <SettingRow title={t('settings.notifyFinish')}>
+          <Switch label={t('settings.notifyFinish')} checked={settings.notifyOnComplete} onChange={notifyOnComplete => save({ notifyOnComplete })} />
+        </SettingRow>
+      </SettingGroup>
+      <SpeedSettings settings={settings} save={save} />
+      <NetworkSettings settings={settings} save={save} />
+    </>
   )
 }
 
