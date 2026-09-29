@@ -49,14 +49,14 @@ fn piratebay_upload_dates() {
 
 #[test]
 fn leetx_rows_placeholder_hashes_and_details() {
-    let rows = leetx::parse_rows(&fixture("leetx-search.html"), "www.1377x.to");
+    let rows = leetx::parse_rows(&fixture("leetx-search.html"), "1337x.to");
     assert_eq!(rows.len(), 2);
     let first = &rows[0];
     // The title anchor, not the category icon.
     assert_eq!(first.title, "Ubuntu MATE 16.04.2 [MATE][armhf][img.xz][Uzerus]");
     assert_eq!(
         first.details_url.as_deref(),
-        Some("https://www.1377x.to/torrent/2099267/Ubuntu-MATE-16-04-2-MATE-armhf-img-xz-Uzerus/")
+        Some("https://1337x.to/torrent/2099267/Ubuntu-MATE-16-04-2-MATE-armhf-img-xz-Uzerus/")
     );
     assert_eq!((first.size_bytes, first.seeders, first.leechers), (1181116006, 260, 2));
     assert_eq!(first.published_at, utc(2017, 6, 20, 0, 0));
@@ -73,6 +73,19 @@ fn leetx_rows_placeholder_hashes_and_details() {
     assert!(magnet.starts_with("magnet:?xt=urn:btih:abcdef0123456789abcdef0123456789abcdef01&dn=Title"));
     assert!(!magnet.contains("evil"));
     assert_eq!(details.description.as_deref(), Some("Line one\n\nLine & two"));
+}
+
+#[test]
+fn leetx_copy_titles_are_repaired_and_untagged() {
+    let rows = leetx::parse_rows(&fixture("leetx-copy-search.html"), "www.1337xx.to");
+    assert_eq!(rows.len(), 20);
+    let titles: Vec<&str> = rows.iter().map(|r| r.title.as_str()).collect();
+    assert!(
+        titles.contains(&"[pasta] This is a video of Roxy from Mushoku Tensei. / [ぱすた] 【無職転生】ロキシー動画です"),
+        "{titles:#?}"
+    );
+    assert!(titles.contains(&"[Erai-raws] Tensei shitara Slime Datta Ken - 21 [1080p][Multiple Subtitle].mkv"), "{titles:#?}");
+    assert!(titles.iter().all(|t| !t.contains("(Torrent) -") && !t.contains('Ã')), "{titles:#?}");
 }
 
 #[test]
@@ -143,7 +156,7 @@ fn live_page_sanity() {
         ("The Pirate Bay", piratebay::parse_mirror_html(&fixture("live-piratebay-mirror.html"), Utc::now())),
         ("EZTV", eztv::parse_page(&fixture("live-eztv-api.json")).unwrap().torrents),
         ("RARBG", rarbg::parse_page(&fixture("live-rarbg-search.json")).unwrap().results),
-        ("1337x", leetx::parse_rows(&fixture("live-leetx-search.html"), "www.1377x.to")),
+        ("1337x", leetx::parse_rows(&fixture("live-leetx-search.html"), "1337x.to")),
         ("Torrents-CSV", torrentscsv::parse(&fixture("live-torrentscsv.json")).unwrap()),
     ];
     for (source, results) in pages {

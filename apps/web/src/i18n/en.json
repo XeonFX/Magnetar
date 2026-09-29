@@ -337,6 +337,7 @@
     "settings.theme.dark": "Dark",
     "shell.thisComputer": "On this computer",
     "import.bannerTitle": "Bring over your MediaDownloader 1.x data",
-    "common.notNow": "Not now"
+    "common.notNow": "Not now",
+    "search.showMore": "Show more ({0} left)"
   }
 }

@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::{DateTime, TimeZone, Utc};
+use futures::future::join_all;
 use regex::Regex;
 use scraper::Html;
 use tokio_util::sync::CancellationToken;
@@ -10,17 +11,21 @@ use tokio_util::sync::CancellationToken;
 use super::{selector, text};
 use crate::protocol::bytes::parse_bytes;
 use crate::protocol::encoding::encode_uri_component;
-use crate::search::html_to_plain_text;
 use crate::search::http::{fetch_text, text_to_int};
 use crate::search::magnet::{DEFAULT_TRACKERS, build_magnet, extract_info_hash};
 use crate::search::mirrors::MirrorRotator;
 use crate::search::types::{Provider, TorrentDetails, TorrentSearchResult};
+use crate::search::{html_to_plain_text, repair_mojibake};
 
 const NAME: &str = "1337x";
 
-/// The main domains sit behind a Cloudflare challenge; these mirrors serve plain HTML.
+/// The real site first: it answers plain HTML on networks Cloudflare trusts, and a challenge (403)
+/// hands over to the next host at once. www.1337xx.to is a copy that always answers but matches any
+/// word of the query, so it comes last.
 static MIRRORS: LazyLock<MirrorRotator<&'static str>> =
-    LazyLock::new(|| MirrorRotator::new(vec!["www.1377x.to", "www.1337xx.to"], Duration::from_millis(1500)));
+    LazyLock::new(|| MirrorRotator::new(vec!["1337x.to", "x1337x.ws", "www.1337xx.to"], Duration::from_millis(1500)));
+/// A full listing page; a shorter one is the last.
+const PAGE_SIZE: usize = 20;
 
 /// The listing has every column except the magnet and description, which live on each torrent's
 /// detail page — fetched lazily, once, for the torrent the user actually opens.
@@ -41,8 +46,23 @@ impl Provider for Leetx {
         MIRRORS
             .fetch(
                 |host, token| async move {
-                    let url = format!("https://{host}/sort-search/{}/seeders/desc/1/", encode_uri_component(query));
-                    Ok(parse_rows(&fetch_text(http, &url, &token).await?, host))
+                    let q = encode_uri_component(query);
+                    let page = |sort: &str, n: usize| format!("https://{host}/sort-search/{q}/{sort}/desc/{n}/");
+                    let mut rows = parse_rows(&fetch_text(http, &page("seeders", 1), &token).await?, host);
+                    if rows.len() >= PAGE_SIZE {
+                        // Relevance filtering happens later and a copy that matches any word fills the
+                        // first page with near misses: more pages, and the newest, leave enough to keep.
+                        let more = [page("seeders", 2), page("seeders", 3), page("time", 1)];
+                        let pages = join_all(more.iter().map(|url| fetch_text(http, url, &token))).await;
+                        for html in pages.into_iter().flatten() {
+                            for row in parse_rows(&html, host) {
+                                if !rows.iter().any(|r| r.info_hash == row.info_hash) {
+                                    rows.push(row);
+                                }
+                            }
+                        }
+                    }
+                    Ok(rows)
                 },
                 cancel,
             )
@@ -71,6 +91,7 @@ pub fn parse_rows(html: &str, host: &str) -> Vec<TorrentSearchResult> {
             let title_link = row.select(&title_links).find(|a| !text(*a).is_empty())?;
             let path = title_link.value().attr("href").unwrap_or_default();
             let id = path.trim_matches('/').split('/').nth(1).unwrap_or(path);
+            let title = clean_title(&text(title_link));
             Some(TorrentSearchResult {
                 // Stands in for the real hash until the detail page is resolved, keeping dedup stable.
                 info_hash: format!("1337x-{id}"),
@@ -79,10 +100,17 @@ pub fn parse_rows(html: &str, host: &str) -> Vec<TorrentSearchResult> {
                 leechers: text_to_int(&cell(row, "td.coll-3")),
                 published_at: parse_date(&cell(row, "td.coll-date")),
                 details_url: Some(format!("https://{host}{path}")),
-                ..TorrentSearchResult::new(text(title_link), NAME)
+                ..TorrentSearchResult::new(title, NAME)
             })
         })
         .collect()
+}
+
+static SCRAPED_FROM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*\(Torrent\)\s*-\s*[A-Za-z0-9 .]+$").unwrap());
+
+/// The copy re-encodes some titles twice and tags others with where it scraped them from.
+fn clean_title(title: &str) -> String {
+    SCRAPED_FROM.replace(&repair_mojibake(title), "").trim().to_owned()
 }
 
 static DATE: LazyLock<Regex> =

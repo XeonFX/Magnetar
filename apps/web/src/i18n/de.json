@@ -337,6 +337,7 @@
     "settings.startupFailed": "Autostart konnte nicht geändert werden: {0}",
     "settings.startupRefresh": "Status aktualisieren",
     "import.bannerTitle": "Übernimm deine Daten aus MediaDownloader 1.x",
-    "common.notNow": "Nicht jetzt"
+    "common.notNow": "Nicht jetzt",
+    "search.showMore": "Mehr anzeigen (noch {0})"
   }
 }

@@ -337,6 +337,7 @@
     "settings.startupFailed": "Nie udało się zmienić uruchamiania przy logowaniu: {0}",
     "settings.startupRefresh": "Odśwież status",
     "import.bannerTitle": "Przenieś dane z MediaDownloader 1.x",
-    "common.notNow": "Nie teraz"
+    "common.notNow": "Nie teraz",
+    "search.showMore": "Pokaż więcej (pozostało {0})"
   }
 }

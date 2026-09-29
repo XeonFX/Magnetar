@@ -337,6 +337,7 @@
     "settings.startupFailed": "Не удалось изменить автозапуск: {0}",
     "settings.startupRefresh": "Обновить статус",
     "import.bannerTitle": "Перенесите данные из MediaDownloader 1.x",
-    "common.notNow": "Не сейчас"
+    "common.notNow": "Не сейчас",
+    "search.showMore": "Показать ещё (осталось {0})"
   }
 }

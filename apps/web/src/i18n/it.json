@@ -337,6 +337,7 @@
     "settings.startupFailed": "Impossibile modificare l'avvio all'accesso: {0}",
     "settings.startupRefresh": "Aggiorna stato",
     "import.bannerTitle": "Porta qui i tuoi dati di MediaDownloader 1.x",
-    "common.notNow": "Non ora"
+    "common.notNow": "Non ora",
+    "search.showMore": "Mostra altri ({0} rimanenti)"
   }
 }

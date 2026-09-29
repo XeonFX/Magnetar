@@ -337,6 +337,7 @@
     "settings.startupFailed": "Impossible de modifier le lancement à l'ouverture de session : {0}",
     "settings.startupRefresh": "Actualiser l'état",
     "import.bannerTitle": "Récupérez vos données de MediaDownloader 1.x",
-    "common.notNow": "Pas maintenant"
+    "common.notNow": "Pas maintenant",
+    "search.showMore": "Afficher plus ({0} restants)"
   }
 }

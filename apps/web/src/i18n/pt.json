@@ -337,6 +337,7 @@
     "settings.startupFailed": "Não foi possível alterar o arranque ao iniciar sessão: {0}",
     "settings.startupRefresh": "Atualizar estado",
     "import.bannerTitle": "Traga os seus dados do MediaDownloader 1.x",
-    "common.notNow": "Agora não"
+    "common.notNow": "Agora não",
+    "search.showMore": "Mostrar mais (faltam {0})"
   }
 }
