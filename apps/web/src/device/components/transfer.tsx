@@ -4,6 +4,7 @@ import { Gauge, HardDrive, ShieldAlert, TriangleAlert } from 'lucide-react'
 import { Link } from 'react-router'
 import { useT } from '../../lib/i18n.tsx'
 import { useDevice } from '../DeviceContext.tsx'
+import { useToast } from '../../ui/toast.tsx'
 import { useRun } from '../useRun.ts'
 
 /** Why nothing is downloading, when the engine isn't running: a missing VPN, a failed start. */
@@ -34,6 +35,7 @@ export function TransferNotice({ transfer }: { transfer: TransferStatusDto | nul
 export function AltSpeedToggle({ settings, transfer }: { settings: SettingsDto; transfer: TransferStatusDto | null }) {
   const t = useT()
   const run = useRun()
+  const toast = useToast()
   const { connection } = useDevice()
   const active = transfer?.altSpeedActive ?? settings.altSpeedMode === 'on'
   const limits = active ? [settings.altDownloadLimit, settings.altUploadLimit] : [settings.downloadLimit, settings.uploadLimit]
@@ -42,7 +44,11 @@ export function AltSpeedToggle({ settings, transfer }: { settings: SettingsDto; 
   return (
     <button type="button" aria-pressed={active} title={title} aria-label={title}
       className={`btn btn-sm gap-1.5 rounded-full ${active ? 'btn-warning btn-soft' : 'btn-ghost muted'}`}
-      onClick={() => void run(() => connection.call('settings.update', { altSpeedMode: active ? 'off' : 'on' }), 'settings.saveFailed')}>
+      onClick={async () => {
+        const saved = await run(() => connection.call('settings.update', { altSpeedMode: active ? 'off' : 'on' }), 'settings.saveFailed')
+        // A switch by hand takes over from the schedule, which stays saved for later.
+        if (saved && settings.altSpeedMode === 'scheduled') toast(t('transfer.scheduleOff'), 'info')
+      }}>
       <Gauge size={15} />{active ? t('transfer.altShort') : t('transfer.fullShort')}
     </button>
   )

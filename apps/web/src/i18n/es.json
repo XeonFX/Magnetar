@@ -506,6 +506,7 @@
     "watch.createdToast": "En seguimiento. Busca una vez ahora y luego según horario.",
     "watch.failed": "No se pudo comprobar: {0}",
     "watch.fromSearch": "Esperar esto",
-    "watch.fromSearchHint": "¿No es lo que buscabas? Te avisamos cuando aparezca una versión adecuada"
+    "watch.fromSearchHint": "¿No es lo que buscabas? Te avisamos cuando aparezca una versión adecuada",
+    "transfer.scheduleOff": "Cambiado a mano, así que el horario está desactivado. Reactívalo en Ajustes → Descargas."
   }
 }

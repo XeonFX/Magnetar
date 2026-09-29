@@ -506,6 +506,7 @@
     "watch.createdToast": "Wird beobachtet. Einmal sofort, dann nach Zeitplan.",
     "watch.failed": "Prüfung fehlgeschlagen: {0}",
     "watch.fromSearch": "Darauf warten",
-    "watch.fromSearchHint": "Nicht das Richtige? Benachrichtigung, sobald ein passendes Release erscheint"
+    "watch.fromSearchHint": "Nicht das Richtige? Benachrichtigung, sobald ein passendes Release erscheint",
+    "transfer.scheduleOff": "Von Hand umgeschaltet, der Zeitplan ist daher aus. In Einstellungen → Downloads wieder einschalten."
   }
 }

@@ -506,6 +506,7 @@
     "watch.createdToast": "A seguir. Procura uma vez agora e depois segundo o horário.",
     "watch.failed": "Não foi possível verificar: {0}",
     "watch.fromSearch": "Esperar isto",
-    "watch.fromSearchHint": "Não é o que queria? Seja avisado quando aparecer uma versão adequada"
+    "watch.fromSearchHint": "Não é o que queria? Seja avisado quando aparecer uma versão adequada",
+    "transfer.scheduleOff": "Mudado à mão, por isso o horário está desligado. Volte a ligá-lo em Definições → Transferências."
   }
 }

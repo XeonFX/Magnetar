@@ -506,6 +506,7 @@
     "watch.createdToast": "Watching. Looking once now, then on schedule.",
     "watch.failed": "Could not check: {0}",
     "watch.fromSearch": "Watch for this",
-    "watch.fromSearchHint": "Not what you wanted? Get told when a release that fits appears"
+    "watch.fromSearchHint": "Not what you wanted? Get told when a release that fits appears",
+    "transfer.scheduleOff": "Switched by hand, so the schedule is off. Turn it back on in Settings → Downloads."
   }
 }

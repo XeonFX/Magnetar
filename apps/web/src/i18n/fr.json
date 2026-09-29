@@ -506,6 +506,7 @@
     "watch.createdToast": "Suivi activé. Une recherche maintenant, puis selon l'horaire.",
     "watch.failed": "Vérification impossible : {0}",
     "watch.fromSearch": "Attendre ceci",
-    "watch.fromSearchHint": "Pas ce que vous cherchiez ? Soyez prévenu quand une version adaptée apparaît"
+    "watch.fromSearchHint": "Pas ce que vous cherchiez ? Soyez prévenu quand une version adaptée apparaît",
+    "transfer.scheduleOff": "Basculé à la main, l'horaire est donc désactivé. Réactivez-le dans Réglages → Téléchargements."
   }
 }

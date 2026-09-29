@@ -506,6 +506,7 @@
     "watch.createdToast": "Obserwowane. Jedno sprawdzenie teraz, potem według harmonogramu.",
     "watch.failed": "Nie udało się sprawdzić: {0}",
     "watch.fromSearch": "Czekaj na to",
-    "watch.fromSearchHint": "Nie to, czego szukasz? Dostaniesz powiadomienie, gdy pojawi się pasujące wydanie"
+    "watch.fromSearchHint": "Nie to, czego szukasz? Dostaniesz powiadomienie, gdy pojawi się pasujące wydanie",
+    "transfer.scheduleOff": "Przełączone ręcznie, więc harmonogram jest wyłączony. Włącz go ponownie w Ustawienia → Pobieranie."
   }
 }

@@ -8,7 +8,7 @@ use rusqlite::{Row, params};
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
-use super::engine::{Engine, Metadata, NetworkOptions, TorrentHandle, delete_files};
+use super::engine::{Engine, Metadata, NetworkOptions, SpeedLimits, TorrentHandle, delete_files};
 use super::transfer::{current_limits, free_space, interface_index, wanted_interface};
 use crate::db::{Db, KeyValue};
 use crate::error::{ApiError, ApiResult};
@@ -374,6 +374,9 @@ impl DownloadManager {
         // The options and interface index the current engine was started with.
         let mut running: Option<(NetworkOptions, Option<u32>)> = None;
         let mut retry_at: Option<tokio::time::Instant> = None;
+        // Set only on a change: a new rate limiter starts with a full allowance, so setting the same
+        // cap every few seconds would let through more than it.
+        let mut applied: Option<SpeedLimits> = None;
         loop {
             let settings = self.settings.get();
             let network = NetworkOptions { interface: wanted_interface(&settings) };
@@ -402,6 +405,7 @@ impl DownloadManager {
                         }
                         self.engage_all(engine);
                         running = Some((network.clone(), index));
+                        applied = Some(limits);
                         retry_at = None;
                         self.set_transfer(|t| {
                             t.engine = EngineState::Running;
@@ -418,8 +422,11 @@ impl DownloadManager {
                     }
                 }
             }
-            if let Some(engine) = self.engine() {
+            if let Some(engine) = self.engine()
+                && applied != Some(limits)
+            {
                 engine.set_limits(limits);
+                applied = Some(limits);
             }
             let free = free_space(Path::new(&settings.download_folder));
             self.set_transfer(|t| {
@@ -764,10 +771,12 @@ impl DownloadManager {
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let on_disk = metadata.output_folder(&save_path).join(path);
         let complete = std::fs::metadata(&on_disk).is_ok_and(|m| m.len() == size);
-        let source = match handle.or_else(|| self.engine().and_then(|e| e.handle(&hash))) {
-            Some(handle) if !complete => FileSource::Engine(handle, index),
+        // Unfinished, only a running torrent fetches what the player reaches; a paused one would
+        // leave it waiting forever.
+        let source = match handle {
             _ if complete => FileSource::Disk(on_disk),
-            _ => return Err(ApiError::bad("Resume the download to play what it has so far.")),
+            Some(handle) => FileSource::Engine(handle, index),
+            None => return Err(ApiError::bad("Resume the download to play what it has so far.")),
         };
         Ok(DownloadFile { name, size, source })
     }

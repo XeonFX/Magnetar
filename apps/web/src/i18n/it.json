@@ -506,6 +506,7 @@
     "watch.createdToast": "In attesa. Cerca subito una volta, poi secondo orario.",
     "watch.failed": "Controllo non riuscito: {0}",
     "watch.fromSearch": "Attendi questo",
-    "watch.fromSearchHint": "Non è ciò che volevi? Ti avvisiamo quando compare una release adatta"
+    "watch.fromSearchHint": "Non è ciò che volevi? Ti avvisiamo quando compare una release adatta",
+    "transfer.scheduleOff": "Cambiato a mano, quindi l'orario è disattivato. Riattivalo in Impostazioni → Download."
   }
 }
