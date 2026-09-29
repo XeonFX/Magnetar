@@ -3,20 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "MD_NO_TRAY=1 bun --preload ./dev-preload.ts --watch src/main.ts",
-    "build": "bun run build.ts",
+    "dev": "cargo run -p mediadownloader",
+    "build": "bun run package.ts",
     "typecheck": "tsc -p ."
-  },
-  "dependencies": {
-    "@md/protocol": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.30.1",
-    "cheerio": "^1.2.0",
-    "entities": "^8.1.0",
-    "nodemailer": "^10.0.11",
-    "webtorrent": "^3.0.21",
-    "zod": "^4.6.5"
-  },
-  "devDependencies": {
-    "@types/nodemailer": "^8.0.2"
   }
 }

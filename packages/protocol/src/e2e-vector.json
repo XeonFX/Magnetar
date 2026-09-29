@@ -1,0 +1,21 @@
+{
+  "note": "Fixed inputs for the browser↔device handshake and first frames; the TypeScript and Rust implementations must reproduce every byte.",
+  "browserKey": "Ic6gLvv45CpTximKdYIfjHLyRJ0-kihdz53oNrjlon8",
+  "kid": "kid-vector",
+  "browserPrivate": "Wf8DZuhQFp6YAAGKHgBSP4dnm8VGhC1mWHkM-Fdom-s",
+  "browserEpk": "BGuh8oaKacjhApUHCsVfdI9ucJ3W6N_H31SI_ANgtGR3EJO_SUZMQWF2OK8lJyQMwzPuKRgHuq50G-zm4VvNmvs",
+  "browserNonce": "-4urXmcULrGNaL-RrxODPA",
+  "devicePrivate": "OTkW4_tlZPVS11X7CkgdINUVQK7tVaPql5NEXVy3Gc0",
+  "deviceEpk": "BC9iF2NAAwXQ3fUqOSqCji3HSrfXOhyLLytwy54mmrXn2_NshagJ0aR96vphLmh48Ko29ISs6SNKqV9KWgVOGK4",
+  "deviceNonce": "gIV-0lXa0GdPgBtFKe6Hew",
+  "transcriptHash": "QAgq5d6l1KJIAgFM7IKSqTVwHkUP2itl-EZLJWbpRuc",
+  "confirm": "r_5Y0EeNIlcuh8LGl53gWb2yr8X3UAX-h26Vi_ey3KA",
+  "browserMessage": {
+    "id": 1,
+    "method": "app.info",
+    "params": {}
+  },
+  "browserFrame": "AQAAAAAAAAAA47xZmUr2vjQstnROo95A_Tro48M64EfF5mG7NITOmv9k8usIz0EKeJL9p3h0VXkTQbsYu0T4nTs",
+  "deviceMessageJson": "{\"id\":1,\"result\":{\"version\":\"2.0.0\"}}",
+  "deviceFrame": "AQAAAAAAAAAA3S09uF2TcLdyjezsC1R1qtqfqFWqgPdTDYAZP1SY4nzNI8Miki_gLpJxEfmZ4gkD_l9F9vo"
+}

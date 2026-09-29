@@ -83,14 +83,15 @@ function importPeer(raw: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
   return subtle.importKey('raw', raw, { name: 'ECDH', namedCurve: 'P-256' }, false, [])
 }
 
-interface Derived {
+export interface Derived {
   send: CryptoKey
   receive: CryptoKey
   confirm: CryptoKey
   transcriptHash: Uint8Array<ArrayBuffer>
 }
 
-async function derive(
+/** Exported for the cross-implementation test vector (e2e-vector.json); the handshakes below use it. */
+export async function deriveKeys(
   role: 'browser' | 'device', browserKey: CryptoKey, ownPrivate: CryptoKey, peerPublic: CryptoKey,
   kid: string, browserEpk: Uint8Array, browserNonce: Uint8Array, deviceEpk: Uint8Array, deviceNonce: Uint8Array,
 ): Promise<Derived> {
@@ -204,7 +205,7 @@ export async function startBrowserHandshake(kid: string, browserKey: CryptoKey):
       const deviceEpk = fromBase64Url(welcome.epk)
       const deviceNonce = fromBase64Url(welcome.n)
       if (deviceNonce.length !== NONCE_BYTES) throw new Error('Invalid device nonce')
-      const keys = await derive('browser', browserKey, own.pair.privateKey, await importPeer(deviceEpk),
+      const keys = await deriveKeys('browser', browserKey, own.pair.privateKey, await importPeer(deviceEpk),
         kid, own.publicRaw, nonce, deviceEpk, deviceNonce)
       const expected = await hmac(keys.confirm, concat(encoder.encode('device'), keys.transcriptHash))
       if (!equalBytes(expected, fromBase64Url(welcome.confirm))) {
@@ -225,7 +226,7 @@ export async function acceptBrowserHandshake(
   if (browserNonce.length !== NONCE_BYTES) throw new Error('Invalid browser nonce')
   const own = await newEphemeral()
   const nonce = randomBytes(NONCE_BYTES)
-  const keys = await derive('device', browserKey, own.pair.privateKey, await importPeer(browserEpk),
+  const keys = await deriveKeys('device', browserKey, own.pair.privateKey, await importPeer(browserEpk),
     hello.kid, browserEpk, browserNonce, own.publicRaw, nonce)
   const confirm = await hmac(keys.confirm, concat(encoder.encode('device'), keys.transcriptHash))
   return {

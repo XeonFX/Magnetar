@@ -2,13 +2,15 @@
   "name": "mediadownloader",
   "private": true,
   "version": "2.0.0",
-  "description": "MediaDownloader — torrent search and download manager: a single-binary Bun client, a React dashboard, and a Cloudflare Worker for end-to-end encrypted remote access",
+  "description": "MediaDownloader — torrent search and download manager: a single-executable Rust client, a React dashboard, and a Cloudflare Worker for end-to-end encrypted remote access",
   "license": "MIT",
   "type": "module",
   "packageManager": "bun@1.4.2",
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
-    "dev": "bun run scripts/dev.ts",
     "dev:client": "bun run --cwd apps/client dev",
     "dev:web": "bun run --cwd apps/web dev",
     "dev:worker": "bun run --cwd apps/worker dev",
@@ -16,8 +18,8 @@
     "build:web": "bun run --cwd apps/web build",
     "build:client": "bun run --cwd apps/client build",
     "typecheck": "bun run --filter '*' typecheck",
-    "lint": "oxlint .",
-    "test": "bun test",
+    "lint": "oxlint . && cargo clippy --all-targets --locked -- -D warnings && cargo fmt --check",
+    "test": "bun test && cargo test --locked",
     "check": "bun run lint && bun run typecheck && bun run test"
   },
   "devDependencies": {

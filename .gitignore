@@ -2,8 +2,8 @@
 .DS_Store
 .dev.vars
 .wrangler/
-apps/client/src/generated/
 apps/web/dist/
 coverage/
 dist/
 node_modules/
+target/
