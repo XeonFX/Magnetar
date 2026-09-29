@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # aws-lc (rustls' crypto) ships assembled objects for Windows; no NASM install needed.
+  AWS_LC_SYS_PREBUILT_NASM: '1'
+
 jobs:
   check:
     name: Lint, types and tests (${{ matrix.os }})
@@ -21,10 +25,14 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
       - run: bun install --frozen-lockfile
       - run: bun run lint
       - run: bun run typecheck
-      - run: bun test
+      - run: bun run test
       - name: Build the executable for this runner
         run: bun run --cwd apps/client build --version 0.0.0-ci
       - name: Smoke-test the executable
