@@ -14,6 +14,7 @@ use crate::app::App;
 use crate::config::VERSION;
 use crate::protocol::DownloadStatus;
 use crate::protocol::bytes::format_rate;
+use crate::system::handlers::OpenTarget;
 use crate::system::open_in_browser;
 
 const REFRESH: Duration = Duration::from_secs(2);
@@ -179,6 +180,14 @@ pub fn run(app: Arc<App>, dashboard_url: String, runtime: tokio::runtime::Handle
                 Err(error) => {
                     tracing::error!("Could not start the tray icon; opening the dashboard instead: {error:#}");
                     open_in_browser(&dashboard_url);
+                }
+            }
+        }
+        // macOS hands over magnet links and .torrent files as URLs, at launch and while running.
+        if let Event::Opened { urls } = &event {
+            for url in urls {
+                if let Some(target) = OpenTarget::parse(url.as_str()) {
+                    open_in_browser(&target.dashboard_link(&dashboard_url));
                 }
             }
         }

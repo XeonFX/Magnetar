@@ -1,4 +1,4 @@
-import type { AgentStatusDto, LoginStartupStatus, SettingsDto, SettingsPatch } from '@md/protocol'
+import type { AgentStatusDto, HandlerStatus, LoginStartupStatus, SettingsDto, SettingsPatch } from '@md/protocol'
 import {
   Bell, Bot, Cloud, Copy, Download, Eye, EyeOff, Info, Mail, RefreshCw, Send, Server, Smartphone, SlidersHorizontal, Sparkles, Upload,
 } from 'lucide-react'
@@ -113,10 +113,40 @@ function GeneralSection({ settings }: { settings: SettingsDto }) {
         <Switch label={t('settings.startWithMac')} checked={startup === 'enabled' || startup === 'requiresApproval'}
           disabled={changing || startup === 'unavailable' || startup === null} onChange={v => void changeStartup(v)} />
       </SettingRow>
+      {connection.kind === 'local' && <HandlerRow />}
       <SettingRow title={t('settings.errorReports')} description={t('settings.errorReportsHint')}>
         <Switch label={t('settings.errorReports')} checked={settings.errorReportsEnabled} onChange={errorReportsEnabled => save({ errorReportsEnabled })} />
       </SettingRow>
     </SettingGroup>
+  )
+}
+
+/** Whether clicking a magnet link or opening a .torrent file comes here, and making it so. */
+function HandlerRow() {
+  const t = useT()
+  const run = useRun()
+  const { connection } = useDevice()
+  const [status, setStatus] = useState<HandlerStatus | null>(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    void connection.call('handlers.status').then(r => setStatus(r.status)).catch(() => setStatus('unavailable'))
+  }, [connection])
+  const register = async () => {
+    setBusy(true)
+    const result = await run(() => connection.call('handlers.register'), 'settings.handlersFailed')
+    if (result) setStatus(result.status)
+    setBusy(false)
+  }
+  return (
+    <SettingRow layout="wide" title={t('settings.handlers')}
+      description={status === 'unavailable' ? t('settings.handlersUnavailable') : status === 'default' ? t('settings.handlersDefault') : t('settings.handlersHint')}>
+      {status === 'notDefault' && (
+        <button type="button" className="btn btn-sm" disabled={busy} onClick={() => void register()}>
+          {busy && <span className="loading loading-spinner loading-xs" />}{t('settings.handlersMake')}
+        </button>
+      )}
+      {status === 'default' && <span className="badge badge-soft badge-success">{t('settings.handlersOn')}</span>}
+    </SettingRow>
   )
 }
 

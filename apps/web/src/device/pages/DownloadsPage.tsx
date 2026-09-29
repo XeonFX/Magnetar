@@ -1,14 +1,14 @@
 import type { DownloadDto } from '@md/protocol'
 import { formatRate } from '@md/protocol/bytes'
 import { ArrowDown, ArrowUp, CloudDownload, Plus, Search, Tv } from 'lucide-react'
-import { useCallback, useMemo, useState } from 'react'
-import { Link } from 'react-router'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router'
 import { useT } from '../../lib/i18n.tsx'
 import { PageHeader, Segmented } from '../../ui/controls.tsx'
 import { Empty } from '../../ui/Empty.tsx'
 import { PAGE_SIZE, ShowMore } from '../../ui/ShowMore.tsx'
 import { useDevice, useDownloads } from '../DeviceContext.tsx'
-import { AddDownloadDialog, DropOverlay, useAddShortcuts, type PendingAdd } from '../components/addDownload.tsx'
+import { AddDownloadDialog, DropOverlay, magnetsIn, useAddShortcuts, type PendingAdd } from '../components/addDownload.tsx'
 import { DownloadDetailsDialog } from '../components/downloadDetails.tsx'
 import { DownloadRow, isActive } from '../components/downloads.tsx'
 import { LegacyImportBanner } from '../components/legacyImport.tsx'
@@ -27,12 +27,21 @@ const FILTERS = Object.keys(MATCHES) as Filter[]
 
 export function DownloadsPage() {
   const t = useT()
-  const { basePath, settings, transfer } = useDevice()
+  const { basePath, settings, transfer, connection } = useDevice()
   const downloads = useDownloads()
   const [filter, setFilter] = useState<Filter>('all')
   const [adding, setAdding] = useState<PendingAdd | null>(null)
   const [details, setDetails] = useState<number | null>(null)
   const dragging = useAddShortcuts(setAdding)
+  // Opened for a magnet link or .torrent file (the system's handler, or a link to ?add=).
+  const [params, setParams] = useSearchParams()
+  useEffect(() => {
+    const magnet = params.get('add')
+    const path = connection.kind === 'local' ? params.get('torrent') : null
+    if (!magnet && !path) return
+    setAdding({ magnets: magnet ? magnetsIn(magnet) : [], files: [], paths: path ? [path] : [] })
+    setParams({}, { replace: true })
+  }, [params, setParams, connection])
 
   // One pass for every count and total, rather than one filter per chip on each update.
   const { counts, down, up } = useMemo(() => {

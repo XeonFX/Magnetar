@@ -9,6 +9,7 @@ use mediadownloader::config::{DEFAULT_PORT, IS_DEV, VERSION};
 use mediadownloader::http::server;
 use mediadownloader::instance::{self, Acquired};
 use mediadownloader::paths::Paths;
+use mediadownloader::system::handlers::OpenTarget;
 use mediadownloader::system::{open_in_browser, process_alive};
 
 /// After a self-update the new executable waits for the old one to exit.
@@ -44,6 +45,8 @@ fn main() -> anyhow::Result<()> {
     mediadownloader::log::init(Some(paths.logs.clone()), *IS_DEV);
     tracing::info!("MediaDownloader {VERSION} starting (data: {})", paths.data_dir.display());
 
+    // Opened for a magnet link or a .torrent file (Windows and Linux pass it as an argument).
+    let opened = OpenTarget::from_args(std::env::args());
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     let handle = runtime.handle().clone();
     let (app, server, lock) = runtime.block_on(async {
@@ -51,7 +54,7 @@ fn main() -> anyhow::Result<()> {
             Acquired::Owner(lock) => lock,
             Acquired::Running(dashboard_url) => {
                 // Already running: show that instance's dashboard instead of starting a second engine.
-                open_in_browser(&dashboard_url);
+                open_in_browser(&opened.as_ref().map_or_else(|| dashboard_url.clone(), |o| o.dashboard_link(&dashboard_url)));
                 tracing::info!("Another instance is running; opened its dashboard");
                 std::process::exit(0);
             }
@@ -66,6 +69,9 @@ fn main() -> anyhow::Result<()> {
     let dashboard_url = format!("http://localhost:{}", server.port);
     app.agent.publish(&dashboard_url);
     lock.publish(&dashboard_url);
+    if let Some(opened) = &opened {
+        open_in_browser(&opened.dashboard_link(&dashboard_url));
+    }
 
     // Stops the server and the app, and releases the lock; exiting is up to the caller.
     let shutdown = {

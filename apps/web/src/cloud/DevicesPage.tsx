@@ -1,5 +1,5 @@
 import type { CloudDeviceDto } from '@md/protocol/cloud'
-import { ChevronRight, Laptop, MonitorSmartphone, Trash2 } from 'lucide-react'
+import { ChevronRight, Laptop, Magnet, MonitorSmartphone, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { cloud } from '../lib/cloudApi.ts'
@@ -8,6 +8,7 @@ import { forgetDeviceKey, listDeviceKeys } from '../lib/keyStore.ts'
 import { Empty } from '../ui/Empty.tsx'
 import { ConfirmDialog } from '../ui/Modal.tsx'
 import { useToast } from '../ui/toast.tsx'
+import { canHandleMagnets, handleMagnetsHere } from './AddRedirect.tsx'
 import { CloudFrame } from './CloudFrame.tsx'
 import { DownloadApp } from './DownloadApp.tsx'
 
@@ -83,6 +84,13 @@ export function DevicesPage() {
             })}
           </ul>
           <p className="muted mt-6 text-sm">{t('devices.addHint')}</p>
+          {canHandleMagnets() && linked.size > 0 && (
+            <div className="surface mt-6 flex flex-wrap items-center gap-3 p-4">
+              <Magnet size={18} className="text-primary" />
+              <p className="min-w-0 flex-1 text-sm">{t('devices.magnetsHint')}</p>
+              <button type="button" className="btn btn-sm" onClick={() => { handleMagnetsHere(); toast(t('devices.magnetsAsked'), 'info') }}>{t('devices.magnetsButton')}</button>
+            </div>
+          )}
         </>
       )}
       <ConfirmDialog open={removing !== null} title={t('devices.removeTitle')} message={t('devices.removeConfirm', removing?.name ?? '')}

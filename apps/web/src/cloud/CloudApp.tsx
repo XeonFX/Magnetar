@@ -5,6 +5,7 @@ import type { AppConfig } from '../lib/cloudApi.ts'
 import { cloud } from '../lib/cloudApi.ts'
 import { browserLanguage, I18nProvider } from '../lib/i18n.tsx'
 import { useToast } from '../ui/toast.tsx'
+import { AddRedirect } from './AddRedirect.tsx'
 import { DevicesPage } from './DevicesPage.tsx'
 import { LinkPage } from './LinkPage.tsx'
 import { LoginPage } from './LoginPage.tsx'
@@ -60,6 +61,7 @@ export default function CloudApp({ config }: { config: AppConfig }) {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/pair/:pairingId" element={<PairPage />} />
             <Route path="/link" element={<LinkPage />} />
+            <Route path="/add" element={<RequireAccount><AddRedirect /></RequireAccount>} />
             <Route path="/d/:deviceId/*" element={<RequireAccount><RemoteDevice /></RequireAccount>} />
             <Route path="*" element={<RequireAccount><DevicesPage /></RequireAccount>} />
           </Routes>

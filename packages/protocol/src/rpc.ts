@@ -3,7 +3,7 @@ import {
   SeriesTaskInput, SeriesTaskPatch, SettingsPatch, StartDownloadInput,
   type AgentStatusDto, type AppInfoDto, type ClaudeConnectResultDto, type DownloadDto, type DownloadFileDto, type FolderListing, type LegacyImportResultDto,
   type LegacyImportStatusDto, type LoginStartupStatus, type RemoteStatusDto, type SearchResultDto,
-  type NetworkInterfaceDto, type SeriesTaskDto, type SettingsDto, type SourceDto, type SourceOutcomeDto, type TorrentDetailsDto,
+  type HandlerStatus, type NetworkInterfaceDto, type SeriesTaskDto, type SettingsDto, type SourceDto, type SourceOutcomeDto, type TorrentDetailsDto,
   type TransferStatusDto, type UpdateStatusDto,
 } from './model.ts'
 
@@ -46,6 +46,12 @@ export const RPC_PARAMS = {
   'push.status': z.strictObject({ endpoint: z.string() }),
   'push.subscribe': z.strictObject({ endpoint: z.url({ protocol: /^https$/ }).max(1000), p256dh: z.string().max(200), auth: z.string().max(100) }),
   'push.unsubscribe': z.strictObject({ endpoint: z.string() }),
+
+  /** Adds a .torrent file from this computer's disk. Local dashboard only. */
+  'downloads.addTorrentPath': z.strictObject({ path: z.string().min(1) }),
+  /** Whether MediaDownloader opens magnet links and .torrent files, and making it do so. */
+  'handlers.status': none,
+  'handlers.register': none,
 
   'transfer.status': none,
   'network.interfaces': none,
@@ -118,6 +124,9 @@ export interface RpcResults {
   'push.status': { subscribed: boolean }
   'push.subscribe': null
   'push.unsubscribe': null
+  'downloads.addTorrentPath': DownloadDto
+  'handlers.status': { status: HandlerStatus }
+  'handlers.register': { status: HandlerStatus }
   'transfer.status': TransferStatusDto
   'network.interfaces': { supported: boolean; interfaces: NetworkInterfaceDto[] }
   'series.list': SeriesTaskDto[]
@@ -179,4 +188,5 @@ export type ServerMessage =
 /** Methods that act on the device's own screen or programs, not offered through the relay. */
 export const LOCAL_ONLY_METHODS: ReadonlySet<RpcMethod> = new Set([
   'fs.pickNative', 'agent.connectClaude', 'downloads.reveal', 'downloads.openFile', 'downloads.streamUrl',
+  'downloads.addTorrentPath', 'handlers.register',
 ])

@@ -1,5 +1,6 @@
 pub mod claude;
 pub mod folders;
+pub mod handlers;
 pub mod login_startup;
 
 use std::process::{Command, Stdio};

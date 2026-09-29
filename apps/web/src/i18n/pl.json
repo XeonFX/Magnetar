@@ -444,6 +444,18 @@
     "get.releaseNotes": "Nowości i wszystkie pliki",
     "get.first.macos": "Rozpakuj i przenieś MediaDownloader do Aplikacji. Działa na pasku menu, a panel otwiera się w przeglądarce.",
     "get.first.windows": "Uruchom — działa w obszarze powiadomień i otwiera panel w przeglądarce. Jeśli Windows ostrzeże, wybierz Więcej informacji → Uruchom mimo to.",
-    "get.first.linux": "Nadaj prawa wykonywania (chmod +x) i uruchom; panel otworzy się w przeglądarce."
+    "get.first.linux": "Nadaj prawa wykonywania (chmod +x) i uruchom; panel otworzy się w przeglądarce.",
+    "settings.handlers": "Linki magnet i pliki .torrent",
+    "settings.handlersHint": "Otwieraj je w MediaDownloaderze: kliknięcie pokaże tu okno dodawania.",
+    "settings.handlersDefault": "Kliknięcie linku magnet lub otwarcie pliku .torrent przenosi go tutaj.",
+    "settings.handlersUnavailable": "Dostępne w zainstalowanej aplikacji.",
+    "settings.handlersMake": "Używaj MediaDownloadera",
+    "settings.handlersOn": "W użyciu",
+    "settings.handlersFailed": "Nie udało się zmienić aplikacji dla linków magnet: {0}",
+    "devices.magnetsHint": "Wysyłaj linki magnet klikane w tej przeglądarce do jednego z Twoich komputerów.",
+    "devices.magnetsButton": "Otwieraj linki magnet tutaj",
+    "devices.magnetsAsked": "Przeglądarka poprosi o potwierdzenie; potem linki magnet będą trafiać tutaj.",
+    "addRedirect.choose": "Na którym komputerze to pobrać?",
+    "addRedirect.none": "Najpierw połącz tę przeglądarkę z komputerem"
   }
 }

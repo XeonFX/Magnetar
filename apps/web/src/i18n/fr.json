@@ -444,6 +444,18 @@
     "get.releaseNotes": "Nouveautés et tous les fichiers",
     "get.first.macos": "Décompressez-le et placez MediaDownloader dans Applications. Il vit dans la barre des menus ; votre tableau de bord s'ouvre dans le navigateur.",
     "get.first.windows": "Lancez-le : il vit dans la zone de notification et ouvre votre tableau de bord dans le navigateur. Si Windows vous avertit, choisissez Informations complémentaires → Exécuter quand même.",
-    "get.first.linux": "Rendez-le exécutable (chmod +x) et lancez-le ; votre tableau de bord s'ouvre dans le navigateur."
+    "get.first.linux": "Rendez-le exécutable (chmod +x) et lancez-le ; votre tableau de bord s'ouvre dans le navigateur.",
+    "settings.handlers": "Liens magnet et fichiers .torrent",
+    "settings.handlersHint": "Les ouvrir avec MediaDownloader : un clic affiche ici la fenêtre d'ajout.",
+    "settings.handlersDefault": "Cliquer sur un lien magnet ou ouvrir un fichier .torrent l'amène ici.",
+    "settings.handlersUnavailable": "Disponible avec l'app installée.",
+    "settings.handlersMake": "Utiliser MediaDownloader",
+    "settings.handlersOn": "Actif",
+    "settings.handlersFailed": "Impossible de changer l'app des liens magnet : {0}",
+    "devices.magnetsHint": "Envoyer à l'un de vos ordinateurs les liens magnet cliqués dans ce navigateur.",
+    "devices.magnetsButton": "Ouvrir les liens magnet ici",
+    "devices.magnetsAsked": "Votre navigateur demande confirmation ; ensuite, les liens magnet arriveront ici.",
+    "addRedirect.choose": "Le télécharger sur quel ordinateur ?",
+    "addRedirect.none": "Associez d'abord ce navigateur à un ordinateur"
   }
 }

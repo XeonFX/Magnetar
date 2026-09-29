@@ -26,6 +26,8 @@ function toBase64(file: File): Promise<string> {
 export interface PendingAdd {
   magnets: string[]
   files: File[]
+  /** .torrent files on the computer running the app (it was opened with one). */
+  paths?: string[]
 }
 
 /**
@@ -38,6 +40,7 @@ export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; i
   const { connection, settings } = useDevice()
   const [text, setText] = useState('')
   const [files, setFiles] = useState<File[]>([])
+  const [paths, setPaths] = useState<string[]>([])
   const [folder, setFolder] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -47,13 +50,14 @@ export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; i
     if (!open) return
     setText(initial?.magnets.join('\n') ?? '')
     setFiles(initial?.files ?? [])
+    setPaths(initial?.paths ?? [])
     setFolder(null)
     setError(null)
   }, [open, initial])
 
   const magnets = magnetsIn(text)
   const tooBig = files.filter(f => f.size > MAX_TORRENT_FILE)
-  const count = magnets.length + files.length
+  const count = magnets.length + files.length + paths.length
   const addFiles = (list: FileList | File[]) => setFiles(current => [...current, ...[...list].filter(isTorrentFile).filter(f => !current.some(c => c.name === f.name && c.size === f.size))])
 
   const submit = async () => {
@@ -70,6 +74,14 @@ export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; i
         started++
       } catch (e) {
         failures.push(e instanceof Error ? e.message : String(e))
+      }
+    }
+    for (const path of paths) {
+      try {
+        await connection.call('downloads.addTorrentPath', { path })
+        started++
+      } catch (e) {
+        failures.push(`${path.split(/[\\/]/).pop()}: ${e instanceof Error ? e.message : String(e)}`)
       }
     }
     for (const file of files) {
@@ -108,6 +120,17 @@ export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; i
         <span className="font-medium">{t('add.chooseFiles')}</span>
         <span className="muted text-xs">{t('add.dropHint')}</span>
       </button>
+      {paths.length > 0 && (
+        <ul className="mt-3 flex flex-col gap-1">
+          {paths.map(path => (
+            <li key={path} className="flex items-center gap-2 rounded-field bg-base-200 px-3 py-1.5 text-sm">
+              <Link2 size={14} className="muted shrink-0" />
+              <span className="break-release min-w-0 flex-1" title={path}>{path.split(/[\\/]/).pop()}</span>
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => setPaths(list => list.filter(x => x !== path))}>{t('common.remove')}</button>
+            </li>
+          ))}
+        </ul>
+      )}
       {files.length > 0 && (
         <ul className="mt-3 flex flex-col gap-1">
           {files.map(f => (

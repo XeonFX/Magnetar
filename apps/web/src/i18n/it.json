@@ -444,6 +444,18 @@
     "get.releaseNotes": "Novità e tutti i file",
     "get.first.macos": "Decomprimi e sposta MediaDownloader in Applicazioni. Vive nella barra dei menu; la dashboard si apre nel browser.",
     "get.first.windows": "Avvialo: vive nell'area di notifica e apre la dashboard nel browser. Se Windows avvisa, scegli Ulteriori informazioni → Esegui comunque.",
-    "get.first.linux": "Rendilo eseguibile (chmod +x) e avvialo; la dashboard si apre nel browser."
+    "get.first.linux": "Rendilo eseguibile (chmod +x) e avvialo; la dashboard si apre nel browser.",
+    "settings.handlers": "Link magnet e file .torrent",
+    "settings.handlersHint": "Aprili con MediaDownloader: cliccandone uno si apre qui la finestra di aggiunta.",
+    "settings.handlersDefault": "Cliccare un link magnet o aprire un file .torrent lo porta qui.",
+    "settings.handlersUnavailable": "Disponibile con l'app installata.",
+    "settings.handlersMake": "Usa MediaDownloader",
+    "settings.handlersOn": "In uso",
+    "settings.handlersFailed": "Impossibile cambiare l'app per i link magnet: {0}",
+    "devices.magnetsHint": "Invia a uno dei tuoi computer i link magnet cliccati in questo browser.",
+    "devices.magnetsButton": "Apri i link magnet qui",
+    "devices.magnetsAsked": "Il browser chiede conferma; dopo, i link magnet arriveranno qui.",
+    "addRedirect.choose": "Su quale computer scaricarlo?",
+    "addRedirect.none": "Prima collega questo browser a un computer"
   }
 }

@@ -444,6 +444,18 @@
     "get.releaseNotes": "Что нового и все файлы",
     "get.first.macos": "Распакуйте и перенесите MediaDownloader в «Программы». Он живёт в строке меню, панель открывается в браузере.",
     "get.first.windows": "Запустите — оно живёт в области уведомлений и открывает панель в браузере. Если Windows предупредит, выберите «Подробнее» → «Выполнить в любом случае».",
-    "get.first.linux": "Сделайте файл исполняемым (chmod +x) и запустите; панель откроется в браузере."
+    "get.first.linux": "Сделайте файл исполняемым (chmod +x) и запустите; панель откроется в браузере.",
+    "settings.handlers": "Magnet-ссылки и файлы .torrent",
+    "settings.handlersHint": "Открывать их в MediaDownloader: по щелчку здесь откроется окно добавления.",
+    "settings.handlersDefault": "Щелчок по magnet-ссылке или открытие файла .torrent приводит сюда.",
+    "settings.handlersUnavailable": "Доступно в установленном приложении.",
+    "settings.handlersMake": "Использовать MediaDownloader",
+    "settings.handlersOn": "Используется",
+    "settings.handlersFailed": "Не удалось сменить приложение для magnet-ссылок: {0}",
+    "devices.magnetsHint": "Отправлять magnet-ссылки, нажатые в этом браузере, на один из ваших компьютеров.",
+    "devices.magnetsButton": "Открывать magnet-ссылки здесь",
+    "devices.magnetsAsked": "Браузер попросит подтвердить; после этого magnet-ссылки будут приходить сюда.",
+    "addRedirect.choose": "На каком компьютере скачать?",
+    "addRedirect.none": "Сначала свяжите этот браузер с компьютером"
   }
 }

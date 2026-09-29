@@ -284,6 +284,9 @@ export interface FolderListing {
   error: string | null
 }
 
+/** `unavailable` outside the installed app. */
+export type HandlerStatus = 'unavailable' | 'default' | 'notDefault'
+
 export type LoginStartupStatus = 'unavailable' | 'disabled' | 'enabled' | 'requiresApproval'
 
 export interface UpdateStatusDto {

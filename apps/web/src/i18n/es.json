@@ -444,6 +444,18 @@
     "get.releaseNotes": "Novedades y todos los archivos",
     "get.first.macos": "Descomprímelo y mueve MediaDownloader a Aplicaciones. Vive en la barra de menús; tu panel se abre en el navegador.",
     "get.first.windows": "Ejecútalo: vive en el área de notificación y abre tu panel en el navegador. Si Windows avisa, elige Más información → Ejecutar de todas formas.",
-    "get.first.linux": "Hazlo ejecutable (chmod +x) y ejecútalo; tu panel se abre en el navegador."
+    "get.first.linux": "Hazlo ejecutable (chmod +x) y ejecútalo; tu panel se abre en el navegador.",
+    "settings.handlers": "Enlaces magnet y archivos .torrent",
+    "settings.handlersHint": "Ábrelos con MediaDownloader: al pulsar uno se abre aquí el diálogo para añadir.",
+    "settings.handlersDefault": "Pulsar un enlace magnet o abrir un archivo .torrent lo trae aquí.",
+    "settings.handlersUnavailable": "Disponible al usar la app instalada.",
+    "settings.handlersMake": "Usar MediaDownloader",
+    "settings.handlersOn": "En uso",
+    "settings.handlersFailed": "No se pudo cambiar la app para enlaces magnet: {0}",
+    "devices.magnetsHint": "Envía a uno de tus ordenadores los enlaces magnet que pulses en este navegador.",
+    "devices.magnetsButton": "Abrir enlaces magnet aquí",
+    "devices.magnetsAsked": "Tu navegador te pedirá confirmación; después, los enlaces magnet llegarán aquí.",
+    "addRedirect.choose": "¿En qué ordenador descargarlo?",
+    "addRedirect.none": "Primero vincula este navegador a un ordenador"
   }
 }

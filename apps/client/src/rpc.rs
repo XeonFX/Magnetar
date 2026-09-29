@@ -24,8 +24,15 @@ use crate::search::cache::to_result_dto;
 use crate::system;
 
 /// Methods that act on the device's own screen or programs, not offered through the relay.
-const LOCAL_ONLY_METHODS: [&str; 5] =
-    ["fs.pickNative", "agent.connectClaude", "downloads.reveal", "downloads.openFile", "downloads.streamUrl"];
+const LOCAL_ONLY_METHODS: [&str; 7] = [
+    "fs.pickNative",
+    "agent.connectClaude",
+    "downloads.reveal",
+    "downloads.openFile",
+    "downloads.streamUrl",
+    "downloads.addTorrentPath",
+    "handlers.register",
+];
 /// Streams a relayed browser may hold open at once, and the most one read returns: base64 in
 /// JSON in a sealed frame must stay under the relay's 1 MiB.
 const MAX_STREAMS: usize = 4;
@@ -503,6 +510,23 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
                 system::open_in_browser(&release_page);
             }
             ok(app.updates.status())
+        }
+
+        "downloads.addTorrentPath" => {
+            let path = parse::<PathParams>(params)?
+                .path
+                .filter(|p| !p.is_empty())
+                .ok_or_else(|| ApiError::bad("path: must not be empty"))?;
+            let bytes = system::handlers::read_torrent_file(std::path::Path::new(&path))?;
+            ok(app.downloads.add_torrent_file(bytes, "Torrent file", None)?)
+        }
+        "handlers.status" => {
+            parse::<NoParams>(params)?;
+            ok(json!({ "status": system::handlers::status() }))
+        }
+        "handlers.register" => {
+            parse::<NoParams>(params)?;
+            ok(json!({ "status": system::handlers::register()? }))
         }
 
         "startup.status" => {

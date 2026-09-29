@@ -444,6 +444,18 @@
     "get.releaseNotes": "Neuigkeiten und alle Dateien",
     "get.first.macos": "Entpacken und MediaDownloader in „Programme“ ziehen. Die App sitzt in der Menüleiste; das Dashboard öffnet sich im Browser.",
     "get.first.windows": "Starte sie – sie sitzt im Infobereich und öffnet das Dashboard im Browser. Warnt Windows, wähle „Weitere Informationen“ → „Trotzdem ausführen“.",
-    "get.first.linux": "Mach sie ausführbar (chmod +x) und starte sie; das Dashboard öffnet sich im Browser."
+    "get.first.linux": "Mach sie ausführbar (chmod +x) und starte sie; das Dashboard öffnet sich im Browser.",
+    "settings.handlers": "Magnet-Links und .torrent-Dateien",
+    "settings.handlersHint": "Mit MediaDownloader öffnen: Ein Klick darauf zeigt hier den Hinzufügen-Dialog.",
+    "settings.handlersDefault": "Ein Klick auf einen Magnet-Link oder das Öffnen einer .torrent-Datei führt hierher.",
+    "settings.handlersUnavailable": "Verfügbar, wenn die installierte App läuft.",
+    "settings.handlersMake": "MediaDownloader verwenden",
+    "settings.handlersOn": "Aktiv",
+    "settings.handlersFailed": "Die App für Magnet-Links konnte nicht geändert werden: {0}",
+    "devices.magnetsHint": "Magnet-Links, die du in diesem Browser anklickst, an einen deiner Computer schicken.",
+    "devices.magnetsButton": "Magnet-Links hier öffnen",
+    "devices.magnetsAsked": "Dein Browser fragt nach einer Bestätigung; danach landen Magnet-Links hier.",
+    "addRedirect.choose": "Auf welchem Computer herunterladen?",
+    "addRedirect.none": "Verknüpfe diesen Browser zuerst mit einem Computer"
   }
 }
