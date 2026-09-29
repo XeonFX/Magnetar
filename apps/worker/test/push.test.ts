@@ -64,7 +64,7 @@ describe('Web Push', () => {
     expect(request.headers.get('ttl')).toBe('60')
     expect(request.headers.get('urgency')).toBe('high')
     expect(request.headers.get('authorization')).toMatch(new RegExp(`^vapid t=[\\w-]+\\.[\\w-]+\\.[\\w-]+, k=${publicKey}$`))
-    expect([...new Uint8Array(await request.arrayBuffer())]).toEqual(new Array(200).fill(7))
+    expect([...new Uint8Array(await request.arrayBuffer())]).toEqual(Array.from({ length: 200 }, () => 7))
   })
 
   test.each([
