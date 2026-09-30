@@ -114,19 +114,19 @@ computer, and the bearer token. Whatever comes through the proxy counts as remot
 
 ## Development
 
-Requires [Bun](https://bun.com) 1.4 and a stable [Rust](https://rustup.rs) toolchain.
+Requires [Node.js](https://nodejs.org) 24 with npm 11, and a stable [Rust](https://rustup.rs) toolchain.
 
 ```bash
-bun install
-bun run dev:client        # the app on http://localhost:47820 (cargo run; no tray, dev data in the normal folder unless MAGNETAR_DATA_DIRECTORY is set)
-bun run dev:web           # Vite on http://localhost:5173, proxying to the client (MAGNETAR_WEB_TARGET=cloud proxies to the Worker)
-bun run dev:worker        # the website on http://localhost:8790 with a local D1 and a passwordless dev sign-in
-bun run check             # oxlint, clippy, rustfmt, tsc, bun test and cargo test
-bun run e2e               # Playwright drives the real app (its own data and download folders) through the dashboard
-bun run build:client      # the dashboard and a release executable in apps/client/dist (--target <rust triple> for another platform)
+npm install
+npm run dev:client        # the app on http://localhost:47820 (cargo run; no tray, dev data in the normal folder unless MAGNETAR_DATA_DIRECTORY is set)
+npm run dev:web           # Vite on http://localhost:5173, proxying to the client (MAGNETAR_WEB_TARGET=cloud proxies to the Worker)
+npm run dev:worker        # the website on http://localhost:8790 with a local D1 and a passwordless dev sign-in
+npm run check             # oxlint, clippy, rustfmt, tsc, Vitest (the Worker's tests in workerd) and cargo test
+npm run e2e               # Playwright drives the real app (its own data and download folders) through the dashboard
+npm run build:client      # the dashboard and a release executable in apps/client/dist (--target <rust triple> for another platform)
 ```
 
-The debug client serves the dashboard from `apps/web/dist`, so run `bun run build:web` once (or use `dev:web`). To try
+The debug client serves the dashboard from `apps/web/dist`, so run `npm run build:web` once (or use `dev:web`). To try
 remote access locally, run the client with `MAGNETAR_CLOUD_URL=http://localhost:8790` next to `dev:worker`.
 `MAGNETAR_LIVE_TESTS=1 cargo test --test providers live_providers` checks every provider against the real sites (also run
 weekly in CI).
@@ -144,7 +144,7 @@ weekly in CI).
 
 Bump `version` in `package.json`, merge, wait for CI on all three OSes, then tag: `git tag v2.1.0 && git push origin v2.1.0`.
 The Release workflow builds every platform, writes `SHA256SUMS.txt`, signs it with the `RELEASE_SIGNING_KEY` secret
-(created once with `bun scripts/release-key.ts`) and publishes the GitHub release. With the Apple and Windows
+(created once with `node scripts/release-key.ts`) and publishes the GitHub release. With the Apple and Windows
 certificates as secrets (see [deployment](docs/DEPLOY.md#code-signing)) the builds are also code-signed and the macOS
 app notarized.
 

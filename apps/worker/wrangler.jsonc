@@ -41,7 +41,7 @@
     // The OAuth client created for this app in Google Cloud Console.
     "GOOGLE_CLIENT_ID": ""
     // Web Push: the VAPID key is a secret, made and stored with
-    // `bunx -p @codefusion-cc/web-push codefusion-vapid | bunx wrangler secret put VAPID_PRIVATE_KEY`.
+    // `npx -p @codefusion-cc/web-push codefusion-vapid | npx wrangler secret put VAPID_PRIVATE_KEY`.
     // Without it browser notifications are off.
   },
   "env": {

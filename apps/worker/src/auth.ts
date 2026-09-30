@@ -4,7 +4,7 @@ import { devLoginEnabled, type Env } from './env.ts'
 import { clientIp, cookie, error, HttpError, json, limit, readJson, requireSameOrigin, setCookie, sha256 } from './http.ts'
 import { verifyGoogleIdToken } from './oidc.ts'
 
-const SESSION_COOKIE = '__Host-md_session'
+export const SESSION_COOKIE = '__Host-md_session'
 const NONCE_COOKIE = '__Host-md_nonce'
 const SESSION_DAYS = 30
 const NONCE_SECONDS = 10 * 60

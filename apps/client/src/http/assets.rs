@@ -27,7 +27,7 @@ pub fn serve(path: &str) -> Response<Body> {
     let Some((name, file)) = file else {
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
-            .body(Body::from("The dashboard has not been built. Run `bun run build:web`, or use the Vite dev server."))
+            .body(Body::from("The dashboard has not been built. Run `npm run build:web`, or use the Vite dev server."))
             .unwrap();
     };
     let mime = mime_guess::from_path(name).first_or_octet_stream();

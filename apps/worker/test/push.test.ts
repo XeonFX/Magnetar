@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { readVapidAuthorization, testPushService, testVapidKey } from '@codefusion-cc/web-push/testing'
 import { toBase64Url } from '@magnetar/protocol/base64'
 import type { Env } from '../src/env.ts'

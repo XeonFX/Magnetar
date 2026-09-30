@@ -1,8 +1,8 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const dir = import.meta.dir
+const dir = import.meta.dirname
 const src = join(dir, '..')
 const load = (file: string) => JSON.parse(readFileSync(join(dir, file), 'utf8')) as { name: string; strings: Record<string, string> }
 const catalogs = Object.fromEntries(readdirSync(dir).filter(f => f.endsWith('.json')).map(f => [f.slice(0, 2), load(f)]))

@@ -13,7 +13,7 @@ const scratch = mkdtempSync(join(tmpdir(), 'magnetar-e2e-'))
 
 export default defineConfig({
   testDir: './tests',
-  // Not *.spec.ts: `bun test` would pick those up as its own.
+  // Not *.test.ts, which Vitest runs.
   testMatch: /\.e2e\.ts$/,
   fullyParallel: false,
   workers: 1,
@@ -29,7 +29,7 @@ export default defineConfig({
     { name: 'phone', use: { ...devices['Pixel 7'] }, testMatch: /phone\.e2e\.ts/ },
   ],
   webServer: {
-    command: 'bun run --cwd ../web build && cargo run -q -p magnetar',
+    command: 'npm run build -w @magnetar/web && cargo run -q -p magnetar',
     url: `http://localhost:${PORT}/health`,
     timeout: 600_000,
     reuseExistingServer: false,
