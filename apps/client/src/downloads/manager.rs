@@ -166,9 +166,8 @@ impl Item {
         self.handle.is_some() || self.attaching.is_some()
     }
 
-    /// Should be in the engine: not finished, failed or paused.
     fn wants_engine(&self) -> bool {
-        !matches!(self.status, DownloadStatus::Completed | DownloadStatus::Error | DownloadStatus::Paused)
+        self.status.wants_engine()
     }
 
     fn ratio(&self) -> f64 {

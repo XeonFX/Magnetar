@@ -24,7 +24,24 @@ fn gui_domain() -> String {
     format!("gui/{}", unsafe { libc::getuid() })
 }
 
+/// Reading it runs `launchctl` on macOS, so a reading is kept this long; changing it here refreshes it.
+const CACHE_FOR: std::time::Duration = std::time::Duration::from_secs(30);
+static CACHED: std::sync::Mutex<Option<(LoginStartupStatus, std::time::Instant)>> = std::sync::Mutex::new(None);
+
+/// The current state, from a recent reading when there is one.
 pub fn status() -> LoginStartupStatus {
+    let mut cached = CACHED.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((status, at)) = *cached
+        && at.elapsed() < CACHE_FOR
+    {
+        return status;
+    }
+    let status = read_status();
+    *cached = Some((status, std::time::Instant::now()));
+    status
+}
+
+fn read_status() -> LoginStartupStatus {
     #[cfg(target_os = "macos")]
     {
         if crate::paths::mac_app_bundle().is_none() {
@@ -62,7 +79,9 @@ pub fn set(enabled: bool) -> ApiResult<LoginStartupStatus> {
     set_windows(enabled)?;
     #[cfg(not(any(target_os = "macos", windows)))]
     let _ = enabled;
-    Ok(status())
+    let status = read_status();
+    *CACHED.lock().unwrap_or_else(|e| e.into_inner()) = Some((status, std::time::Instant::now()));
+    Ok(status)
 }
 
 #[cfg(target_os = "macos")]
