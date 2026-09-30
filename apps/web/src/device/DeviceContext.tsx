@@ -9,16 +9,19 @@ import type { ConnectionState, RpcClient } from '../lib/rpcClient.ts'
 
 /** What the Search page keeps while you browse other pages, like the legacy app did. */
 export interface SearchState {
+  /** What is typed in the search box. */
   query: string
-  source: string
-  resolution: string
+  /** The search whose results are on screen (`searchKey`), so it isn't run twice. */
+  ran: string | null
+  /** The search page's address, to bring back when Search is opened again. */
+  url: string
   searchId: string | null
   searching: boolean
   results: SearchResultDto[] | null
   outcomes: SourceOutcomeDto[]
 }
 
-const EMPTY_SEARCH: SearchState = { query: '', source: '', resolution: '', searchId: null, searching: false, results: null, outcomes: [] }
+const EMPTY_SEARCH: SearchState = { query: '', ran: null, url: '', searchId: null, searching: false, results: null, outcomes: [] }
 
 interface DeviceState {
   connection: RpcClient

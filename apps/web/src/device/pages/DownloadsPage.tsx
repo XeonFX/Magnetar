@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, CloudDownload, Plus, Search, Tv } from 'lucide-reac
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { useT } from '../../lib/i18n.tsx'
+import { useQueryChoice } from '../../lib/urlState.ts'
 import { magnetsIn } from '../../lib/magnets.ts'
 import { PageHeader, Segmented } from '../../ui/controls.tsx'
 import { Empty } from '../../ui/Empty.tsx'
@@ -30,7 +31,7 @@ export function DownloadsPage() {
   const t = useT()
   const { basePath, settings, transfer, connection } = useDevice()
   const downloads = useDownloads()
-  const [filter, setFilter] = useState<Filter>('all')
+  const [filter, setFilter] = useQueryChoice('filter', FILTERS, 'all')
   const [adding, setAdding] = useState<PendingAdd | null>(null)
   const [details, setDetails] = useState<number | null>(null)
   const dragging = useAddShortcuts(setAdding)
@@ -41,7 +42,12 @@ export function DownloadsPage() {
     const path = connection.kind === 'local' ? params.get('torrent') : null
     if (!magnet && !path) return
     setAdding({ magnets: magnet ? magnetsIn(magnet) : [], files: [], paths: path ? [path] : [] })
-    setParams({}, { replace: true })
+    setParams(current => {
+      const next = new URLSearchParams(current)
+      next.delete('add')
+      next.delete('torrent')
+      return next
+    }, { replace: true })
   }, [params, setParams, connection])
 
   // One pass for every count and total, rather than one filter per chip on each update.

@@ -2,8 +2,8 @@ import type { AgentStatusDto, HandlerStatus, LoginStartupStatus, SettingsDto, Se
 import {
   Bell, Bot, Cloud, Copy, Download, Eye, EyeOff, Info, Mail, RefreshCw, Send, Server, Smartphone, SlidersHorizontal, Sparkles, Upload,
 } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
-import { useSearchParams } from 'react-router'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Link, Navigate, useParams, useSearchParams } from 'react-router'
 import { LANGUAGES, useFormatDate, useT } from '../../lib/i18n.tsx'
 import { askNotificationPermission } from '../../lib/notifications.ts'
 import { PageHeader, Segmented, SettingGroup, SettingRow, Switch } from '../../ui/controls.tsx'
@@ -33,33 +33,45 @@ type SectionId = (typeof SECTIONS)[number]['id']
 
 export function SettingsPage() {
   const t = useT()
-  const { settings } = useDevice()
-  const [params, setParams] = useSearchParams()
-  const current = SECTIONS.find(s => s.id === params.get('section'))?.id ?? 'general'
-  const select = (id: SectionId) => setParams(id === 'general' ? {} : { section: id }, { replace: true })
+  const { settings, basePath } = useDevice()
+  // Each section has its own address: /settings is General, /settings/agents the AI agents.
+  const { section } = useParams()
+  const [params] = useSearchParams()
+  const legacy = params.get('section')
+  const current = SECTIONS.find(s => s.id === section)?.id
+  const href = (id: SectionId) => `${basePath}/settings${id === 'general' ? '' : `/${id}`}`
+  // On a phone the sections scroll sideways; a link straight to one scrolls it into sight.
+  const nav = useRef<HTMLElement>(null)
+  useEffect(() => {
+    nav.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [current, settings !== null])
+  // Older links named the section in the query (?section=agents); unknown sections go to General.
+  if (!section && legacy) return <Navigate to={href(SECTIONS.find(s => s.id === legacy)?.id ?? 'general')} replace />
+  if (section && (!current || current === 'general')) return <Navigate to={href('general')} replace />
+  const shown = current ?? 'general'
   if (!settings) return <Loading />
 
   return (
     <>
       <PageHeader title={t('settings.title')} summary={t('settings.subtitle')} />
       <div className="flex flex-col gap-5 lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-8">
-        <nav aria-label={t('settings.title')} className="scroll-strip -mx-4 flex gap-1 overflow-x-auto px-4 lg:sticky lg:top-10 lg:mx-0 lg:flex-col lg:self-start lg:px-0">
+        <nav ref={nav} aria-label={t('settings.title')} className="scroll-strip -mx-4 flex gap-1 overflow-x-auto px-4 lg:sticky lg:top-10 lg:mx-0 lg:flex-col lg:self-start lg:px-0">
           {SECTIONS.map(({ id, icon: Icon }) => (
-            <button key={id} type="button" aria-current={current === id ? 'page' : undefined} onClick={() => select(id)}
+            <Link key={id} to={href(id)} replace aria-current={shown === id ? 'page' : undefined}
               className={`flex shrink-0 items-center gap-2.5 rounded-full px-3.5 py-2 text-sm font-medium transition-colors lg:rounded-field ${
-                current === id ? 'bg-neutral text-neutral-content lg:bg-primary/10 lg:text-primary' : 'muted hover:bg-base-100 hover:text-base-content'}`}>
+                shown === id ? 'bg-neutral text-neutral-content lg:bg-primary/10 lg:text-primary' : 'muted hover:bg-base-100 hover:text-base-content'}`}>
               <Icon size={16} />{t(`settings.section.${id}`)}
-            </button>
+            </Link>
           ))}
         </nav>
         <div className="flex min-w-0 flex-col gap-4">
-          {current === 'general' && <GeneralSection settings={settings} />}
-          {current === 'downloads' && <DownloadsSection settings={settings} />}
-          {current === 'notifications' && <NotificationsSection settings={settings} />}
-          {current === 'sources' && <SourcesSection settings={settings} />}
-          {current === 'remote' && <RemoteAccessSection />}
-          {current === 'agents' && <AgentSection />}
-          {current === 'about' && <><AboutSection /><ImportSection /></>}
+          {shown === 'general' && <GeneralSection settings={settings} />}
+          {shown === 'downloads' && <DownloadsSection settings={settings} />}
+          {shown === 'notifications' && <NotificationsSection settings={settings} />}
+          {shown === 'sources' && <SourcesSection settings={settings} />}
+          {shown === 'remote' && <RemoteAccessSection />}
+          {shown === 'agents' && <AgentSection />}
+          {shown === 'about' && <><AboutSection /><ImportSection /></>}
         </div>
       </div>
     </>

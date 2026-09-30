@@ -1,7 +1,7 @@
 import type { AiringDto, DownloadDto, SeriesTaskDto, ShowInfoDto, WatchInput } from '@magnetar/protocol'
 import { ChevronDown, CircleCheck, Clapperboard, ExternalLink, Pencil, Plus, RefreshCw, Trash2, Tv } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { useLocation, useSearchParams } from 'react-router'
+import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import { useFormatRelative, useT } from '../../lib/i18n.tsx'
 import { parseQuality, qualityForm, resolutionLabel, type QualityForm } from '../../lib/quality.ts'
 import { PageHeader, Segmented, Switch } from '../../ui/controls.tsx'
@@ -26,7 +26,7 @@ function episodeLabel(season: number | null, episode: number): string {
 
 export function SeriesPage() {
   const t = useT()
-  const { series, watches } = useDevice()
+  const { series, watches, basePath } = useDevice()
   const downloads = useDownloads()
   const [editing, setEditing] = useState<SeriesTaskDto | 'new' | null>(null)
   // One pass per update; each card keeps its list until one of its own downloads changes.
@@ -36,18 +36,25 @@ export function SeriesPage() {
     return groups
   }, [downloads])
   const add = <button type="button" className="btn btn-primary" onClick={() => setEditing('new')}><Plus size={16} />{t('series.add')}</button>
-  const [params, setParams] = useSearchParams()
+  // The tab is part of the path: /series and /series/releases.
+  const { tab: tabParam } = useParams()
+  const [params] = useSearchParams()
+  const navigate = useNavigate()
   const location = useLocation()
-  const tab = params.get('tab') === 'releases' ? 'releases' : 'series'
+  const tab = tabParam === 'releases' ? 'releases' : 'series'
   // Search hands over "watch for this" with its query.
   const [handed, setHanded] = useState<WatchInput | null>((location.state as { watch?: WatchInput } | null)?.watch ?? null)
   const clearHanded = useCallback(() => setHanded(null), [])
+
+  // Older links named the tab in the query (?tab=releases); unknown tabs fall back to the first.
+  if (!tabParam && params.get('tab') === 'releases') return <Navigate to={`${basePath}/series/releases`} replace state={location.state} />
+  if (tabParam && tabParam !== 'releases') return <Navigate to={`${basePath}/series`} replace />
 
   return (
     <>
       <PageHeader title={t('watch.pageTitle')} summary={t(tab === 'series' ? 'series.subtitle' : 'watch.subtitle')} action={tab === 'series' && series.length > 0 && add} />
       <div className="mb-4">
-        <Segmented label={t('watch.pageTitle')} value={tab} onChange={next => setParams(next === 'series' ? {} : { tab: next }, { replace: true })}
+        <Segmented label={t('watch.pageTitle')} value={tab} onChange={next => navigate(`${basePath}/series${next === 'releases' ? '/releases' : ''}`)}
           options={[
             { value: 'series', label: t('series.title'), icon: <Tv size={14} />, count: series.length },
             { value: 'releases', label: t('watch.tab'), icon: <Clapperboard size={14} />, count: watches.length },

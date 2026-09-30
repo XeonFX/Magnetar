@@ -24,8 +24,8 @@ export function DeviceRoutes({ headerStart, headerEnd, fallbackLanguage }: { hea
         <Route element={<Shell headerStart={headerStart} headerEnd={headerEnd} />}>
           <Route index element={<DownloadsPage />} />
           <Route path="search" element={<Page><SearchPage /></Page>} />
-          <Route path="series" element={<Page><SeriesPage /></Page>} />
-          <Route path="settings" element={<Page><SettingsPage /></Page>} />
+          <Route path="series/:tab?" element={<Page><SeriesPage /></Page>} />
+          <Route path="settings/:section?" element={<Page><SettingsPage /></Page>} />
           <Route path="*" element={<DownloadsPage />} />
         </Route>
       </Routes>
