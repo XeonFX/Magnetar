@@ -59,6 +59,7 @@ impl OpenTarget {
     }
 }
 
+#[cfg(target_os = "macos")]
 const BUNDLE_ID: &str = "cc.codefusion.magnetar";
 
 pub fn status() -> HandlerStatus {
