@@ -9,6 +9,7 @@ import { useT } from '../lib/i18n.tsx'
 import { clearParkedKey, parkKey, parkedKey, saveDeviceKey } from '../lib/keyStore.ts'
 import { useAccount } from './CloudApp.tsx'
 import { CloudFrame } from './CloudFrame.tsx'
+import { devicePath } from './devicePaths.ts'
 
 /** Reads a key from `#i=<keyId>&k=<key>` into session storage and drops it from the address bar. */
 export function captureFragmentKey(kind: 'pair' | 'link', target: (params: URLSearchParams) => string | null): void {
@@ -58,7 +59,7 @@ export function PairPage() {
       const parked = parkedKey('pair', pairingId)
       if (parked) await saveDeviceKey(deviceId, parked.keyId, parked.key)
       clearParkedKey()
-      navigate(`/d/${encodeURIComponent(deviceId)}`, { replace: true })
+      navigate(devicePath(deviceId), { replace: true })
     } catch (e) {
       setError(errorMessage(e))
       setBusy(false)

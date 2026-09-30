@@ -4,7 +4,7 @@ import { I18nProvider } from '../lib/i18n.tsx'
 import { Loading } from '../ui/Loading.tsx'
 import { useDevice } from './DeviceContext.tsx'
 import { DownloadsPage } from './pages/DownloadsPage.tsx'
-import { Shell } from './Shell.tsx'
+import { Shell, type DeviceMenu } from './Shell.tsx'
 
 // Downloads is where the dashboard opens; the other pages load when first visited.
 const SearchPage = lazy(() => import('./pages/SearchPage.tsx').then(m => ({ default: m.SearchPage })))
@@ -16,12 +16,17 @@ function Page({ children }: { children: ReactNode }) {
 }
 
 /** A device's pages, in the language chosen in its settings. */
-export function DeviceRoutes({ headerStart, headerEnd, fallbackLanguage }: { headerStart?: ReactNode; headerEnd?: ReactNode; fallbackLanguage: string }) {
+export function DeviceRoutes({ headerStart, headerEnd, deviceMenu, fallbackLanguage }: {
+  headerStart?: ReactNode
+  headerEnd?: ReactNode
+  deviceMenu?: DeviceMenu
+  fallbackLanguage: string
+}) {
   const { settings } = useDevice()
   return (
     <I18nProvider language={settings?.language ?? fallbackLanguage}>
       <Routes>
-        <Route element={<Shell headerStart={headerStart} headerEnd={headerEnd} />}>
+        <Route element={<Shell headerStart={headerStart} headerEnd={headerEnd} deviceMenu={deviceMenu} />}>
           <Route index element={<DownloadsPage />} />
           <Route path="search" element={<Page><SearchPage /></Page>} />
           <Route path="series" element={<Page><SeriesPage /></Page>} />
