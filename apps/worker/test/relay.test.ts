@@ -1,8 +1,7 @@
 import { env } from 'cloudflare:workers'
-import { fromBase64Url } from '@magnetar/protocol/base64'
-import { MAX_RELAY_FRAME, RELAY_CLOSE, RELAY_PING, RELAY_PONG } from '@magnetar/protocol/relay'
+import { CONNECTION_ID_BYTES, MAX_RELAY_FRAME, RELAY_CLOSE, RELAY_PING, RELAY_PONG, unwrapFromDevice, wrapForDevice } from '@magnetar/protocol/relay'
 import { describe, expect, test } from 'vitest'
-import { call, connectBrowser, connectDevice, openSocket, pairDevice, settle, signIn, type Device, type Socket, type User } from './client.ts'
+import { call, connectBrowser, connectDevice, deviceAuth, eventually, listDevices, openSocket, pairDevice, settle, signIn, type Device, type Socket, type User } from './client.ts'
 
 const deviceRow = (id: string) =>
   env.DB.prepare('SELECT online, last_seen_at, version FROM devices WHERE id = ?').bind(id).first<{ online: number; last_seen_at: number | null; version: string }>()
@@ -25,27 +24,20 @@ async function openDashboard(user: User, device: Device, app: Socket): Promise<{
 }
 
 const bytes = (...values: number[]) => new Uint8Array(values)
-const fromDevice = (connectionId: string, payload: Uint8Array) => {
-  const frame = new Uint8Array(16 + payload.length)
-  frame.set(fromBase64Url(connectionId))
-  frame.set(payload, 16)
-  return frame
-}
 
 describe('the relay', () => {
   test('marks the device online in the device list while its app is connected', async () => {
     const { user, device, app } = await onlineDevice()
-    await settle()
     expect((await deviceRow(device.deviceId))!.online).toBe(1)
-    const list = await (await call('/api/devices', { headers: user.headers })).json<{ online: boolean }[]>()
-    expect(list[0]!.online).toBe(true)
+    expect((await listDevices(user))[0]!.online).toBe(true)
 
     const before = Date.now()
     app.ws.close(1000, 'Quit')
-    await settle()
-    const row = await deviceRow(device.deviceId)
-    expect(row!.online).toBe(0)
-    expect(row!.last_seen_at).toBeGreaterThanOrEqual(before)
+    await eventually(async () => {
+      const row = await deviceRow(device.deviceId)
+      expect(row!.online).toBe(0)
+      expect(row!.last_seen_at).toBeGreaterThanOrEqual(before)
+    })
   })
 
   test('passes dashboard frames to the app byte for byte, tagged with the connection', async () => {
@@ -53,10 +45,9 @@ describe('the relay', () => {
     const { page, connectionId } = await openDashboard(user, device, app)
     const payload = crypto.getRandomValues(new Uint8Array(4096))
     page.ws.send(payload)
-    const frame = await app.next()
-    expect(frame).toBeInstanceOf(Uint8Array)
-    expect([...(frame as Uint8Array).subarray(0, 16)]).toEqual([...fromBase64Url(connectionId)])
-    expect([...(frame as Uint8Array).subarray(16)]).toEqual([...payload])
+    const frame = unwrapFromDevice(await app.next() as Uint8Array)
+    expect(frame.connectionId).toBe(connectionId)
+    expect([...frame.payload]).toEqual([...payload])
   })
 
   test('sends each app frame only to the dashboard it is addressed to', async () => {
@@ -65,8 +56,8 @@ describe('the relay', () => {
     const two = await openDashboard(user, device, app)
     expect(one.connectionId).not.toBe(two.connectionId)
 
-    app.ws.send(fromDevice(two.connectionId, bytes(1, 2, 3)))
-    app.ws.send(fromDevice(one.connectionId, bytes(9)))
+    app.ws.send(wrapForDevice(two.connectionId, bytes(1, 2, 3)))
+    app.ws.send(wrapForDevice(one.connectionId, bytes(9)))
     expect([...(await two.page.next() as Uint8Array)]).toEqual([1, 2, 3])
     expect([...(await one.page.next() as Uint8Array)]).toEqual([9])
     await settle()
@@ -79,7 +70,7 @@ describe('the relay', () => {
     const { page } = await openDashboard(user, device, app)
     page.ws.send('{"t":"hello"}')
     app.ws.send(bytes(1, 2, 3))
-    app.ws.send(fromDevice('A'.repeat(22), bytes(7)))
+    app.ws.send(wrapForDevice('A'.repeat(22), bytes(7)))
     app.ws.send('not json')
     await settle()
     expect(app.pending()).toEqual([])
@@ -98,7 +89,7 @@ describe('the relay', () => {
     // The largest frame allowed still goes through.
     const second = await openDashboard(user, device, app)
     second.page.ws.send(new Uint8Array(MAX_RELAY_FRAME))
-    expect((await app.next() as Uint8Array).length).toBe(MAX_RELAY_FRAME + 16)
+    expect((await app.next() as Uint8Array).length).toBe(MAX_RELAY_FRAME + CONNECTION_ID_BYTES)
   })
 
   test('tells the app when a dashboard leaves, and closes one the app drops', async () => {
@@ -151,11 +142,11 @@ describe('the relay', () => {
   test('records the version the app says hello with, bounded', async () => {
     const { device, app } = await onlineDevice()
     app.ws.send(JSON.stringify({ t: 'hello', version: `2.2.0-${'x'.repeat(100)}`, name: 'Studio' }))
-    await settle()
-    expect((await deviceRow(device.deviceId))!.version).toBe(`2.2.0-${'x'.repeat(34)}`)
+    await eventually(async () => expect((await deviceRow(device.deviceId))!.version).toBe(`2.2.0-${'x'.repeat(34)}`))
+    // A version that is not text is ignored.
     app.ws.send(JSON.stringify({ t: 'hello', version: 3 }))
     await settle()
-    expect((await deviceRow(device.deviceId))!.version).toHaveLength(40)
+    expect((await deviceRow(device.deviceId))!.version).toBe(`2.2.0-${'x'.repeat(34)}`)
   })
 
   test('answers keepalive pings', async () => {
@@ -193,9 +184,9 @@ describe('reaching a device', () => {
   test('an app with an unknown token is told its pairing is gone', async () => {
     const unknown = await openSocket(connectDevice({ deviceId: 'd_x', deviceToken: 'x'.repeat(43) }))
     expect((await unknown.closed).code).toBe(RELAY_CLOSE.deviceRemoved)
-    const malformed = await openSocket(call('/api/device/connect', { headers: { upgrade: 'websocket', authorization: 'Bearer short' } }))
+    const malformed = await openSocket(connectDevice({ deviceId: 'd_x', deviceToken: 'short' }))
     expect((await malformed.closed).code).toBe(RELAY_CLOSE.deviceRemoved)
-    expect((await call('/api/device/connect', { headers: { authorization: `Bearer ${'x'.repeat(43)}` } })).status).toBe(426)
+    expect((await call('/api/device/connect', { headers: deviceAuth({ deviceToken: 'x'.repeat(43) }) })).status).toBe(426)
   })
 })
 
@@ -220,10 +211,10 @@ describe('removing a device', () => {
     const { user, device, app } = await onlineDevice()
     const { page } = await openDashboard(user, device, app)
 
-    expect((await call('/api/device', { method: 'DELETE', headers: { authorization: `Bearer ${device.deviceToken}` } })).status).toBe(200)
+    expect((await call('/api/device', { method: 'DELETE', headers: deviceAuth(device) })).status).toBe(200)
     expect((await app.closed).code).toBe(RELAY_CLOSE.deviceRemoved)
     expect((await page.closed).code).toBe(RELAY_CLOSE.notOnAccount)
-    expect(await (await call('/api/devices', { headers: user.headers })).json()).toEqual([])
+    expect(await listDevices(user)).toEqual([])
   })
 
   test('a device paired again after removal starts clean', async () => {

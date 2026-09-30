@@ -24,8 +24,9 @@ function run(command: string, args: string[], options: ExecFileSyncOptions = {})
   try {
     execFileSync(command, args, { stdio: 'inherit', ...options })
   } catch (e) {
-    const status = (e as { status?: number | null }).status
-    throw new Error(`${basename(command)} ${args[0] ?? ''} failed${status == null ? '' : ` with exit code ${status}`}`)
+    const { status, code } = e as { status?: number | null; code?: string }
+    const why = status != null ? `with exit code ${status}` : code === 'ENOENT' ? '(not found)' : `(${code ?? 'no exit code'})`
+    throw new Error(`${basename(command)} ${args[0] ?? ''} failed ${why}`)
   }
 }
 
