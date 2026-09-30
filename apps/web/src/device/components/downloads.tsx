@@ -22,6 +22,11 @@ export function isActive(d: DownloadDto): boolean {
   return d.status === 'Downloading' || d.status === 'FetchingMetadata' || d.status === 'Queued' || d.status === 'Seeding'
 }
 
+/** Everything it was asked for is on disk. */
+export function isFinished(d: DownloadDto): boolean {
+  return d.status === 'Completed' || d.status === 'Seeding'
+}
+
 export function ProgressBar({ download }: { download: DownloadDto }) {
   const t = useT()
   const value = Math.min(100, Math.max(0, download.progress))
@@ -51,7 +56,7 @@ export const DownloadRow = memo(function DownloadRow({ download: d, seriesName, 
   const formatEta = useFormatEta()
   const status = STATUS[d.status]
   const percent = Math.round(d.progress * 10) / 10
-  const done = d.status === 'Completed' || d.status === 'Seeding'
+  const done = isFinished(d)
   const remaining = d.totalBytes * (1 - d.progress / 100)
   const eta = d.status === 'Downloading' && d.downloadSpeed > 0 && d.totalBytes > 0 ? remaining / d.downloadSpeed : null
 

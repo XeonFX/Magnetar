@@ -1,17 +1,17 @@
 import { fromBase64Url, toBase64Url } from '@magnetar/protocol/base64'
+import { isIosDevice } from './platform.ts'
 import type { RpcClient } from './rpcClient.ts'
 import { ensureServiceWorker } from './streaming.ts'
 
 /** Why push can't be offered here, or 'ok'. */
 export type PushSupport = 'ok' | 'unsupported' | 'install' | 'denied' | 'server'
 
-const isIos = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.userAgent.includes('Mac') && navigator.maxTouchPoints > 1)
 const standalone = () => window.matchMedia('(display-mode: standalone)').matches || (navigator as { standalone?: boolean }).standalone === true
 
 /** Push needs a service worker and PushManager; on iPhone and iPad, the site added to the Home Screen. */
 export function pushSupport(): PushSupport {
   if (!('serviceWorker' in navigator) || !('Notification' in window)) return 'unsupported'
-  if (!('PushManager' in window)) return isIos() && !standalone() ? 'install' : 'unsupported'
+  if (!('PushManager' in window)) return isIosDevice() && !standalone() ? 'install' : 'unsupported'
   if (Notification.permission === 'denied') return 'denied'
   return 'ok'
 }

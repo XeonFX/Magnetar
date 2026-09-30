@@ -24,7 +24,7 @@ pub fn resolution_of(title: &str) -> Option<&'static str> {
 }
 
 /// Words split on commas or spaces, lowercased: "SubsPlease, HEVC" → ["subsplease", "hevc"].
-pub fn words(list: Option<&str>) -> Vec<String> {
+fn words(list: Option<&str>) -> Vec<String> {
     list.unwrap_or_default().split([',', ' ']).map(|w| w.trim().to_lowercase()).filter(|w| !w.is_empty()).collect()
 }
 
@@ -38,6 +38,23 @@ pub struct QualityRule {
 }
 
 impl QualityRule {
+    /// From a series task's or watch's stored fields.
+    pub fn new(
+        resolution: Option<&str>,
+        min_seeders: i64,
+        max_size_mb: Option<i64>,
+        prefer_words: Option<&str>,
+        exclude_words: Option<&str>,
+    ) -> Self {
+        Self {
+            resolution: resolution.map(str::to_owned),
+            min_seeders: min_seeders.clamp(1, u32::MAX as i64) as u32,
+            max_size_bytes: max_size_mb.map(|mb| mb.max(1) as u64 * 1024 * 1024),
+            prefer: words(prefer_words),
+            exclude: words(exclude_words),
+        }
+    }
+
     /// Whether a release may be taken at all. A size or seeder count the source doesn't give (0)
     /// isn't held against it, except that a dead release (no seeders) is.
     pub fn accepts(&self, result: &TorrentSearchResult) -> bool {

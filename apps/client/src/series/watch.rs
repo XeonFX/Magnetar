@@ -4,7 +4,7 @@
 
 use rusqlite::{OptionalExtension, Row, params};
 
-use super::quality::{QualityRule, words};
+use super::quality::QualityRule;
 use crate::db::Db;
 use crate::error::{ApiError, ApiResult};
 use crate::events::EventBus;
@@ -31,13 +31,13 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<WatchDto> {
 }
 
 pub fn quality(watch: &WatchDto) -> QualityRule {
-    QualityRule {
-        resolution: watch.resolution.clone(),
-        min_seeders: watch.min_seeders.clamp(1, u32::MAX as i64) as u32,
-        max_size_bytes: watch.max_size_mb.map(|mb| mb.max(1) as u64 * 1024 * 1024),
-        prefer: words(watch.prefer_words.as_deref()),
-        exclude: words(watch.exclude_words.as_deref()),
-    }
+    QualityRule::new(
+        watch.resolution.as_deref(),
+        watch.min_seeders,
+        watch.max_size_mb,
+        watch.prefer_words.as_deref(),
+        watch.exclude_words.as_deref(),
+    )
 }
 
 pub struct WatchStore {

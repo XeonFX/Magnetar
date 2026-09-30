@@ -1,4 +1,21 @@
 import { useEffect, useState, type InputHTMLAttributes, type ReactNode } from 'react'
+import { Copy } from 'lucide-react'
+
+/** A read-only value with a button that copies it. */
+export function CopyInput({ label, value, copyLabel, onCopy, small = false }: {
+  label: string
+  value: string
+  copyLabel: string
+  onCopy: (value: string) => void
+  small?: boolean
+}) {
+  return (
+    <div className="join w-full">
+      <input readOnly aria-label={label} className={`input join-item w-full min-w-0 font-mono ${small ? 'text-xs' : 'text-sm'}`} value={value} />
+      <button type="button" className="btn join-item" aria-label={`${copyLabel}: ${label}`} onClick={() => onCopy(value)}><Copy size={16} /></button>
+    </div>
+  )
+}
 
 /** A field with its label above and optional help below; the label stays visible while typing. */
 export function Field({ label, help, className = '', children }: { label: string; help?: ReactNode; className?: string; children: ReactNode }) {

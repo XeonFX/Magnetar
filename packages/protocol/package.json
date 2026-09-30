@@ -11,7 +11,8 @@
     "./base64": "./src/base64.ts",
     "./scrub": "./src/scrub.ts",
     "./merge": "./src/merge.ts",
-    "./limits": "./src/limits.ts"
+    "./limits": "./src/limits.ts",
+    "./push": "./src/push.ts"
   },
   "scripts": {
     "typecheck": "tsc -p ."

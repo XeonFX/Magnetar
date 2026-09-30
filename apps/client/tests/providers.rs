@@ -192,7 +192,7 @@ async fn live_providers() {
         return;
     }
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-    let http = reqwest::Client::new();
+    let http = magnetar::config::http_client().unwrap();
     let mut failures = Vec::new();
     for provider in magnetar::search::providers::all() {
         // EZTV only pages through recent TV releases, so it needs a query that is always airing.

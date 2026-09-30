@@ -52,13 +52,18 @@ fn local_app_data() -> PathBuf {
     std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(|| home_dir().join("AppData").join("Local"))
 }
 
+/// Where Linux desktops keep per-user application data.
+pub fn xdg_data_home() -> PathBuf {
+    std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home_dir().join(".local/share"))
+}
+
 fn default_data_dir() -> PathBuf {
     if cfg!(target_os = "macos") {
         home_dir().join("Library/Application Support/cc.codefusion.magnetar")
     } else if cfg!(windows) {
         local_app_data().join("CodeFusion").join("Magnetar")
     } else {
-        std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home_dir().join(".local/share")).join("magnetar")
+        xdg_data_home().join("magnetar")
     }
 }
 

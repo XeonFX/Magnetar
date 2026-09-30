@@ -5,13 +5,11 @@
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use base64::Engine;
 use futures::future::join_all;
 use lettre::message::Mailbox;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
-use crate::config::USER_AGENT;
 use crate::db::SecretName;
 use crate::error::{ApiError, ApiResult};
 use crate::events::EventBus;
@@ -169,9 +167,8 @@ impl NotificationDispatcher {
             .http
             .post(url)
             // Header values must be Latin-1; ntfy decodes RFC 2047 encoded-words.
-            .header("title", format!("=?UTF-8?B?{}?=", base64::engine::general_purpose::STANDARD.encode(&event.title)))
+            .header("title", format!("=?UTF-8?B?{}?=", crate::protocol::encoding::to_base64(event.title.as_bytes())))
             .header("tags", if event.kind == "completed" { "white_check_mark" } else { "arrow_down" })
-            .header("user-agent", USER_AGENT.as_str())
             .body(event.message.clone())
             .timeout(TIMEOUT)
             .send()

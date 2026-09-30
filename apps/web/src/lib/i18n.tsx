@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import english from '../i18n/en.json'
+import { Loading } from '../ui/Loading.tsx'
 import { LANGUAGES } from './languages.ts'
 
 interface Catalog {
@@ -53,7 +54,7 @@ export function I18nProvider({ language, children }: { language: string; childre
   }, [code])
   const value = useMemo(() => ({ language: code, t: translator(strings ?? english.strings) }), [code, strings])
   if (!strings) {
-    return <div className="grid min-h-screen place-items-center"><span className="loading loading-spinner loading-lg text-primary" /></div>
+    return <Loading screen />
   }
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
 }

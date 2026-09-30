@@ -2,6 +2,7 @@ import { KeyRound } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router'
 import { cloud } from '../lib/cloudApi.ts'
+import { errorMessage } from '../lib/errors.ts'
 import { useT } from '../lib/i18n.tsx'
 import { clearParkedKey, parkedKey, saveDeviceKey } from '../lib/keyStore.ts'
 import { useAccount } from './CloudApp.tsx'
@@ -35,7 +36,7 @@ export function LinkPage() {
       clearParkedKey()
       sessionStorage.removeItem(TARGET)
       navigate(`/d/${encodeURIComponent(deviceId)}`, { replace: true })
-    }).catch(e => setError(e instanceof Error ? e.message : String(e)))
+    }).catch(e => setError(errorMessage(e)))
   }, [account, deviceId, navigate, t])
 
   if (!account) return <Navigate to="/login?next=%2Flink" replace />

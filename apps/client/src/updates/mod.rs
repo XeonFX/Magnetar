@@ -205,7 +205,6 @@ impl UpdateService {
         let response = self
             .http
             .get(format!("https://api.github.com/repos/{}/releases/latest", *GITHUB_REPO))
-            .header("user-agent", "Magnetar")
             .header("accept", "application/vnd.github+json")
             .timeout(Duration::from_secs(30))
             .send()
@@ -313,7 +312,7 @@ impl UpdateService {
     }
 
     async fn download(&self, url: &str, timeout: Duration) -> anyhow::Result<Vec<u8>> {
-        let response = self.http.get(url).header("user-agent", "Magnetar").timeout(timeout).send().await?;
+        let response = self.http.get(url).timeout(timeout).send().await?;
         anyhow::ensure!(response.status().is_success(), "Download failed: HTTP {}", response.status().as_u16());
         Ok(response.bytes().await?.to_vec())
     }

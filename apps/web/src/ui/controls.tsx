@@ -79,15 +79,17 @@ export function SettingGroup({ title, description, action, children }: {
   )
 }
 
-export function Switch({ label, checked, onChange, disabled = false, id }: {
+export function Switch({ label, checked, onChange, disabled = false, id, tone = 'primary' }: {
   label: string
   checked: boolean
   onChange: (value: boolean) => void
   disabled?: boolean
   id?: string
+  /** Warning for a switch that lowers a safeguard. */
+  tone?: 'primary' | 'warning'
 }) {
   return (
-    <input id={id} type="checkbox" role="switch" className="toggle toggle-primary" aria-label={label} checked={checked}
+    <input id={id} type="checkbox" role="switch" className={tone === 'warning' ? 'toggle toggle-warning' : 'toggle toggle-primary'} aria-label={label} checked={checked}
       disabled={disabled} onChange={e => onChange(e.target.checked)} />
   )
 }

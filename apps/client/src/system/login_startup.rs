@@ -2,6 +2,8 @@
 //! bundle on macOS, the per-user Run key on Windows. Development runs and other platforms report
 //! `unavailable`.
 
+#[cfg(any(target_os = "macos", windows))]
+use super::run_captured;
 use crate::error::{ApiError, ApiResult};
 use crate::protocol::LoginStartupStatus;
 
@@ -11,15 +13,6 @@ const MAC_LABEL: &str = "cc.codefusion.magnetar.start-at-login";
 const WINDOWS_VALUE: &str = "Magnetar";
 #[cfg(windows)]
 const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
-
-fn run(program: &str, args: &[&str]) -> (bool, String, String) {
-    match super::hidden_command(program).args(args).output() {
-        Ok(out) => {
-            (out.status.success(), String::from_utf8_lossy(&out.stdout).into(), String::from_utf8_lossy(&out.stderr).into())
-        }
-        Err(error) => (false, String::new(), error.to_string()),
-    }
-}
 
 #[cfg(target_os = "macos")]
 fn plist() -> std::path::PathBuf {
@@ -40,7 +33,7 @@ pub fn status() -> LoginStartupStatus {
         if !plist().exists() {
             return LoginStartupStatus::Disabled;
         }
-        let (_, overrides, _) = run("/bin/launchctl", &["print-disabled", &gui_domain()]);
+        let overrides = run_captured("/bin/launchctl", &["print-disabled", &gui_domain()]).unwrap_or_default();
         let disabled = overrides
             .lines()
             .any(|line| line.contains(&format!("\"{MAC_LABEL}\"")) && (line.contains("=> true") || line.contains("=> disabled")));
@@ -52,7 +45,7 @@ pub fn status() -> LoginStartupStatus {
         if !installed.is_some_and(|name| name.starts_with("magnetar") && name.ends_with(".exe")) {
             return LoginStartupStatus::Unavailable;
         }
-        let (exists, _, _) = run("reg", &["query", RUN_KEY, "/v", WINDOWS_VALUE]);
+        let exists = run_captured("reg", &["query", RUN_KEY, "/v", WINDOWS_VALUE]).is_ok();
         if exists { LoginStartupStatus::Enabled } else { LoginStartupStatus::Disabled }
     }
     #[cfg(not(any(target_os = "macos", windows)))]
@@ -104,7 +97,7 @@ fn set_mac(enabled: bool) -> ApiResult<()> {
     }
     let temporary = plist_path.with_extension(format!("{}.tmp", std::process::id()));
     crate::db::write_private(&temporary, contents.as_bytes(), false)?;
-    run("/bin/launchctl", &["enable", &format!("{}/{MAC_LABEL}", gui_domain())]);
+    let _ = run_captured("/bin/launchctl", &["enable", &format!("{}/{MAC_LABEL}", gui_domain())]);
     std::fs::rename(&temporary, &plist_path)?;
     Ok(())
 }
@@ -113,14 +106,15 @@ fn set_mac(enabled: bool) -> ApiResult<()> {
 fn set_windows(enabled: bool) -> ApiResult<()> {
     let exe = std::env::current_exe()?;
     let quoted = format!("\"{}\"", exe.display());
-    let (ok, _, stderr) = if enabled {
-        run("reg", &["add", RUN_KEY, "/v", WINDOWS_VALUE, "/t", "REG_SZ", "/d", &quoted, "/f"])
+    let done = if enabled {
+        run_captured("reg", &["add", RUN_KEY, "/v", WINDOWS_VALUE, "/t", "REG_SZ", "/d", &quoted, "/f"])
     } else {
-        run("reg", &["delete", RUN_KEY, "/v", WINDOWS_VALUE, "/f"])
+        run_captured("reg", &["delete", RUN_KEY, "/v", WINDOWS_VALUE, "/f"])
     };
-    if !ok && enabled {
-        let message = stderr.trim();
-        return Err(ApiError::bad(if message.is_empty() { "Could not update the Run key." } else { message }));
+    match done {
+        Err(message) if enabled => {
+            Err(ApiError::bad(if message.is_empty() { "Could not update the Run key.".to_owned() } else { message }))
+        }
+        _ => Ok(()),
     }
-    Ok(())
 }

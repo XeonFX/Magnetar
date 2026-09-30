@@ -212,6 +212,12 @@ impl RemoteService {
         }
     }
 
+    /// Whether this device is linked, and if so whether it is connected and to which account.
+    pub fn link(&self) -> Option<(bool, Option<String>)> {
+        self.device_id()?;
+        Some((self.state().connected, self.kv.get("remote.accountEmail")))
+    }
+
     fn changed(&self) {
         self.events.emit("remote.changed", self.status());
     }
@@ -621,11 +627,7 @@ impl RemoteService {
     /// A call to the Worker's HTTP API. Errors carry the Worker's message, fit to show.
     async fn cloud(&self, method: &str, path: &str, body: Option<Value>, bearer: Option<&str>) -> ApiResult<Value> {
         let method = reqwest::Method::from_bytes(method.as_bytes()).expect("HTTP method");
-        let mut request = self
-            .http
-            .request(method, format!("{}{path}", *CLOUD_URL))
-            .header("user-agent", USER_AGENT.as_str())
-            .timeout(CLOUD_TIMEOUT);
+        let mut request = self.http.request(method, format!("{}{path}", *CLOUD_URL)).timeout(CLOUD_TIMEOUT);
         if let Some(body) = body {
             request = request.json(&body);
         }

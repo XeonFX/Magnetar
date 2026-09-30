@@ -1,4 +1,5 @@
 import { fromBase64Url, toBase64Url } from '@magnetar/protocol/base64'
+import { isPushService } from '@magnetar/protocol/push'
 import type { Env } from './env.ts'
 import { deviceFromToken } from './devices.ts'
 import { error, json, limit, readJson } from './http.ts'
@@ -9,25 +10,12 @@ import { error, json, limit, readJson } from './http.ts'
  * and passes the ciphertext on. The private key never leaves the Worker, the plaintext never enters it.
  */
 
-/** The push services of the browsers people use; nothing else is ever fetched. */
-const PUSH_HOSTS = ['fcm.googleapis.com', 'android.googleapis.com', 'updates.push.services.mozilla.com', '.push.apple.com', '.notify.windows.com']
 /** One 4096-byte record, its header and a little slack; anything bigger isn't a notification. */
 const MAX_BODY_BYTES = 4200
 const MAX_TTL = 28 * 24 * 60 * 60
 const URGENCIES = new Set(['very-low', 'low', 'normal', 'high'])
 /** A signature is good for up to 24 hours; one is reused for 12 per push service. */
 const JWT_LIFETIME_S = 12 * 60 * 60
-
-export function isPushService(endpoint: string): boolean {
-  let url: URL
-  try {
-    url = new URL(endpoint)
-  } catch {
-    return false
-  }
-  return url.protocol === 'https:' && url.port === ''
-    && PUSH_HOSTS.some(host => (host.startsWith('.') ? url.hostname.endsWith(host) : url.hostname === host))
-}
 
 const pushConfigured = (env: Env) => Boolean(env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY)
 
@@ -84,7 +72,8 @@ export async function handlePush(request: Request, env: Env, path: string, send:
   if (!pushConfigured(env)) return error(503, 'Push notifications are not set up on this server')
   await limit(env.PUSH_LIMITER, device.id)
   const { endpoint, body, ttl = 86_400, urgency = 'normal' } = await readJson<PushRequest>(request)
-  if (typeof endpoint !== 'string' || endpoint.length > 1000 || !isPushService(endpoint)) return error(400, 'Not a push service this server sends to')
+  // Only the browsers' push services: nothing else is ever fetched.
+  if (typeof endpoint !== 'string' || !isPushService(endpoint)) return error(400, 'Not a push service this server sends to')
   if (!Number.isInteger(ttl) || ttl < 0 || ttl > MAX_TTL) return error(400, 'ttl must be 0 to 28 days, in seconds')
   if (!URGENCIES.has(urgency)) return error(400, 'Unknown urgency')
   let bytes: Uint8Array<ArrayBuffer>

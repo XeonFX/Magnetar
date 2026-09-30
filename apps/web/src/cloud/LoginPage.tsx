@@ -2,6 +2,7 @@ import { Download, KeyRound, MonitorSmartphone, ShieldCheck } from 'lucide-react
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Navigate, useSearchParams } from 'react-router'
 import { cloud } from '../lib/cloudApi.ts'
+import { errorMessage } from '../lib/errors.ts'
 import { startGoogleSignIn, takeGoogleSignInResult } from '../lib/googleSignIn.ts'
 import { useLanguage, useT } from '../lib/i18n.tsx'
 import { useAccount } from './CloudApp.tsx'
@@ -31,7 +32,7 @@ export function LoginPage() {
     if (!result) return
     if ('error' in result) return setError(result.error)
     setBusy(true)
-    cloud.completeSignIn(result.credential).then(refresh, e => setError(e instanceof Error ? e.message : String(e))).finally(() => setBusy(false))
+    cloud.completeSignIn(result.credential).then(refresh, e => setError(errorMessage(e))).finally(() => setBusy(false))
   }, [refresh])
 
   if (account) return <Navigate to={next} replace />
@@ -43,7 +44,7 @@ export function LoginPage() {
       const { nonce, clientId } = await cloud.startSignIn()
       startGoogleSignIn(clientId, nonce, next, language)
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errorMessage(e))
       setBusy(false)
     }
   }
@@ -54,7 +55,7 @@ export function LoginPage() {
       await cloud.devSignIn(devEmail)
       await refresh()
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errorMessage(e))
     } finally {
       setBusy(false)
     }

@@ -11,8 +11,9 @@ const none = z.strictObject({})
 const id = z.strictObject({ id: z.number().int() })
 
 /**
- * Every call the dashboard can make to a device, with its parameter schema. The same table serves
- * the local WebSocket and the end-to-end encrypted relay, so the two surfaces cannot drift apart.
+ * Every call the dashboard can make to a device, and the parameters it takes: the typed contract
+ * for the local WebSocket and the end-to-end encrypted relay alike. The device (Rust) validates
+ * them; these schemas give the dashboard its types and must change along with it.
  */
 export const RPC_PARAMS = {
   'app.info': none,
@@ -110,7 +111,6 @@ export const RPC_PARAMS = {
 
 export type RpcMethod = keyof typeof RPC_PARAMS
 export type RpcParams<M extends RpcMethod> = z.input<(typeof RPC_PARAMS)[M]>
-export type RpcParsedParams<M extends RpcMethod> = z.output<(typeof RPC_PARAMS)[M]>
 
 export interface RpcResults {
   'app.info': AppInfoDto
@@ -203,9 +203,3 @@ export type ServerMessage =
   | { id: number; result: unknown }
   | { id: number; error: { code: RpcErrorCode; message: string } }
   | { event: string; data: unknown }
-
-/** Methods that act on the device's own screen or programs, not offered through the relay. */
-export const LOCAL_ONLY_METHODS: ReadonlySet<RpcMethod> = new Set([
-  'fs.pickNative', 'agent.connectClaude', 'downloads.reveal', 'downloads.openFile', 'downloads.streamUrl',
-  'downloads.addTorrentPath', 'handlers.register',
-])

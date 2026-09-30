@@ -45,8 +45,8 @@ export interface DownloadFileDto {
   /** Verified bytes so far. */
   done: number
   selected: boolean
-  /** A video or audio file the dashboard can play. */
-  playable: boolean
+  /** A file the dashboard can play, and how; null for anything else. */
+  media: 'video' | 'audio' | null
 }
 
 /** A search source and whether the user has it switched on. */
@@ -283,10 +283,7 @@ const optionalText = z.string().trim().transform(v => (v === '' ? null : v)).nul
 const resolution = z.enum(['720p', '1080p', '2160p'])
 const words = z.string().trim().max(200).transform(v => (v === '' ? null : v)).nullable()
 
-/**
- * A complete series rule. Creating one fills omitted fields with these defaults; replacing one
- * (`SeriesTaskReplacement`) requires every field so an omission can't silently reset it.
- */
+/** A complete series rule. Creating one fills omitted fields with these defaults. */
 export const SeriesTaskInput = z.strictObject({
   name: z.string().trim().min(1, 'A series task needs a name.'),
   query: z.string().trim().min(1, 'A series task needs a search query, otherwise it can never match an episode.'),
@@ -309,24 +306,6 @@ export const SeriesTaskInput = z.strictObject({
   message: 'endEpisode cannot be before startEpisode.',
 })
 export type SeriesTaskInput = z.infer<typeof SeriesTaskInput>
-
-export const SeriesTaskReplacement = z.strictObject({
-  name: z.string(),
-  query: z.string(),
-  provider: z.string().nullable(),
-  titleFilter: z.string().nullable(),
-  season: z.number().int().nullable(),
-  startEpisode: z.number().int(),
-  endEpisode: z.number().int().nullable(),
-  checkIntervalMinutes: z.number().int(),
-  enabled: z.boolean(),
-  downloadFolder: z.string().nullable(),
-  resolution: resolution.nullable(),
-  minSeeders: z.number().int(),
-  maxSizeMb: z.number().int().nullable(),
-  preferWords: z.string().nullable(),
-  excludeWords: z.string().nullable(),
-})
 
 /** A partial change: anything omitted keeps its current value. Null clears a nullable field. */
 export const SeriesTaskPatch = z.strictObject({
@@ -398,16 +377,16 @@ export interface AgentStatusDto {
   enabled: boolean
   allowRemote: boolean
   token: string
-  baseUrl: string
   mcpUrl: string
+  /** What adds this device to Claude Code, for running by hand. */
+  claudeCommand: string
   endpointFile: string
 }
 
 /** Outcome of registering this device's MCP server with Claude Code on the device. */
 export interface ClaudeConnectResultDto {
-  /** `cliNotFound`: Claude Code isn't installed where the app can find it; run `command` instead. */
+  /** `cliNotFound`: Claude Code isn't installed where the app can find it; run `agent.claudeCommand` instead. */
   status: 'connected' | 'cliNotFound'
-  command: string
   agent: AgentStatusDto
 }
 

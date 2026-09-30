@@ -92,12 +92,7 @@ impl SeriesMonitor {
             if !task.enabled {
                 continue;
             }
-            let due = task
-                .last_checked_at
-                .as_deref()
-                .and_then(parse_iso)
-                .is_none_or(|last| last + chrono::Duration::minutes(task.check_interval_minutes) <= now);
-            if !due {
+            if !is_due(task.last_checked_at.as_deref(), chrono::Duration::minutes(task.check_interval_minutes), now) {
                 continue;
             }
             // One task failing (a provider bug) must not stop the others from being checked.
@@ -292,8 +287,7 @@ impl SeriesMonitor {
         }
         let now = chrono::Utc::now();
         for task in self.store.all() {
-            let stale = task.show_checked_at.as_deref().and_then(parse_iso).is_none_or(|at| at + SHOW_REFRESH <= now);
-            if stale
+            if is_due(task.show_checked_at.as_deref(), SHOW_REFRESH, now)
                 && !self.cancel.is_cancelled()
                 && let Err(error) = self.refresh_show(task.id).await
             {
@@ -305,13 +299,9 @@ impl SeriesMonitor {
     async fn check_due_watches(&self) {
         let now = chrono::Utc::now();
         for watch in self.watches.all() {
-            let due = watch.enabled
-                && watch
-                    .last_checked_at
-                    .as_deref()
-                    .and_then(parse_iso)
-                    .is_none_or(|last| last + chrono::Duration::minutes(watch.check_interval_minutes) <= now);
-            if due
+            let due = is_due(watch.last_checked_at.as_deref(), chrono::Duration::minutes(watch.check_interval_minutes), now);
+            if watch.enabled
+                && due
                 && !self.cancel.is_cancelled()
                 && let Err(error) = self.check_watch(watch.id).await
             {
@@ -330,11 +320,7 @@ impl SeriesMonitor {
             return self.watches.get(id);
         };
         // Lazy sources only have the magnet on the release's own page.
-        let shared = Arc::new(Mutex::new(best));
-        if shared.lock().unwrap().needs_resolution() {
-            let _ = tokio::time::timeout(Duration::from_secs(30), self.search.ensure_details(&shared, &self.cancel)).await;
-        }
-        let best = shared.lock().unwrap().clone();
+        let best = self.search.with_magnet(&Arc::new(Mutex::new(best)), &self.cancel).await;
         if best.magnet_uri.is_empty() {
             self.watches.checked(id);
             return Err(ApiError::bad(format!("Found \"{}\", but {} did not give its magnet link.", best.title, best.source)));
@@ -377,3 +363,8 @@ impl SeriesMonitor {
 }
 
 type Searches = HashMap<String, Vec<TorrentSearchResult>>;
+
+/// Whether something last done `at` (never, if None) is due again, `every` later.
+fn is_due(at: Option<&str>, every: chrono::Duration, now: chrono::DateTime<chrono::Utc>) -> bool {
+    at.and_then(parse_iso).is_none_or(|at| at + every <= now)
+}

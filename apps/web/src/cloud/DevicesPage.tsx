@@ -3,10 +3,13 @@ import { ChevronRight, Laptop, Magnet, MonitorSmartphone, Trash2 } from 'lucide-
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { cloud } from '../lib/cloudApi.ts'
+import { errorMessage } from '../lib/errors.ts'
 import { useFormatRelative, useT } from '../lib/i18n.tsx'
 import { forgetDeviceKey, listDeviceKeys } from '../lib/keyStore.ts'
 import { Empty } from '../ui/Empty.tsx'
+import { Loading } from '../ui/Loading.tsx'
 import { ConfirmDialog } from '../ui/Modal.tsx'
+import { PageHeader } from '../ui/controls.tsx'
 import { useToast } from '../ui/toast.tsx'
 import { canHandleMagnets, handleMagnetsHere } from './AddRedirect.tsx'
 import { CloudFrame } from './CloudFrame.tsx'
@@ -26,7 +29,7 @@ export function DevicesPage() {
       setDevices(list)
       setLinked(new Set(keys.map(k => k.deviceId)))
     } catch (e) {
-      toast(e instanceof Error ? e.message : String(e), 'error')
+      toast(errorMessage(e), 'error')
       setDevices([])
     }
   }, [toast])
@@ -44,10 +47,9 @@ export function DevicesPage() {
 
   return (
     <CloudFrame>
-      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{t('devices.title')}</h1>
-      <p className="muted mb-6 mt-1 text-sm">{t('devices.subtitle')}</p>
+      <PageHeader title={t('devices.title')} summary={t('devices.subtitle')} />
       {devices === null ? (
-        <div className="flex justify-center py-16"><span className="loading loading-spinner loading-lg text-primary" /></div>
+        <Loading />
       ) : devices.length === 0 ? (
         <Empty icon={<MonitorSmartphone size={40} strokeWidth={1.5} className="text-primary" />} title={t('devices.emptyTitle')} text={t('devices.emptyHint')}>
           <div className="mx-auto w-full max-w-sm text-left"><DownloadApp /></div>
@@ -104,7 +106,7 @@ export function DevicesPage() {
             await forgetDeviceKey(device.id).catch(() => {})
             await load()
           } catch (e) {
-            toast(e instanceof Error ? e.message : String(e), 'error')
+            toast(errorMessage(e), 'error')
           }
         }} />
     </CloudFrame>

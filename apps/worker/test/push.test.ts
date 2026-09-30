@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { fromBase64Url, toBase64Url } from '@magnetar/protocol/base64'
 import type { Env } from '../src/env.ts'
-import { handlePush, isPushService, resetPushCaches, vapidJwt } from '../src/push.ts'
+import { isPushService } from '@magnetar/protocol/push'
+import { handlePush, resetPushCaches, vapidJwt } from '../src/push.ts'
 
 const pair = (await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])) as CryptoKeyPair
 const publicKey = toBase64Url(new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey)))
@@ -31,7 +32,8 @@ describe('Web Push', () => {
     expect(isPushService('https://web.push.apple.com/abc')).toBe(true)
     expect(isPushService('https://wns2-par02p.notify.windows.com/w/?token=1')).toBe(true)
     for (const bad of ['http://fcm.googleapis.com/x', 'https://fcm.googleapis.com:8443/x', 'https://fcm.googleapis.com.evil.example/x',
-      'https://evil.example/fcm.googleapis.com', 'https://push.apple.com.evil.example/', 'https://169.254.169.254/', 'nope']) {
+      'https://evil.example/fcm.googleapis.com', 'https://push.apple.com.evil.example/', 'https://169.254.169.254/', 'nope',
+      `https://fcm.googleapis.com/${'a'.repeat(1000)}`]) {
       expect(isPushService(bad)).toBe(false)
     }
   })

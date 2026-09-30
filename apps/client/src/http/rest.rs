@@ -96,9 +96,6 @@ pub async fn handle(
             (Route::Sources, _) => to_json(actions.sources()),
             (Route::Search, _) => {
                 let input: SearchRequest = body(bytes)?;
-                if input.limit.is_some_and(|l| !(1..=200).contains(&l)) {
-                    return Err(ApiError::bad("limit: must be between 1 and 200"));
-                }
                 to_json(actions.search(&input.query, input.source.as_deref(), input.limit, cancel).await?)
             }
             (Route::SearchResult(id), _) => to_json(actions.details(id, cancel).await?),

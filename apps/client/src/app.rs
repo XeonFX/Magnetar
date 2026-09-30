@@ -81,7 +81,7 @@ impl App {
         let sealer = Arc::new(SecretBox::open(&paths.secret_key)?);
         let secrets = Arc::new(SecretStore::new(db.clone(), sealer.clone()));
         let events = EventBus::default();
-        let http = reqwest::Client::builder().build()?;
+        let http = crate::config::http_client()?;
         let settings = Arc::new(SettingsService::new(db.clone(), secrets.clone(), events.clone()));
         let notifications = Arc::new(NotificationDispatcher::new(settings.clone(), events.clone(), http.clone()));
         let search = Arc::new(SearchService::new(providers, settings.clone(), http.clone()));

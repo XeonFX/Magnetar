@@ -2,11 +2,12 @@ import type { DownloadDto, DownloadFileDto } from '@magnetar/protocol'
 import { formatBytes } from '@magnetar/protocol/bytes'
 import { FileAudio, FileText, FileVideo, FolderOpen, Info, Play } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { errorMessage } from '../../lib/errors.ts'
 import { useFormatDate, useT } from '../../lib/i18n.tsx'
 import { Modal } from '../../ui/Modal.tsx'
 import { useDevice, useDownloads } from '../DeviceContext.tsx'
 import { useRun } from '../useRun.ts'
-import { ProgressBar, ratioOf } from './downloads.tsx'
+import { isFinished, ProgressBar, ratioOf } from './downloads.tsx'
 import { PlayerDialog, subtitlesFor, type PlayTarget } from './player.tsx'
 
 /** While the download is running, the file list's progress is read again this often. */
@@ -63,8 +64,9 @@ function Details({ download: d }: { download: DownloadDto }) {
 }
 
 function fileIcon(file: DownloadFileDto) {
-  if (!file.playable) return <FileText size={16} className="muted shrink-0" />
-  return /\.(mp3|m4a|flac|ogg|opus|wav)$/i.test(file.path) ? <FileAudio size={16} className="shrink-0 text-accent" /> : <FileVideo size={16} className="shrink-0 text-info" />
+  if (file.media === 'audio') return <FileAudio size={16} className="shrink-0 text-accent" />
+  if (file.media === 'video') return <FileVideo size={16} className="shrink-0 text-info" />
+  return <FileText size={16} className="muted shrink-0" />
 }
 
 /** The torrent's files with a checkbox each; the choice is saved with one button, not per click. */
@@ -85,7 +87,7 @@ function FileList({ download: d }: { download: DownloadDto }) {
     let cancelled = false
     const load = () => connection.call('downloads.files', { id: d.id })
       .then(list => { if (!cancelled) { setFiles(list); setError(null) } })
-      .catch((e: unknown) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)) })
+      .catch((e: unknown) => { if (!cancelled) setError(errorMessage(e)) })
     void load()
     const timer = running ? setInterval(() => void load(), REFRESH_MS) : undefined
     return () => { cancelled = true; clearInterval(timer) }
@@ -142,7 +144,7 @@ function FileList({ download: d }: { download: DownloadDto }) {
                   {!selected.has(file.index) && ` · ${t('details.skipped')}`}
                 </div>
               </div>
-              {file.playable && file.selected && (file.done > 0 || running) && (
+              {file.media && file.selected && (file.done > 0 || running) && (
                 <button type="button" className="btn btn-ghost btn-sm btn-square text-primary" aria-label={t('player.play', file.path)} title={t('player.play', file.path)}
                   onClick={() => setPlaying({ downloadId: d.id, file, subtitles: subtitlesFor(file, files) })}>
                   <Play size={16} />
@@ -161,7 +163,7 @@ function FileList({ download: d }: { download: DownloadDto }) {
           </button>
         </div>
       )}
-      <PlayerDialog target={playing} finished={d.status === 'Completed' || d.status === 'Seeding'} onClose={() => setPlaying(null)} />
+      <PlayerDialog target={playing} finished={isFinished(d)} onClose={() => setPlaying(null)} />
     </section>
   )
 }

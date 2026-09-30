@@ -7,7 +7,7 @@ import { useSearchParams } from 'react-router'
 import { LANGUAGES, useFormatDate, useT } from '../../lib/i18n.tsx'
 import { askNotificationPermission } from '../../lib/notifications.ts'
 import { PageHeader, Segmented, SettingGroup, SettingRow, Switch } from '../../ui/controls.tsx'
-import { Field, SaveOnBlurInput, blurOnEnter } from '../../ui/fields.tsx'
+import { CopyInput, Field, SaveOnBlurInput, blurOnEnter } from '../../ui/fields.tsx'
 import { ConfirmDialog } from '../../ui/Modal.tsx'
 import { useTheme, type ThemeMode } from '../../ui/theme.ts'
 import { useCopy, useToast } from '../../ui/toast.tsx'
@@ -18,6 +18,7 @@ import { useLegacyImport } from '../components/legacyImport.tsx'
 import { RemoteAccessSection } from '../components/remoteAccess.tsx'
 import { NetworkSettings, SeedingRow, SpeedSettings } from '../components/transferSettings.tsx'
 import { useRun } from '../useRun.ts'
+import { Loading } from '../../ui/Loading.tsx'
 
 const SECTIONS = [
   { id: 'general', icon: SlidersHorizontal },
@@ -36,7 +37,7 @@ export function SettingsPage() {
   const [params, setParams] = useSearchParams()
   const current = SECTIONS.find(s => s.id === params.get('section'))?.id ?? 'general'
   const select = (id: SectionId) => setParams(id === 'general' ? {} : { section: id }, { replace: true })
-  if (!settings) return <div className="flex justify-center py-24"><span className="loading loading-spinner loading-lg text-primary" /></div>
+  if (!settings) return <Loading />
 
   return (
     <>
@@ -324,7 +325,6 @@ function AgentSection() {
     if (next) setAgent(next)
     if (next && patch.allowRemote !== undefined) toast(t('settings.agentRestart'), 'info')
   }
-  const command = `claude mcp add --transport http --scope user magnetar ${agent.mcpUrl}`
 
   /** Registers the MCP server with Claude Code on this computer (turning agent access on). */
   const connectClaude = async () => {
@@ -353,8 +353,7 @@ function AgentSection() {
       {agent.enabled && (
         <SettingGroup title={t('settings.agentDetails')} description={t('settings.agentLoopbackHint')}>
           <SettingRow title={t('settings.agentRemote')} description={t('settings.agentRemoteHint')}>
-            <input type="checkbox" role="switch" className="toggle toggle-warning" aria-label={t('settings.agentRemote')} checked={agent.allowRemote}
-              onChange={e => void change({ allowRemote: e.target.checked })} />
+            <Switch tone="warning" label={t('settings.agentRemote')} checked={agent.allowRemote} onChange={allowRemote => void change({ allowRemote })} />
           </SettingRow>
           <div className="flex flex-col gap-4 py-4 last:pb-0">
             <Field label={t('settings.agentToken')}>
@@ -366,7 +365,7 @@ function AgentSection() {
               </div>
             </Field>
             <CopyField label={t('settings.agentMcpUrl')} value={agent.mcpUrl} onCopy={copy} />
-            <CopyField label={t('settings.agentClaudeCommand')} value={command} onCopy={copy} />
+            <CopyField label={t('settings.agentClaudeCommand')} value={agent.claudeCommand} onCopy={copy} />
             <p className="muted break-release text-xs">{t('settings.agentEndpointFile', agent.endpointFile)}</p>
           </div>
         </SettingGroup>
@@ -390,10 +389,7 @@ function CopyField({ label, value, onCopy }: { label: string; value: string; onC
   const t = useT()
   return (
     <Field label={label}>
-      <div className="join w-full">
-        <input readOnly className="input join-item w-full min-w-0 font-mono text-sm" value={value} />
-        <button type="button" className="btn join-item" aria-label={`${t('settings.agentCopy')}: ${label}`} onClick={() => onCopy(value)}><Copy size={16} /></button>
-      </div>
+      <CopyInput label={label} value={value} copyLabel={t('common.copy')} onCopy={onCopy} />
     </Field>
   )
 }

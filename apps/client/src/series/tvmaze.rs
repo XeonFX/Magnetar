@@ -7,7 +7,6 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use crate::config::USER_AGENT;
 use crate::protocol::encoding::encode_uri_component;
 use crate::protocol::{AiringDto, ShowInfoDto};
 
@@ -65,7 +64,7 @@ impl From<Episode> for AiringDto {
 pub async fn lookup(http: &reqwest::Client, name: &str) -> anyhow::Result<Option<(ShowInfoDto, Option<String>)>> {
     let url =
         format!("{API}/singlesearch/shows?q={}&embed[]=nextepisode&embed[]=previousepisode", encode_uri_component(name.trim()));
-    let response = http.get(url).header("user-agent", USER_AGENT.as_str()).timeout(TIMEOUT).send().await?;
+    let response = http.get(url).timeout(TIMEOUT).send().await?;
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
     }
@@ -104,15 +103,7 @@ pub async fn save_poster(http: &reqwest::Client, url: &str, target: &Path) -> an
         parsed.host_str().is_some_and(|h| h == "static.tvmaze.com" || h.ends_with(".tvmaze.com")),
         "not a TVmaze image"
     );
-    let bytes = http
-        .get(url)
-        .header("user-agent", USER_AGENT.as_str())
-        .timeout(TIMEOUT)
-        .send()
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
+    let bytes = http.get(url).timeout(TIMEOUT).send().await?.error_for_status()?.bytes().await?;
     anyhow::ensure!(bytes.len() <= MAX_POSTER_BYTES && bytes.starts_with(&[0xFF, 0xD8]), "not a JPEG poster");
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent)?;

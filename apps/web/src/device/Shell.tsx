@@ -2,6 +2,7 @@ import { CloudOff, Download, Loader, Search, Settings, ShieldAlert, Tv, WifiOff 
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Outlet } from 'react-router'
 import { useT } from '../lib/i18n.tsx'
+import { Loading } from '../ui/Loading.tsx'
 import { useDevice, useDownloads } from './DeviceContext.tsx'
 import { isActive } from './components/downloads.tsx'
 import { BrandMark } from '../ui/BrandMark.tsx'
@@ -53,7 +54,7 @@ export function Shell({ headerStart, headerEnd }: { headerStart?: ReactNode; hea
         </header>
         <ConnectionBanner />
         <main className="pb-tabbar mx-auto w-full max-w-5xl flex-1 px-4 pt-5 sm:px-6 lg:px-10 lg:pt-10">
-          {connectionState.status === 'open' || info ? <Outlet /> : <div className="flex justify-center py-24"><span className="loading loading-spinner loading-lg text-primary" /></div>}
+          {connectionState.status === 'open' || info ? <Outlet /> : <Loading />}
         </main>
         <nav aria-label={t('nav.menu')}
           className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-base-300 bg-base-100/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">

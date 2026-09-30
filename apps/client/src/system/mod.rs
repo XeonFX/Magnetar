@@ -6,6 +6,16 @@ pub mod login_startup;
 use std::process::{Command, Stdio};
 
 /// A command that opens no console window on Windows.
+/// Runs a program to its end: its output when it succeeds, else what it said went wrong.
+#[cfg_attr(target_os = "linux", allow(dead_code))]
+pub fn run_captured(program: &str, args: &[&str]) -> Result<String, String> {
+    match hidden_command(program).args(args).output() {
+        Ok(out) if out.status.success() => Ok(String::from_utf8_lossy(&out.stdout).into_owned()),
+        Ok(out) => Err(String::from_utf8_lossy(&out.stderr).trim().to_owned()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
 pub fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
     #[allow(unused_mut)]
     let mut command = Command::new(program);

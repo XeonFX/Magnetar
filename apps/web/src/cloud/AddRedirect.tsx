@@ -5,6 +5,8 @@ import { Link, Navigate, useSearchParams } from 'react-router'
 import { cloud } from '../lib/cloudApi.ts'
 import { useT } from '../lib/i18n.tsx'
 import { listDeviceKeys } from '../lib/keyStore.ts'
+import { magnetsIn } from '../lib/magnets.ts'
+import { Loading } from '../ui/Loading.tsx'
 import { CloudFrame } from './CloudFrame.tsx'
 
 /**
@@ -14,7 +16,7 @@ import { CloudFrame } from './CloudFrame.tsx'
 export function AddRedirect() {
   const t = useT()
   const [params] = useSearchParams()
-  const magnet = params.get('uri') ?? ''
+  const magnet = magnetsIn(params.get('uri') ?? '')[0] ?? ''
   const [devices, setDevices] = useState<CloudDeviceDto[] | null>(null)
   useEffect(() => {
     void Promise.all([cloud.devices(), listDeviceKeys().catch(() => [])])
@@ -23,8 +25,8 @@ export function AddRedirect() {
   }, [])
 
   const target = (id: string) => `/d/${encodeURIComponent(id)}?add=${encodeURIComponent(magnet)}`
-  if (!magnet.toLowerCase().startsWith('magnet:?')) return <Navigate to="/" replace />
-  if (devices === null) return <div className="grid min-h-screen place-items-center"><span className="loading loading-spinner loading-lg text-primary" /></div>
+  if (!magnet) return <Navigate to="/" replace />
+  if (devices === null) return <Loading screen />
   if (devices.length === 1) return <Navigate to={target(devices[0]!.id)} replace />
   return (
     <CloudFrame>

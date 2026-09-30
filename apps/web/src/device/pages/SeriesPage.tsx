@@ -1,8 +1,9 @@
-import type { AiringDto, DownloadDto, SeriesResolution, SeriesTaskDto, ShowInfoDto, WatchInput } from '@magnetar/protocol'
+import type { AiringDto, DownloadDto, SeriesTaskDto, ShowInfoDto, WatchInput } from '@magnetar/protocol'
 import { ChevronDown, CircleCheck, Clapperboard, ExternalLink, Pencil, Plus, RefreshCw, Trash2, Tv } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useLocation, useSearchParams } from 'react-router'
 import { useFormatRelative, useT } from '../../lib/i18n.tsx'
+import { parseQuality, qualityForm, resolutionLabel, type QualityForm } from '../../lib/quality.ts'
 import { PageHeader, Segmented, Switch } from '../../ui/controls.tsx'
 import { Field, TextField } from '../../ui/fields.tsx'
 import { Empty } from '../../ui/Empty.tsx'
@@ -10,6 +11,7 @@ import { ConfirmDialog, Modal } from '../../ui/Modal.tsx'
 import { useToast } from '../../ui/toast.tsx'
 import { useConnection, useDevice, useDownloads } from '../DeviceContext.tsx'
 import { FolderField } from '../components/folders.tsx'
+import { intervalLabel, QualityFields } from '../components/qualityFields.tsx'
 import { WatchesSection } from '../components/watches.tsx'
 import { useRun } from '../useRun.ts'
 import { DownloadList } from './DownloadsPage.tsx'
@@ -114,7 +116,7 @@ const SeriesCard = memo(function SeriesCard({ task, downloads, onEdit }: {
 
   const details = [
     task.season !== null && t('series.seasonN', task.season),
-    task.resolution && (task.resolution === '2160p' ? '4K' : task.resolution),
+    resolutionLabel(task.resolution),
     task.titleFilter,
     task.provider,
     t('series.everyN', intervalLabel(t, task.checkIntervalMinutes)),
@@ -209,13 +211,7 @@ function airingLabel(airing: AiringDto): string {
   return airing.number === null ? '' : episodeLabel(airing.season, airing.number)
 }
 
-function intervalLabel(t: ReturnType<typeof useT>, minutes: number): string {
-  return minutes % 1440 === 0 ? t('series.interval.days', minutes / 1440)
-    : minutes % 60 === 0 ? t('series.interval.hours', minutes / 60)
-    : t('series.interval.minutes', minutes)
-}
-
-interface Form {
+interface Form extends QualityForm {
   name: string
   query: string
   provider: string
@@ -225,11 +221,6 @@ interface Form {
   endEpisode: string
   checkIntervalMinutes: number
   downloadFolder: string
-  resolution: SeriesResolution | ''
-  minSeeders: string
-  maxSizeGb: string
-  preferWords: string
-  excludeWords: string
   startFrom: 'episode' | 'latest' | 'new'
 }
 
@@ -244,11 +235,7 @@ function formFor(task: SeriesTaskDto | null): Form {
     endEpisode: task?.endEpisode == null ? '' : String(task.endEpisode),
     checkIntervalMinutes: task?.checkIntervalMinutes ?? 60,
     downloadFolder: task?.downloadFolder ?? '',
-    resolution: task?.resolution ?? '',
-    minSeeders: String(task?.minSeeders ?? 1),
-    maxSizeGb: task?.maxSizeMb == null ? '' : String(Math.round((task.maxSizeMb / 1024) * 10) / 10),
-    preferWords: task?.preferWords ?? '',
-    excludeWords: task?.excludeWords ?? '',
+    ...qualityForm(task),
     startFrom: 'episode',
   }
 }
@@ -270,10 +257,8 @@ function SeriesDialog({ task, onClose }: { task: SeriesTaskDto | 'new' | null; o
   const number = (v: string) => (v.trim() === '' ? null : Math.max(0, Math.trunc(Number(v))))
   const start = number(form.startEpisode) ?? 1
   const end = number(form.endEpisode)
-  const seeders = number(form.minSeeders)
-  const maxSize = form.maxSizeGb.trim() === '' ? null : Number(form.maxSizeGb)
-  const sizeInvalid = maxSize !== null && !(maxSize > 0)
-  const invalid = !form.query.trim() || (end !== null && end < start) || seeders === null || seeders < 1 || sizeInvalid
+  const quality = parseQuality(form)
+  const invalid = !form.query.trim() || (end !== null && end < start) || quality.invalid
 
   const save = async () => {
     const values = {
@@ -286,11 +271,7 @@ function SeriesDialog({ task, onClose }: { task: SeriesTaskDto | 'new' | null; o
       endEpisode: end,
       checkIntervalMinutes: form.checkIntervalMinutes,
       downloadFolder: form.downloadFolder.trim() || null,
-      resolution: form.resolution || null,
-      minSeeders: Math.max(1, seeders ?? 1),
-      maxSizeMb: maxSize === null ? null : Math.max(1, Math.round(maxSize * 1024)),
-      preferWords: form.preferWords.trim() || null,
-      excludeWords: form.excludeWords.trim() || null,
+      ...quality.values,
     }
     setSaving(true)
     const saved = existing
@@ -347,19 +328,7 @@ function SeriesDialog({ task, onClose }: { task: SeriesTaskDto | 'new' | null; o
         </FormSection>
 
         <FormSection title={t('series.qualityTitle')}>
-          <Field label={t('search.resolution')}>
-            <Segmented label={t('search.resolution')} value={form.resolution} onChange={set('resolution')}
-              options={[{ value: '', label: t('search.resolutionAny') }, { value: '720p', label: '720p' }, { value: '1080p', label: '1080p' }, { value: '2160p', label: '4K' }]} />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <TextField label={t('series.minSeeders')} help={t('series.minSeedersHelp')} type="number" min={1} value={form.minSeeders} onChange={set('minSeeders')} />
-            <TextField label={t('series.maxSize')} help={sizeInvalid ? <span className="text-error">{t('settings.speedInvalid')}</span> : t('series.maxSizeHelp')}
-              type="number" min={0.1} step={0.1} value={form.maxSizeGb} placeholder={t('settings.noLimit')} onChange={set('maxSizeGb')} />
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <TextField label={t('series.prefer')} help={t('series.preferHelp')} value={form.preferWords} placeholder="SubsPlease, HEVC" maxLength={200} onChange={set('preferWords')} />
-            <TextField label={t('series.exclude')} help={t('series.excludeHelp')} value={form.excludeWords} placeholder="CAM, dubbed" maxLength={200} onChange={set('excludeWords')} />
-          </div>
+          <QualityFields form={form} set={set} kind="series" />
         </FormSection>
 
         <FormSection title={t('series.whereTitle')}>

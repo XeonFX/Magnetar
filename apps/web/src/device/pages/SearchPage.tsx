@@ -11,11 +11,11 @@ import { Empty } from '../../ui/Empty.tsx'
 import { Modal } from '../../ui/Modal.tsx'
 import { PAGE_SIZE, ShowMore } from '../../ui/ShowMore.tsx'
 import { useCopy, useToast } from '../../ui/toast.tsx'
-import { useDevice } from '../DeviceContext.tsx'
+import { useDevice, useSearch } from '../DeviceContext.tsx'
 import { FolderField } from '../components/folders.tsx'
+import { resolutionOptions } from '../components/qualityFields.tsx'
 import { useRun } from '../useRun.ts'
 
-const RESOLUTIONS = [['', 'search.resolutionAny'], ['720p', '720p'], ['1080p', '1080p'], ['2160p', '4K']] as const
 
 type Sort = 'seeders' | 'newest' | 'largest' | 'smallest'
 const SORTS: Record<Sort, (a: SearchResultDto, b: SearchResultDto) => number> = {
@@ -43,7 +43,8 @@ function useStartDownload() {
 
 export function SearchPage() {
   const t = useT()
-  const { connection, sources, search, setSearch, basePath } = useDevice()
+  const { connection, sources, basePath } = useDevice()
+  const { search, setSearch } = useSearch()
   const navigate = useNavigate()
   const run = useRun()
   const startDownload = useStartDownload()
@@ -100,7 +101,7 @@ export function SearchPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Segmented label={t('search.resolution')} value={search.resolution} onChange={resolution => setSearch(s => ({ ...s, resolution }))}
-            options={RESOLUTIONS.map(([value, label]) => ({ value, label: value ? label : t(label) }))} />
+            options={resolutionOptions(t)} />
           <select className="select select-sm w-auto rounded-full" aria-label={t('search.source')} value={search.source}
             onChange={e => setSearch(s => ({ ...s, source: e.target.value }))}>
             <option value="">{t('search.allSources')}</option>

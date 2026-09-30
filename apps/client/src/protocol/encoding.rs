@@ -1,5 +1,5 @@
 use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use rand::RngCore;
 
 /// base64url without padding, for keys and ids that travel in URLs and JSON.
@@ -9,6 +9,22 @@ pub fn to_base64url(bytes: &[u8]) -> String {
 
 pub fn from_base64url(value: &str) -> anyhow::Result<Vec<u8>> {
     Ok(URL_SAFE_NO_PAD.decode(value.trim_end_matches('='))?)
+}
+
+/// Standard base64, for file contents and mail headers.
+pub fn to_base64(bytes: &[u8]) -> String {
+    STANDARD.encode(bytes)
+}
+
+pub fn from_base64(value: &str) -> anyhow::Result<Vec<u8>> {
+    Ok(STANDARD.decode(value)?)
+}
+
+/// Milliseconds since the epoch, as a replaceable source so tests can move time.
+pub type Clock = Box<dyn Fn() -> u64 + Send + Sync>;
+
+pub fn system_clock() -> Clock {
+    Box::new(|| chrono::Utc::now().timestamp_millis() as u64)
 }
 
 pub fn random_bytes(length: usize) -> Vec<u8> {

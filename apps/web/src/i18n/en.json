@@ -510,6 +510,7 @@
     "transfer.scheduleOff": "Switched by hand, so the schedule is off. Turn it back on in Settings → Downloads.",
     "add.magnetOne": "1 magnet link found",
     "add.startedOne": "Download started",
-    "series.failedOne": "A release had no seeders; the next check tries another."
+    "series.failedOne": "A release had no seeders; the next check tries another.",
+    "common.copy": "Copy"
   }
 }

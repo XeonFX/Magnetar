@@ -4,11 +4,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::protocol::encoding::random_bytes;
+use crate::protocol::encoding::{from_base64, random_bytes, to_base64};
 
 /// Schema versions, applied in order and recorded in `PRAGMA user_version`. Append only: a shipped
 /// migration never changes, a new one is added after it.
@@ -118,6 +116,8 @@ impl Db {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
         let mut conn = Connection::open(path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
+        // With WAL this keeps the database consistent and syncs at checkpoints, not every write.
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         let current: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -183,16 +183,16 @@ impl SecretBox {
         let iv: [u8; 12] = random_bytes(12).try_into().expect("12 bytes");
         let sealed = self.cipher.encrypt(&Nonce::from(iv), plaintext.as_bytes()).expect("in-memory encryption");
         let (body, tag) = sealed.split_at(sealed.len() - 16);
-        format!("v1:{}:{}:{}", STANDARD.encode(iv), STANDARD.encode(body), STANDARD.encode(tag))
+        format!("v1:{}:{}:{}", to_base64(&iv), to_base64(body), to_base64(tag))
     }
 
     pub fn open_sealed(&self, sealed: &str) -> anyhow::Result<String> {
         let parts: Vec<&str> = sealed.split(':').collect();
         let [version, iv, body, tag] = parts[..] else { anyhow::bail!("Unrecognised secret format") };
         anyhow::ensure!(version == "v1", "Unrecognised secret format");
-        let iv: [u8; 12] = STANDARD.decode(iv)?.try_into().map_err(|_| anyhow::anyhow!("Unrecognised secret format"))?;
-        let mut ciphertext = STANDARD.decode(body)?;
-        ciphertext.extend(STANDARD.decode(tag)?);
+        let iv: [u8; 12] = from_base64(iv)?.try_into().map_err(|_| anyhow::anyhow!("Unrecognised secret format"))?;
+        let mut ciphertext = from_base64(body)?;
+        ciphertext.extend(from_base64(tag)?);
         let plaintext = self
             .cipher
             .decrypt(&Nonce::from(iv), ciphertext.as_slice())

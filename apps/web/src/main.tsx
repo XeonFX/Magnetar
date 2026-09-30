@@ -6,6 +6,8 @@ import { loadAppConfig, type AppConfig } from './lib/cloudApi.ts'
 import { installErrorReporting } from './lib/errorReport.ts'
 import { captureInstallOffer } from './lib/install.ts'
 import { ToastProvider } from './ui/toast.tsx'
+import { errorMessage } from './lib/errors.ts'
+import { Loading } from './ui/Loading.tsx'
 
 const CloudApp = lazy(() => import('./cloud/CloudApp.tsx'))
 
@@ -23,16 +25,16 @@ function Root() {
         void navigator.serviceWorker?.register('/sw.js', { scope: '/' }).catch(() => {})
       }
       setConfig(c)
-    }, e => setError(e instanceof Error ? e.message : String(e)))
+    }, e => setError(errorMessage(e)))
   }, [])
 
   if (error) {
     return <div className="grid min-h-screen place-items-center p-6"><div role="alert" className="alert alert-error max-w-lg">{error}</div></div>
   }
-  if (!config) return <div className="grid min-h-screen place-items-center"><span className="loading loading-spinner loading-lg text-primary" /></div>
+  if (!config) return <Loading screen />
   return config.mode === 'local'
     ? <LocalApp />
-    : <Suspense fallback={<div className="grid min-h-screen place-items-center"><span className="loading loading-spinner loading-lg text-primary" /></div>}><CloudApp config={config} /></Suspense>
+    : <Suspense fallback={<Loading screen />}><CloudApp config={config} /></Suspense>
 }
 
 createRoot(document.getElementById('root')!).render(

@@ -510,6 +510,7 @@
     "transfer.scheduleOff": "Cambiado a mano, así que el horario está desactivado. Reactívalo en Ajustes → Descargas.",
     "add.magnetOne": "1 enlace magnet encontrado",
     "add.startedOne": "Descarga iniciada",
-    "series.failedOne": "Una versión no tenía seeders; la próxima comprobación prueba otra."
+    "series.failedOne": "Una versión no tenía seeders; la próxima comprobación prueba otra.",
+    "common.copy": "Copiar"
   }
 }

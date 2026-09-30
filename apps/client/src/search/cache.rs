@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::error::{ApiError, ApiResult};
 use crate::protocol::SearchResultDto;
-use crate::protocol::encoding::{iso, random_id};
+use crate::protocol::encoding::{Clock, iso, random_id, system_clock};
 
 use super::types::{SharedResult, TorrentSearchResult, is_real_info_hash};
 
@@ -23,8 +23,6 @@ struct State {
     last_prune: u64,
 }
 
-pub type Clock = Box<dyn Fn() -> u64 + Send + Sync>;
-
 /// Short-lived handles for search results. Starting a download needs the live result — a 1337x row
 /// only has a placeholder hash until its detail page is fetched — and a dashboard or an agent over
 /// HTTP has no other way to point back at it. Entries expire on a sliding window and the cache is
@@ -36,7 +34,7 @@ pub struct SearchResultCache {
 
 impl Default for SearchResultCache {
     fn default() -> Self {
-        Self::with_clock(Box::new(|| chrono::Utc::now().timestamp_millis() as u64))
+        Self::with_clock(system_clock())
     }
 }
 

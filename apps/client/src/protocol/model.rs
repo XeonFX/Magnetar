@@ -98,8 +98,8 @@ pub struct DownloadFileDto {
     /// Verified bytes so far.
     pub done: u64,
     pub selected: bool,
-    /// A video or audio file the dashboard can play.
-    pub playable: bool,
+    /// "video" or "audio" for a file the dashboard can play; None for anything else.
+    pub media: Option<&'static str>,
 }
 
 /// How many of a torrent's files are being downloaded, when not all of them.
@@ -290,32 +290,53 @@ pub struct WatchInput {
     pub enabled: bool,
 }
 
+/// Trimmed text, or None when blank.
+fn optional_text(value: Option<String>) -> Option<String> {
+    value.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
+}
+
+/// What is wrong with the release rules series tasks and watches share.
+fn quality_problems(
+    resolution: Option<&str>,
+    min_seeders: i64,
+    max_size_mb: Option<i64>,
+    word_lists: [&Option<String>; 2],
+    problems: &mut Vec<&'static str>,
+) {
+    if resolution.is_some_and(|r| !crate::series::quality::RESOLUTIONS.contains(&r)) {
+        problems.push("resolution must be 720p, 1080p or 2160p, or null for any.");
+    }
+    if !(1..=100_000).contains(&min_seeders) {
+        problems.push("minSeeders must be at least 1.");
+    }
+    if max_size_mb.is_some_and(|mb| !(1..=10_000_000).contains(&mb)) {
+        problems.push("maxSizeMb must be at least 1.");
+    }
+    if word_lists.iter().any(|w| w.as_ref().is_some_and(|w| w.chars().count() > 200)) {
+        problems.push("preferWords and excludeWords are at most 200 characters.");
+    }
+}
+
 impl WatchInput {
     pub fn validated(mut self) -> ApiResult<Self> {
-        let optional = |v: Option<String>| v.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
         self.query = self.query.trim().to_owned();
-        self.resolution = optional(self.resolution);
-        self.prefer_words = optional(self.prefer_words);
-        self.exclude_words = optional(self.exclude_words);
+        self.resolution = optional_text(self.resolution);
+        self.prefer_words = optional_text(self.prefer_words);
+        self.exclude_words = optional_text(self.exclude_words);
         let mut problems = Vec::new();
         if self.query.chars().count() < 2 || self.query.chars().count() > 200 {
             problems.push("query: 2 to 200 characters.");
         }
-        if self.resolution.as_deref().is_some_and(|r| !crate::series::quality::RESOLUTIONS.contains(&r)) {
-            problems.push("resolution must be 720p, 1080p or 2160p, or null for any.");
-        }
-        if !(1..=100_000).contains(&self.min_seeders) {
-            problems.push("minSeeders must be at least 1.");
-        }
-        if self.max_size_mb.is_some_and(|mb| !(1..=10_000_000).contains(&mb)) {
-            problems.push("maxSizeMb must be at least 1.");
-        }
         if !(15..=10_080).contains(&self.check_interval_minutes) {
             problems.push("checkIntervalMinutes must be 15 minutes to a week.");
         }
-        if [&self.prefer_words, &self.exclude_words].iter().any(|w| w.as_ref().is_some_and(|w| w.chars().count() > 200)) {
-            problems.push("preferWords and excludeWords are at most 200 characters.");
-        }
+        quality_problems(
+            self.resolution.as_deref(),
+            self.min_seeders,
+            self.max_size_mb,
+            [&self.prefer_words, &self.exclude_words],
+            &mut problems,
+        );
         if problems.is_empty() { Ok(self) } else { Err(ApiError::bad(problems.join(" "))) }
     }
 }
@@ -415,8 +436,9 @@ pub struct AgentStatusDto {
     pub enabled: bool,
     pub allow_remote: bool,
     pub token: String,
-    pub base_url: String,
     pub mcp_url: String,
+    /// What adds this device to Claude Code, for running by hand.
+    pub claude_command: String,
     pub endpoint_file: String,
 }
 
@@ -424,9 +446,8 @@ pub struct AgentStatusDto {
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeConnectResultDto {
-    /// "connected", or "cliNotFound" when the user has to run `command` themselves.
+    /// "connected", or "cliNotFound" when the user has to run the agent's `claude_command` themselves.
     pub status: &'static str,
-    pub command: String,
     pub agent: AgentStatusDto,
 }
 
@@ -651,9 +672,6 @@ impl From<SeriesTaskReplacement> for SeriesTaskPatch {
 impl SeriesTaskInput {
     /// Trims, turns blank optional text into null, and checks what a create would reject.
     pub fn validated(mut self) -> ApiResult<Self> {
-        fn optional_text(value: Option<String>) -> Option<String> {
-            value.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
-        }
         self.name = self.name.trim().to_owned();
         self.query = self.query.trim().to_owned();
         self.provider = optional_text(self.provider);
@@ -681,18 +699,13 @@ impl SeriesTaskInput {
         if self.end_episode.is_some_and(|end| end < self.start_episode) {
             problems.push("endEpisode cannot be before startEpisode.");
         }
-        if self.resolution.as_deref().is_some_and(|r| !crate::series::quality::RESOLUTIONS.contains(&r)) {
-            problems.push("resolution must be 720p, 1080p or 2160p, or null for any.");
-        }
-        if !(1..=100_000).contains(&self.min_seeders) {
-            problems.push("minSeeders must be at least 1.");
-        }
-        if self.max_size_mb.is_some_and(|mb| !(1..=10_000_000).contains(&mb)) {
-            problems.push("maxSizeMb must be at least 1.");
-        }
-        if [&self.prefer_words, &self.exclude_words].iter().any(|w| w.as_ref().is_some_and(|w| w.chars().count() > 200)) {
-            problems.push("preferWords and excludeWords are at most 200 characters.");
-        }
+        quality_problems(
+            self.resolution.as_deref(),
+            self.min_seeders,
+            self.max_size_mb,
+            [&self.prefer_words, &self.exclude_words],
+            &mut problems,
+        );
         if problems.is_empty() { Ok(self) } else { Err(ApiError::bad(problems.join(" "))) }
     }
 }

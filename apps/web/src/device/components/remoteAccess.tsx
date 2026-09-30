@@ -1,9 +1,9 @@
-import { Copy, ExternalLink, Link2, Plus, QrCode, ShieldCheck, Unlink } from 'lucide-react'
+import { ExternalLink, Link2, Plus, QrCode, ShieldCheck, Unlink } from 'lucide-react'
 import QRCode from 'qrcode'
 import { useEffect, useState } from 'react'
 import { useFormatRelative, useT } from '../../lib/i18n.tsx'
 import { SettingGroup, SettingRow } from '../../ui/controls.tsx'
-import { Field } from '../../ui/fields.tsx'
+import { CopyInput, Field } from '../../ui/fields.tsx'
 import { ConfirmDialog, Modal } from '../../ui/Modal.tsx'
 import { useCopy } from '../../ui/toast.tsx'
 import { useDevice } from '../DeviceContext.tsx'
@@ -123,10 +123,7 @@ export function RemoteAccessSection() {
           <div className="flex flex-col items-center gap-3 text-center">
             <p className="text-sm">{t('remote.linkHint')}</p>
             <img src={link.qr} alt={t('remote.linkTitle')} className="size-64 rounded-box bg-white p-2" />
-            <div className="join w-full">
-              <input readOnly className="input join-item w-full font-mono text-xs" value={link.url} aria-label={t('remote.linkTitle')} />
-              <button type="button" className="btn join-item" aria-label={t('info.copied')} onClick={() => void copy(link.url)}><Copy size={16} /></button>
-            </div>
+            <CopyInput small label={t('remote.linkTitle')} value={link.url} copyLabel={t('common.copy')} onCopy={value => void copy(value)} />
             <p className="text-xs text-warning">{t('remote.linkWarning')}</p>
           </div>
         )}

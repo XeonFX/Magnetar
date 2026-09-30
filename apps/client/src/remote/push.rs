@@ -26,22 +26,29 @@ pub struct PushPayload<'a> {
     pub url: String,
 }
 
-/// Push services this app sends to. Anything else is refused, so a subscription can't turn the
-/// device into a way to make requests elsewhere.
-const PUSH_HOSTS: [&str; 5] = [
-    "fcm.googleapis.com",
-    "android.googleapis.com",
-    "updates.push.services.mozilla.com",
-    ".push.apple.com",
-    ".notify.windows.com",
-];
+/// Push services this app sends to, shared with the Worker. Anything else is refused, so a
+/// subscription can't turn the device into a way to make requests elsewhere.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PushServices {
+    hosts: Vec<String>,
+    max_endpoint_length: usize,
+}
+
+static PUSH_SERVICES: std::sync::LazyLock<PushServices> = std::sync::LazyLock::new(|| {
+    serde_json::from_str(include_str!("../../../../packages/protocol/src/push-services.json")).expect("push-services.json")
+});
 
 pub fn is_push_service(endpoint: &str) -> bool {
     let Ok(url) = url::Url::parse(endpoint) else { return false };
     let Some(host) = url.host_str() else { return false };
-    url.scheme() == "https"
+    endpoint.len() <= PUSH_SERVICES.max_endpoint_length
+        && url.scheme() == "https"
         && url.port().is_none()
-        && PUSH_HOSTS.iter().any(|allowed| if allowed.starts_with('.') { host.ends_with(allowed) } else { host == *allowed })
+        && PUSH_SERVICES
+            .hosts
+            .iter()
+            .any(|allowed| if allowed.starts_with('.') { host.ends_with(allowed.as_str()) } else { host == allowed })
 }
 
 pub struct PushSubscriptions {
@@ -55,7 +62,7 @@ impl PushSubscriptions {
 
     /// Stores a browser's subscription under its key; revoking the key removes it.
     pub fn add(&self, key_id: &str, endpoint: &str, p256dh: &str, auth: &str) -> ApiResult<()> {
-        if endpoint.len() > 1000 || !is_push_service(endpoint) {
+        if !is_push_service(endpoint) {
             return Err(ApiError::bad("That is not a push service this app sends to."));
         }
         let p256dh_ok = from_base64url(p256dh).is_ok_and(|k| k.len() == 65 && k[0] == 4);
@@ -116,6 +123,7 @@ mod tests {
             "https://notify.windows.com/x",
             "https://169.254.169.254/latest",
             "not a url",
+            &format!("https://fcm.googleapis.com/{}", "a".repeat(1000)),
         ] {
             assert!(!is_push_service(bad), "{bad}");
         }

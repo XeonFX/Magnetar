@@ -79,8 +79,8 @@ async fn a_torrent_file_starts_at_once_and_its_files_can_be_chosen() {
     wait_for(&app, added.id, DownloadStatus::Seeding).await;
 
     let files = app.downloads.files(added.id).unwrap();
-    let names: Vec<(&str, bool, bool)> = files.iter().map(|f| (f.path.as_str(), f.playable, f.done == f.size)).collect();
-    assert_eq!(names, [("e01.mkv", true, true), ("e01.srt", false, true)]);
+    let names: Vec<(&str, Option<&str>, bool)> = files.iter().map(|f| (f.path.as_str(), f.media, f.done == f.size)).collect();
+    assert_eq!(names, [("e01.mkv", Some("video"), true), ("e01.srt", None, true)]);
     assert!(files.iter().all(|f| f.selected));
 
     // Finish it, so trimming and widening the choice can be seen not to restart it.

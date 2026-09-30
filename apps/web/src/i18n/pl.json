@@ -510,6 +510,7 @@
     "transfer.scheduleOff": "Przełączone ręcznie, więc harmonogram jest wyłączony. Włącz go ponownie w Ustawienia → Pobieranie.",
     "add.magnetOne": "Znaleziono 1 link magnet",
     "add.startedOne": "Rozpoczęto pobieranie",
-    "series.failedOne": "Wydanie nie miało seedów; następne sprawdzenie spróbuje innego."
+    "series.failedOne": "Wydanie nie miało seedów; następne sprawdzenie spróbuje innego.",
+    "common.copy": "Kopiuj"
   }
 }

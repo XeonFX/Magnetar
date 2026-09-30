@@ -1,11 +1,10 @@
 use std::sync::Mutex;
 
 use crate::error::{ApiError, ErrorCode};
+use crate::protocol::encoding::{Clock, system_clock};
 
 const BURST: f64 = 10.0;
 const REFILL_MS: f64 = 3000.0;
-
-pub type Clock = Box<dyn Fn() -> u64 + Send + Sync>;
 
 /// Caps how fast agents make the app hit torrent sites. One search fans out to every source, and
 /// these sites answer sustained load with Cloudflare challenges — which is how RARBG stopped
@@ -18,7 +17,7 @@ pub struct RateLimiter {
 
 impl Default for RateLimiter {
     fn default() -> Self {
-        Self::with_clock(Box::new(|| chrono::Utc::now().timestamp_millis() as u64))
+        Self::with_clock(system_clock())
     }
 }
 

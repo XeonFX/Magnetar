@@ -1,9 +1,10 @@
-import type { SeriesResolution, WatchDto, WatchInput } from '@magnetar/protocol'
+import type { WatchDto, WatchInput } from '@magnetar/protocol'
 import { formatBytes } from '@magnetar/protocol/bytes'
 import { BellRing, CircleCheck, Clapperboard, Download, Pencil, Plus, RefreshCw, RotateCcw, Sprout, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { useFormatRelative, useT } from '../../lib/i18n.tsx'
+import { parseQuality, qualityForm, resolutionLabel, type QualityForm } from '../../lib/quality.ts'
 import { Segmented, Switch } from '../../ui/controls.tsx'
 import { Field, TextField } from '../../ui/fields.tsx'
 import { Empty } from '../../ui/Empty.tsx'
@@ -11,16 +12,9 @@ import { ConfirmDialog, Modal } from '../../ui/Modal.tsx'
 import { useToast } from '../../ui/toast.tsx'
 import { useDevice } from '../DeviceContext.tsx'
 import { useRun } from '../useRun.ts'
+import { intervalLabel, QualityFields } from './qualityFields.tsx'
 
 const INTERVALS = [60, 180, 360, 720, 1440, 4320, 10080]
-
-export const resolutionLabel = (r: SeriesResolution | null) => (r === '2160p' ? '4K' : r)
-
-function intervalLabel(t: ReturnType<typeof useT>, minutes: number): string {
-  return minutes % 1440 === 0 ? t('series.interval.days', minutes / 1440)
-    : minutes % 60 === 0 ? t('series.interval.hours', minutes / 60)
-    : t('series.interval.minutes', minutes)
-}
 
 /** Films and anything else to wait for a release of: the list, and adding one. */
 export function WatchesSection({ start, onStarted }: { start: WatchInput | null; onStarted: () => void }) {
@@ -143,25 +137,16 @@ function toInput(watch: WatchDto): WatchInput {
   }
 }
 
-interface Form {
+interface Form extends QualityForm {
   query: string
-  resolution: SeriesResolution | ''
-  minSeeders: string
-  maxSizeGb: string
-  preferWords: string
-  excludeWords: string
   autoDownload: boolean
   checkIntervalMinutes: number
 }
 
 function formFor(input: WatchInput | null): Form {
   return {
+    ...qualityForm(input),
     query: input?.query ?? '',
-    resolution: input?.resolution ?? '',
-    minSeeders: String(input?.minSeeders ?? 1),
-    maxSizeGb: input?.maxSizeMb == null ? '' : String(Math.round((input.maxSizeMb / 1024) * 10) / 10),
-    preferWords: input?.preferWords ?? '',
-    excludeWords: input?.excludeWords ?? '',
     autoDownload: input?.autoDownload ?? false,
     checkIntervalMinutes: input?.checkIntervalMinutes ?? 360,
   }
@@ -181,19 +166,13 @@ function WatchDialog({ watch, draft, onClose }: { watch: WatchDto | 'new' | null
   }, [watch, draft])
 
   const set = <K extends keyof Form>(key: K) => (value: Form[K]) => setForm(f => ({ ...f, [key]: value }))
-  const seeders = Math.trunc(Number(form.minSeeders))
-  const maxSize = form.maxSizeGb.trim() === '' ? null : Number(form.maxSizeGb)
-  const sizeInvalid = maxSize !== null && !(maxSize > 0)
-  const invalid = form.query.trim().length < 2 || !(seeders >= 1) || sizeInvalid
+  const quality = parseQuality(form)
+  const invalid = form.query.trim().length < 2 || quality.invalid
 
   const save = async () => {
     const input: WatchInput = {
       query: form.query.trim(),
-      resolution: form.resolution || null,
-      minSeeders: seeders,
-      maxSizeMb: maxSize === null ? null : Math.max(1, Math.round(maxSize * 1024)),
-      preferWords: form.preferWords.trim() || null,
-      excludeWords: form.excludeWords.trim() || null,
+      ...quality.values,
       autoDownload: form.autoDownload,
       checkIntervalMinutes: form.checkIntervalMinutes,
       enabled: existing ? existing.enabled : true,
@@ -219,19 +198,7 @@ function WatchDialog({ watch, draft, onClose }: { watch: WatchDto | 'new' | null
       </>}>
       <div className="flex flex-col gap-4">
         <TextField label={t('watch.query')} help={t('watch.queryHelp')} value={form.query} onChange={set('query')} maxLength={200} data-autofocus />
-        <Field label={t('search.resolution')}>
-          <Segmented label={t('search.resolution')} value={form.resolution} onChange={set('resolution')}
-            options={[{ value: '', label: t('search.resolutionAny') }, { value: '720p', label: '720p' }, { value: '1080p', label: '1080p' }, { value: '2160p', label: '4K' }]} />
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <TextField label={t('series.minSeeders')} type="number" min={1} value={form.minSeeders} onChange={set('minSeeders')} />
-          <TextField label={t('watch.maxSize')} help={sizeInvalid ? <span className="text-error">{t('settings.speedInvalid')}</span> : undefined}
-            type="number" min={0.1} step={0.1} value={form.maxSizeGb} placeholder={t('settings.noLimit')} onChange={set('maxSizeGb')} />
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <TextField label={t('series.prefer')} value={form.preferWords} placeholder="REMUX, HDR" maxLength={200} onChange={set('preferWords')} />
-          <TextField label={t('series.exclude')} value={form.excludeWords} placeholder="CAM, TS, dubbed" maxLength={200} onChange={set('excludeWords')} />
-        </div>
+        <QualityFields form={form} set={set} kind="watch" />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label={t('series.checkEvery')}>
             <select className="select w-full" value={form.checkIntervalMinutes} onChange={e => set('checkIntervalMinutes')(Number(e.target.value))}>

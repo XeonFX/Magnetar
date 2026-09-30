@@ -1,0 +1,5 @@
+{
+  "note": "The push services of the browsers people use: the only hosts the device and the Worker send Web Push to. A leading dot allows any subdomain.",
+  "hosts": ["fcm.googleapis.com", "android.googleapis.com", "updates.push.services.mozilla.com", ".push.apple.com", ".notify.windows.com"],
+  "maxEndpointLength": 1000
+}

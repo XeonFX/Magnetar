@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { errorMessage } from '../lib/errors.ts'
 import { useT } from '../lib/i18n.tsx'
 import { useToast } from '../ui/toast.tsx'
 
@@ -13,7 +14,7 @@ export function useRun() {
     try {
       return await action()
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = errorMessage(error)
       toast(errorKey ? t(errorKey, message) : message, 'error')
       return undefined
     }

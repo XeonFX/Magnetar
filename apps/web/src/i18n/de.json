@@ -510,6 +510,7 @@
     "transfer.scheduleOff": "Von Hand umgeschaltet, der Zeitplan ist daher aus. In Einstellungen → Downloads wieder einschalten.",
     "add.magnetOne": "1 Magnet-Link gefunden",
     "add.startedOne": "Download gestartet",
-    "series.failedOne": "Ein Release hatte keine Seeder; die nächste Prüfung versucht ein anderes."
+    "series.failedOne": "Ein Release hatte keine Seeder; die nächste Prüfung versucht ein anderes.",
+    "common.copy": "Kopieren"
   }
 }

@@ -12,8 +12,8 @@ use tray_icon::{Icon, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 use crate::app::App;
 use crate::config::VERSION;
-use crate::protocol::DownloadStatus;
 use crate::protocol::bytes::format_rate;
+use crate::protocol::{DownloadDto, DownloadStatus};
 use crate::system::handlers::OpenTarget;
 use crate::system::open_in_browser;
 
@@ -40,13 +40,12 @@ fn truncate(name: &str, max: usize) -> String {
 }
 
 /// Rows of the menu, rebuilt from the app's current state.
-fn entries(app: &App, dashboard_url: &str) -> Vec<Entry> {
+fn entries(app: &App, dashboard_url: &str, active: &[DownloadDto]) -> Vec<Entry> {
     let mut entries = Vec::new();
-    let active = app.downloads.active();
     if active.is_empty() {
         entries.push(Entry::Label("No active downloads".into()));
     } else {
-        for d in &active {
+        for d in active {
             let name = truncate(&d.name, 44);
             entries.push(Entry::Label(match d.status {
                 DownloadStatus::FetchingMetadata => format!("{name} — fetching metadata…"),
@@ -62,10 +61,9 @@ fn entries(app: &App, dashboard_url: &str) -> Vec<Entry> {
     entries.push(Entry::Separator);
     let host = dashboard_url.trim_start_matches("http://");
     entries.push(Entry::Command(format!("Dashboard — {host}"), Command::Dashboard));
-    let remote = app.remote.status();
-    if remote.paired {
-        entries.push(Entry::Label(if remote.connected {
-            format!("Remote access: {}", remote.account_email.as_deref().unwrap_or("connected"))
+    if let Some((connected, account_email)) = app.remote.link() {
+        entries.push(Entry::Label(if connected {
+            format!("Remote access: {}", account_email.as_deref().unwrap_or("connected"))
         } else {
             "Remote access: reconnecting…".into()
         }));
@@ -102,9 +100,8 @@ fn entries(app: &App, dashboard_url: &str) -> Vec<Entry> {
 }
 
 /// Total download rate for the menu-bar title, or '' when idle.
-fn speed_text(app: &App) -> String {
-    let total: u64 =
-        app.downloads.active().iter().filter(|d| d.status != DownloadStatus::Seeding).map(|d| d.download_speed).sum();
+fn speed_text(active: &[DownloadDto]) -> String {
+    let total: u64 = active.iter().filter(|d| d.status != DownloadStatus::Seeding).map(|d| d.download_speed).sum();
     if total > 0 { format_rate(total as f64) } else { String::new() }
 }
 
@@ -229,14 +226,15 @@ pub fn run(app: Arc<App>, dashboard_url: String, runtime: tokio::runtime::Handle
 
         if Instant::now() >= next_refresh {
             next_refresh = Instant::now() + REFRESH;
-            let current = entries(&app, &dashboard_url);
+            let active = app.downloads.active();
+            let current = entries(&app, &dashboard_url, &active);
             if current != shown {
                 let (menu, ids) = build_menu(&current);
                 tray.set_menu(Some(Box::new(menu)));
                 commands = ids;
                 shown = current;
             }
-            let speed = speed_text(&app);
+            let speed = speed_text(&active);
             if cfg!(target_os = "macos") && speed != title {
                 tray.set_title(Some(&speed));
                 title = speed;

@@ -171,6 +171,15 @@ impl SearchService {
         Ok(outcomes.into_iter().flatten().collect())
     }
 
+    /// The result, with its magnet link fetched first for a lazy source (for up to 30 s). The link is
+    /// empty when the source didn't give it.
+    pub async fn with_magnet(&self, shared: &SharedResult, cancel: &CancellationToken) -> TorrentSearchResult {
+        if shared.lock().unwrap().needs_resolution() {
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(30), self.ensure_details(shared, cancel)).await;
+        }
+        shared.lock().unwrap().clone()
+    }
+
     /// Fills in a lazy result's magnet and description; a no-op once there is nothing left to fetch.
     pub async fn ensure_details(&self, shared: &SharedResult, cancel: &CancellationToken) {
         let result = shared.lock().unwrap().clone();

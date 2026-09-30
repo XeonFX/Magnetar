@@ -1,6 +1,7 @@
 import { lazy, Suspense, type ReactNode } from 'react'
 import { Route, Routes } from 'react-router'
 import { I18nProvider } from '../lib/i18n.tsx'
+import { Loading } from '../ui/Loading.tsx'
 import { useDevice } from './DeviceContext.tsx'
 import { DownloadsPage } from './pages/DownloadsPage.tsx'
 import { Shell } from './Shell.tsx'
@@ -11,7 +12,7 @@ const SeriesPage = lazy(() => import('./pages/SeriesPage.tsx').then(m => ({ defa
 const SettingsPage = lazy(() => import('./pages/SettingsPage.tsx').then(m => ({ default: m.SettingsPage })))
 
 function Page({ children }: { children: ReactNode }) {
-  return <Suspense fallback={<div className="flex justify-center py-24"><span className="loading loading-spinner loading-lg text-primary" /></div>}>{children}</Suspense>
+  return <Suspense fallback={<Loading />}>{children}</Suspense>
 }
 
 /** A device's pages, in the language chosen in its settings. */

@@ -6,8 +6,6 @@ use futures::future::join_all;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::USER_AGENT;
-
 /// A backstop, not the usual limit: mirror fallback is staggered (see MirrorRotator), which caps
 /// the wait on a slow host at ~1.5s. apibay.org takes ~16s on an uncached query, so shorter than
 /// this would fail searches that were merely slow.
@@ -47,7 +45,6 @@ pub async fn fetch_text(http: &reqwest::Client, url: &str, cancel: &Cancellation
     cancellable(cancel, async {
         let response = http
             .get(url)
-            .header("user-agent", USER_AGENT.as_str())
             .header("accept", "text/html,application/json;q=0.9,*/*;q=0.8")
             .timeout(SEARCH_TIMEOUT)
             .send()

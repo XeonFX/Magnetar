@@ -1,9 +1,9 @@
+use std::collections::HashSet;
 use std::sync::LazyLock;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::{DateTime, TimeZone, Utc};
-use futures::future::join_all;
 use regex::Regex;
 use scraper::Html;
 use tokio_util::sync::CancellationToken;
@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 use super::{selector, text};
 use crate::protocol::bytes::parse_bytes;
 use crate::protocol::encoding::encode_uri_component;
-use crate::search::http::{fetch_text, text_to_int};
+use crate::search::http::{fetch_extra_pages, fetch_text, text_to_int};
 use crate::search::magnet::{DEFAULT_TRACKERS, build_magnet, extract_info_hash};
 use crate::search::mirrors::MirrorRotator;
 use crate::search::types::{Provider, TorrentDetails, TorrentSearchResult};
@@ -52,15 +52,18 @@ impl Provider for Leetx {
                     if rows.len() >= PAGE_SIZE {
                         // Relevance filtering happens later and a copy that matches any word fills the
                         // first page with near misses: more pages, and the newest, leave enough to keep.
-                        let more = [page("seeders", 2), page("seeders", 3), page("time", 1)];
-                        let pages = join_all(more.iter().map(|url| fetch_text(http, url, &token))).await;
-                        for html in pages.into_iter().flatten() {
-                            for row in parse_rows(&html, host) {
-                                if !rows.iter().any(|r| r.info_hash == row.info_hash) {
-                                    rows.push(row);
-                                }
-                            }
-                        }
+                        let more = fetch_extra_pages(
+                            3,
+                            |n| {
+                                let url = if n <= 3 { page("seeders", n) } else { page("time", 1) };
+                                let token = &token;
+                                async move { Ok(parse_rows(&fetch_text(http, &url, token).await?, host)) }
+                            },
+                            &token,
+                        )
+                        .await?;
+                        let mut seen: HashSet<String> = rows.iter().map(|r| r.info_hash.clone()).collect();
+                        rows.extend(more.into_iter().filter(|row| seen.insert(row.info_hash.clone())));
                     }
                     Ok(rows)
                 },

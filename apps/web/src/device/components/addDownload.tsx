@@ -1,16 +1,13 @@
 import { MAX_TORRENT_FILE } from '@magnetar/protocol/limits'
 import { FilePlus2, Link2, Upload } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { errorMessage } from '../../lib/errors.ts'
 import { useT } from '../../lib/i18n.tsx'
+import { magnetsIn } from '../../lib/magnets.ts'
 import { Modal } from '../../ui/Modal.tsx'
 import { useToast } from '../../ui/toast.tsx'
 import { useDevice } from '../DeviceContext.tsx'
 import { FolderField } from './folders.tsx'
-
-/** Every magnet link in a block of text, one per line or run together. */
-export function magnetsIn(text: string): string[] {
-  return [...new Set(text.match(/magnet:\?[^\s"'<>]+/gi) ?? [])]
-}
 
 const isTorrentFile = (file: File) => file.name.toLowerCase().endsWith('.torrent') || file.type === 'application/x-bittorrent'
 
@@ -73,7 +70,7 @@ export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; i
         await connection.call('downloads.start', { magnet, folder: target })
         started++
       } catch (e) {
-        failures.push(e instanceof Error ? e.message : String(e))
+        failures.push(errorMessage(e))
       }
     }
     for (const path of paths) {
@@ -81,7 +78,7 @@ export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; i
         await connection.call('downloads.addTorrentPath', { path })
         started++
       } catch (e) {
-        failures.push(`${path.split(/[\\/]/).pop()}: ${e instanceof Error ? e.message : String(e)}`)
+        failures.push(`${path.split(/[\\/]/).pop()}: ${errorMessage(e)}`)
       }
     }
     for (const file of files) {
@@ -89,7 +86,7 @@ export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; i
         await connection.call('downloads.start', { torrent: await toBase64(file), folder: target })
         started++
       } catch (e) {
-        failures.push(`${file.name}: ${e instanceof Error ? e.message : String(e)}`)
+        failures.push(`${file.name}: ${errorMessage(e)}`)
       }
     }
     setBusy(false)

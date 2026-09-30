@@ -5,7 +5,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 
-use base64::Engine as _;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -14,9 +13,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::app::App;
 use crate::config::{ARCH, PLATFORM, VERSION};
+use crate::downloads::manager::{FileSource, media_kind};
 use crate::downloads::media::{MediaReader, media_type, open_reader, read_at};
 use crate::error::{ApiError, ApiResult, ErrorCode};
-use crate::protocol::encoding::random_id;
+use crate::protocol::encoding::{random_id, to_base64};
 use crate::protocol::{
     AppInfoDto, ClaudeConnectResultDto, NotificationEvent, SeriesTaskInput, SeriesTaskPatch, SettingsPatch, StartDownloadInput,
     WatchInput,
@@ -46,8 +46,7 @@ pub struct RpcSession {
 }
 
 struct SessionInner {
-    local: bool,
-    /// The browser key of a relayed session.
+    /// The browser key of a relayed session; None on this computer.
     key_id: Option<String>,
     out: mpsc::UnboundedSender<Value>,
     /// Cancelled when the dashboard disconnects.
@@ -59,6 +58,11 @@ struct SessionInner {
 }
 
 impl SessionInner {
+    /// The dashboard on this computer, not a browser through the relay.
+    fn local(&self) -> bool {
+        self.key_id.is_none()
+    }
+
     fn send(&self, message: Value) {
         if !self.closed.is_cancelled() {
             let _ = self.out.send(message);
@@ -83,7 +87,6 @@ impl RpcServer {
     pub fn connect(&self, key_id: Option<String>) -> (RpcSession, mpsc::UnboundedReceiver<Value>) {
         let (out, receiver) = mpsc::unbounded_channel();
         let inner = Arc::new(SessionInner {
-            local: key_id.is_none(),
             key_id,
             out,
             closed: CancellationToken::new(),
@@ -305,7 +308,7 @@ fn device_name(name: Option<String>, required: bool) -> ApiResult<Option<String>
 }
 
 async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, params: Value) -> ApiResult<Value> {
-    if !session.local && LOCAL_ONLY_METHODS.contains(&method) {
+    if !session.local() && LOCAL_ONLY_METHODS.contains(&method) {
         return Err(ApiError::new(ErrorCode::Forbidden, format!("{method} is only available on the device itself")));
     }
     let a = &app.actions;
@@ -317,7 +320,7 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
                 platform: PLATFORM,
                 arch: ARCH,
                 data_directory: app.paths.data_dir.to_string_lossy().into_owned(),
-                native_folder_picker: session.local && cfg!(target_os = "macos"),
+                native_folder_picker: session.local() && cfg!(target_os = "macos"),
             })
         }
         "sources.list" => {
@@ -392,14 +395,10 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
         }
         "downloads.openFile" => {
             let FileRef { id, index } = parse(params)?;
-            // Media only: a torrent can carry programs, and those are never opened from here.
-            let file = app.downloads.files(id)?.into_iter().find(|f| f.index == index);
-            if !file.as_ref().is_some_and(|f| f.playable && f.done == f.size) {
-                return Err(ApiError::bad("Only finished video and audio files open from here."));
-            }
+            // Finished media only: a torrent can carry programs, and those are never opened from here.
             match app.downloads.open_file(id, index)?.source {
-                crate::downloads::manager::FileSource::Disk(path) => system::open_with_system(path),
-                _ => return Err(ApiError::bad("That file is not finished yet.")),
+                FileSource::Disk(path) if media_kind(&path).is_some() => system::open_with_system(path),
+                _ => return Err(ApiError::bad("Only finished video and audio files open from here.")),
             }
             ok(Value::Null)
         }
@@ -425,7 +424,7 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
             let reader = session.streams.lock().unwrap().iter().find(|(id, _)| *id == stream_id).map(|(_, r)| r.clone());
             let reader = reader.ok_or_else(|| ApiError::not_found("That stream was closed. Open the player again."))?;
             let bytes = read_at(&mut *reader.lock().await, offset, length.min(MAX_STREAM_READ)).await?;
-            ok(json!({ "data": base64::engine::general_purpose::STANDARD.encode(bytes) }))
+            ok(json!({ "data": to_base64(&bytes) }))
         }
         "stream.close" => {
             let StreamId { stream_id } = parse(params)?;
@@ -483,7 +482,7 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
         }
         "series.poster" => {
             let poster = app.monitor.poster(parse::<IdParams>(params)?.id)?;
-            ok(json!({ "data": poster.map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes)) }))
+            ok(json!({ "data": poster.as_deref().map(to_base64) }))
         }
         "series.update" => {
             let SeriesUpdate { id, patch } = parse(params)?;
@@ -601,7 +600,7 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
                 }
                 None => "cliNotFound",
             };
-            ok(ClaudeConnectResultDto { status, command: system::claude::command(&agent.mcp_url), agent })
+            ok(ClaudeConnectResultDto { status, agent })
         }
 
         "remote.status" => {

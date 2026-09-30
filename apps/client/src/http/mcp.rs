@@ -53,6 +53,8 @@ fn with(mut base: Map<String, Value>, extra: Value) -> Value {
     Value::Object(base)
 }
 
+static TOOLS: std::sync::LazyLock<Vec<Value>> = std::sync::LazyLock::new(tools);
+
 fn tools() -> Vec<Value> {
     let id = json!({ "id": { "type": "integer", "description": "Download id from list_downloads." } });
     let series_id = json!({ "id": { "type": "integer", "description": "Series task id from list_series_tasks." } });
@@ -218,9 +220,6 @@ async fn call_tool(actions: &Actions, name: &str, arguments: &Value, cancel: &Ca
         "list_sources" => to_value(actions.sources()),
         "search_torrents" => {
             let a: Search = args(name, arguments)?;
-            if a.limit.is_some_and(|l| !(1..=200).contains(&l)) {
-                return Err(ApiError::bad("limit must be between 1 and 200."));
-            }
             to_value(actions.search(&a.query, a.source.as_deref(), a.limit, cancel).await?)
         }
         "get_torrent_details" => to_value(actions.details(&args::<ResultId>(name, arguments)?.result_id, cancel).await?),
@@ -293,10 +292,10 @@ async fn message(actions: &Actions, message: &Value, cancel: &CancellationToken)
             })
         }
         "ping" => json!({}),
-        "tools/list" => json!({ "tools": tools() }),
+        "tools/list" => json!({ "tools": *TOOLS }),
         "tools/call" => {
             let Some(name) = params["name"].as_str() else { return Some(error(id, -32602, "Missing tool name")) };
-            if !tools().iter().any(|t| t["name"] == name) {
+            if !TOOLS.iter().any(|t| t["name"] == name) {
                 return Some(error(id, -32602, &format!("Unknown tool: {name}")));
             }
             let arguments = if params["arguments"].is_object() { params["arguments"].clone() } else { json!({}) };

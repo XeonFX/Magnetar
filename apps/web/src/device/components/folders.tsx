@@ -1,6 +1,7 @@
 import type { FolderListing } from '@magnetar/protocol'
 import { ArrowUp, Folder, FolderOpen, FolderPlus, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useId, useState } from 'react'
+import { errorMessage } from '../../lib/errors.ts'
 import { useT } from '../../lib/i18n.tsx'
 import { blurOnEnter } from '../../ui/fields.tsx'
 import { Modal } from '../../ui/Modal.tsx'
@@ -28,7 +29,7 @@ export function FolderBrowser({ open, start, onClose, onSelect }: {
       if (result.error) setError(t('folderBrowser.readError', result.error))
       else if (!result.exists) setError(t('folderBrowser.notExistYet'))
     } catch (e) {
-      setError(t('folderBrowser.readError', e instanceof Error ? e.message : String(e)))
+      setError(t('folderBrowser.readError', errorMessage(e)))
     }
   }, [connection, t])
 
@@ -41,7 +42,7 @@ export function FolderBrowser({ open, start, onClose, onSelect }: {
       setListing(await connection.call('fs.mkdir', { path }))
       setError(null)
     } catch (e) {
-      setError(t('folderBrowser.createError', e instanceof Error ? e.message : String(e)))
+      setError(t('folderBrowser.createError', errorMessage(e)))
     }
   }
 

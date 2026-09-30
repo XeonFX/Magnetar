@@ -510,6 +510,7 @@
     "transfer.scheduleOff": "Mudado à mão, por isso o horário está desligado. Volte a ligá-lo em Definições → Transferências.",
     "add.magnetOne": "1 ligação magnet encontrada",
     "add.startedOne": "Transferência iniciada",
-    "series.failedOne": "Uma versão não tinha seeders; a próxima verificação tenta outra."
+    "series.failedOne": "Uma versão não tinha seeders; a próxima verificação tenta outra.",
+    "common.copy": "Copiar"
   }
 }

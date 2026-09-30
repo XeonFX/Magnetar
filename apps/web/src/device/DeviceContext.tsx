@@ -31,8 +31,6 @@ interface DeviceState {
   updates: UpdateStatusDto | null
   remote: RemoteStatusDto | null
   transfer: TransferStatusDto | null
-  search: SearchState
-  setSearch: (update: (state: SearchState) => SearchState) => void
   /** Base path of this device's pages: '' locally, '/d/<id>' through the relay. */
   basePath: string
   deviceName: string
@@ -58,6 +56,8 @@ export function mergeRows(list: DownloadDto[], rows: DownloadDto[]): DownloadDto
 const DeviceContext = createContext<DeviceState | null>(null)
 /** Separate so the once-a-second progress updates re-render only the views that show downloads. */
 const DownloadsContext = createContext<DownloadDto[]>([])
+/** The search in progress, apart so typing and streamed results re-render only the search page. */
+const SearchContext = createContext<{ search: SearchState; setSearch: (update: (state: SearchState) => SearchState) => void } | null>(null)
 /** Just the connection, which never changes for a device: for per-row views that only make calls. */
 const ConnectionContext = createContext<RpcClient | null>(null)
 
@@ -142,13 +142,16 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
   }, [connection])
 
   const value = useMemo<DeviceState>(() => ({
-    connection, connectionState, info, series, watches, settings, sources, updates, remote, transfer, search, setSearch, basePath, deviceName,
-  }), [connection, connectionState, info, series, watches, settings, sources, updates, remote, transfer, search, basePath, deviceName])
+    connection, connectionState, info, series, watches, settings, sources, updates, remote, transfer, basePath, deviceName,
+  }), [connection, connectionState, info, series, watches, settings, sources, updates, remote, transfer, basePath, deviceName])
+  const searchValue = useMemo(() => ({ search, setSearch }), [search])
 
   return (
     <ConnectionContext.Provider value={connection}>
       <DeviceContext.Provider value={value}>
-        <DownloadsContext.Provider value={downloads}>{children}</DownloadsContext.Provider>
+        <SearchContext.Provider value={searchValue}>
+          <DownloadsContext.Provider value={downloads}>{children}</DownloadsContext.Provider>
+        </SearchContext.Provider>
       </DeviceContext.Provider>
     </ConnectionContext.Provider>
   )
@@ -164,6 +167,12 @@ export function useDevice(): DeviceState {
 export function useConnection(): RpcClient {
   const value = useContext(ConnectionContext)
   if (!value) throw new Error('useConnection outside DeviceProvider')
+  return value
+}
+
+export function useSearch(): { search: SearchState; setSearch: (update: (state: SearchState) => SearchState) => void } {
+  const value = useContext(SearchContext)
+  if (!value) throw new Error('useSearch outside DeviceProvider')
   return value
 }
 

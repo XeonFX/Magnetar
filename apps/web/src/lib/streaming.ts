@@ -1,3 +1,4 @@
+import { errorMessage } from './errors.ts'
 import type { RpcClient } from './rpcClient.ts'
 
 /** A file ready for a <video> or <audio>: its URL, and a way to let go of it. */
@@ -46,7 +47,7 @@ function listen(): void {
         const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
         port.postMessage({ data: buffer }, [buffer])
       })
-      .catch((e: unknown) => port.postMessage({ error: e instanceof Error ? e.message : String(e) }))
+      .catch((e: unknown) => port.postMessage({ error: errorMessage(e) }))
   })
 }
 

@@ -1,8 +1,10 @@
 import type { DownloadFileDto } from '@magnetar/protocol'
 import { Copy, ExternalLink, Play } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { errorMessage } from '../../lib/errors.ts'
 import { openStream, srtToVtt, type OpenedStream } from '../../lib/streaming.ts'
 import { useT } from '../../lib/i18n.tsx'
+import { Loading } from '../../ui/Loading.tsx'
 import { Modal } from '../../ui/Modal.tsx'
 import { useCopy } from '../../ui/toast.tsx'
 import { useConnection } from '../DeviceContext.tsx'
@@ -15,13 +17,12 @@ export interface PlayTarget {
   subtitles: DownloadFileDto[]
 }
 
-const isAudio = (path: string) => /\.(mp3|m4a|flac|ogg|opus|wav)$/i.test(path)
 const baseName = (path: string) => path.split('/').pop()!.replace(/\.[^.]+$/, '')
 
 /** Subtitles that belong to a video: named like it, or every one when the torrent has one video. */
 export function subtitlesFor(video: DownloadFileDto, files: DownloadFileDto[]): DownloadFileDto[] {
   const subtitles = files.filter(f => /\.(srt|vtt)$/i.test(f.path) && f.done === f.size)
-  const videos = files.filter(f => f.playable && !isAudio(f.path))
+  const videos = files.filter(f => f.media === 'video')
   const named = subtitles.filter(s => baseName(s.path).toLowerCase().startsWith(baseName(video.path).toLowerCase()))
   return (named.length > 0 || videos.length > 1 ? named : subtitles).slice(0, 8)
 }
@@ -78,7 +79,7 @@ function Player({ target, finished }: { target: PlayTarget; finished: boolean })
         }
       }))
       if (!cancelled) setTracks(loaded.filter(t => t !== null))
-    }).catch((e: unknown) => !cancelled && setError(e instanceof Error ? e.message : String(e)))
+    }).catch((e: unknown) => !cancelled && setError(errorMessage(e)))
     return () => {
       cancelled = true
       opened.forEach(s => s.close())
@@ -87,9 +88,9 @@ function Player({ target, finished }: { target: PlayTarget; finished: boolean })
   }, [connection, target])
 
   if (error) return <p role="alert" className="text-sm text-error">{error}</p>
-  if (!stream) return <div className="flex justify-center py-16"><span className="loading loading-spinner loading-lg text-primary" /></div>
+  if (!stream) return <Loading />
   const absolute = new URL(stream.url, location.href).href
-  const Media = isAudio(target.file.path) ? 'audio' : 'video'
+  const Media = target.file.media === 'audio' ? 'audio' : 'video'
   return (
     <div className="flex flex-col gap-3">
       {unplayable ? (

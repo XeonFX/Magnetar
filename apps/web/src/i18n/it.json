@@ -510,6 +510,7 @@
     "transfer.scheduleOff": "Cambiato a mano, quindi l'orario è disattivato. Riattivalo in Impostazioni → Download.",
     "add.magnetOne": "1 link magnet trovato",
     "add.startedOne": "Download avviato",
-    "series.failedOne": "Una release non aveva seeder; il prossimo controllo ne prova un'altra."
+    "series.failedOne": "Una release non aveva seeder; il prossimo controllo ne prova un'altra.",
+    "common.copy": "Copia"
   }
 }

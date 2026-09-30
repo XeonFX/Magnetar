@@ -4,6 +4,7 @@ import { Download, ExternalLink, Laptop, Monitor, Terminal } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { cloud } from '../lib/cloudApi.ts'
 import { useT } from '../lib/i18n.tsx'
+import { isIosDevice } from '../lib/platform.ts'
 
 const RELEASES_PAGE = 'https://github.com/XeonFX/Magnetar/releases/latest'
 const ICONS = { macos: Laptop, windows: Monitor, linux: Terminal }
@@ -19,7 +20,7 @@ async function detectVisitor(): Promise<Visitor> {
   const hints = (navigator as { userAgentData?: { getHighEntropyValues: (h: string[]) => Promise<{ platform?: string; architecture?: string }> } }).userAgentData
   const ua = navigator.userAgent
   let platform: ReleasePlatform | null = /Mac OS X|Macintosh/.test(ua) ? 'macos' : /Windows/.test(ua) ? 'windows' : /Linux|X11/.test(ua) && !/Android/.test(ua) ? 'linux' : null
-  if (/iPhone|iPad|Android/.test(ua) || (platform === 'macos' && navigator.maxTouchPoints > 1)) platform = null
+  if (isIosDevice() || /Android/.test(ua)) platform = null
   let arch: ReleaseArch | null = /arm|aarch64/i.test(ua) ? 'arm64' : null
   if (hints) {
     try {

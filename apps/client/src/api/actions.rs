@@ -1,8 +1,5 @@
 use std::sync::Arc;
 
-use base64::Engine as _;
-use std::time::Duration;
-
 use serde::Serialize;
 use tokio_util::sync::CancellationToken;
 
@@ -55,13 +52,10 @@ pub async fn start_from_result(
     save_folder: Option<String>,
     cancel: &CancellationToken,
 ) -> ApiResult<DownloadDto> {
-    if shared.lock().unwrap().needs_resolution() {
-        let _ = tokio::time::timeout(Duration::from_secs(30), search.ensure_details(&shared, cancel)).await;
-        if cancel.is_cancelled() {
-            return Err(ApiError::bad("The request was cancelled."));
-        }
+    let result = search.with_magnet(&shared, cancel).await;
+    if cancel.is_cancelled() {
+        return Err(ApiError::bad("The request was cancelled."));
     }
-    let result = shared.lock().unwrap().clone();
     if result.magnet_uri.is_empty() {
         return Err(ApiError::bad(format!("Could not resolve a magnet link for \"{}\" from {}.", result.title, result.source)));
     }
@@ -128,9 +122,12 @@ impl Actions {
         if query.trim().is_empty() {
             return Err(ApiError::bad("A search query is required."));
         }
+        if limit.is_some_and(|l| !(1..=MAX_SEARCH_LIMIT).contains(&l)) {
+            return Err(ApiError::bad(format!("limit must be between 1 and {MAX_SEARCH_LIMIT}.")));
+        }
         self.limit("search")?;
         self.require_available_source(source)?;
-        let take = limit.unwrap_or(DEFAULT_SEARCH_LIMIT).clamp(1, MAX_SEARCH_LIMIT);
+        let take = limit.unwrap_or(DEFAULT_SEARCH_LIMIT);
         let collected = self.search.collect(query, source, cancel, true).await?;
         let total_matched = collected.results.len();
         let results = collected
@@ -181,8 +178,7 @@ impl Actions {
             return Ok(item);
         }
         if let Some(torrent) = input.torrent.as_deref().filter(|t| !t.is_empty()) {
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(torrent)
+            let bytes = crate::protocol::encoding::from_base64(torrent)
                 .map_err(|_| ApiError::bad("`torrent` must be a base64-encoded .torrent file."))?;
             let source = if self.caller == Caller::Agent { "Agent" } else { "Torrent file" };
             let item = self.downloads.add_torrent_file(bytes, source, folder)?;

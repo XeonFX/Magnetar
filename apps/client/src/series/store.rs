@@ -1,7 +1,7 @@
 use rusqlite::{OptionalExtension, Row, params};
 
 use super::episode::EpisodeRule;
-use super::quality::{QualityRule, words};
+use super::quality::QualityRule;
 use crate::db::Db;
 use crate::error::{ApiError, ApiResult};
 use crate::events::EventBus;
@@ -67,13 +67,13 @@ impl SeriesTask {
     }
 
     pub fn quality(&self) -> QualityRule {
-        QualityRule {
-            resolution: self.resolution.clone(),
-            min_seeders: self.min_seeders.clamp(1, u32::MAX as i64) as u32,
-            max_size_bytes: self.max_size_mb.map(|mb| mb.max(1) as u64 * 1024 * 1024),
-            prefer: words(self.prefer_words.as_deref()),
-            exclude: words(self.exclude_words.as_deref()),
-        }
+        QualityRule::new(
+            self.resolution.as_deref(),
+            self.min_seeders,
+            self.max_size_mb,
+            self.prefer_words.as_deref(),
+            self.exclude_words.as_deref(),
+        )
     }
 
     pub fn rule(&self) -> EpisodeRule<'_> {

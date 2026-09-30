@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
-use crate::config::{ARCH, CLOUD_URL, IS_DEV, PLATFORM, USER_AGENT, VERSION};
+use crate::config::{ARCH, CLOUD_URL, IS_DEV, PLATFORM, VERSION};
 use crate::protocol::scrub::scrub;
 use crate::settings::SettingsService;
 
@@ -48,11 +48,7 @@ pub fn start(settings: Arc<SettingsService>, http: reqwest::Client) {
             "version": VERSION,
             "client": format!("Magnetar {VERSION} · {PLATFORM} {ARCH} · desktop"),
         });
-        let request = http
-            .post(format!("{}/api/telemetry/failure", *CLOUD_URL))
-            .header("user-agent", USER_AGENT.as_str())
-            .json(&report)
-            .timeout(Duration::from_secs(10));
+        let request = http.post(format!("{}/api/telemetry/failure", *CLOUD_URL)).json(&report).timeout(Duration::from_secs(10));
         runtime.spawn(async move {
             let _ = request.send().await;
         });

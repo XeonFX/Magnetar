@@ -35,3 +35,8 @@ pub static GITHUB_REPO: LazyLock<String> =
     LazyLock::new(|| std::env::var("MAGNETAR_GITHUB_REPO").unwrap_or_else(|_| "XeonFX/Magnetar".to_owned()));
 
 pub static USER_AGENT: LazyLock<String> = LazyLock::new(|| format!("Magnetar/{VERSION}"));
+
+/// The client every outgoing HTTP request uses, introducing itself as the app.
+pub fn http_client() -> reqwest::Result<reqwest::Client> {
+    reqwest::Client::builder().user_agent(USER_AGENT.as_str()).build()
+}

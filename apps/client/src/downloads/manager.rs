@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::Duration;
 
 use rusqlite::{Row, params};
-use tokio::sync::Notify;
+use tokio::sync::{Notify, broadcast};
 use tokio_util::sync::CancellationToken;
 
 use super::engine::{Engine, Metadata, NetworkOptions, SpeedLimits, TorrentHandle, bytes_in_pieces, delete_files};
@@ -64,6 +64,8 @@ struct Item {
     upload_seen: u64,
     /// The live numbers last broadcast, to send only what changed.
     sent: (u64, u64, u64, u32, u64, u64),
+    /// Progress and upload last saved by the periodic save, to skip rows that haven't moved.
+    saved: (u64, u64),
     handle: Option<TorrentHandle>,
     /// Set while metadata is fetched and the torrent started; cancelled by pause/delete.
     attaching: Option<CancellationToken>,
@@ -101,6 +103,7 @@ impl Item {
             peers: 0,
             upload_seen: 0,
             sent: Default::default(),
+            saved: Default::default(),
             handle: None,
             attaching: None,
             attempt: 0,
@@ -199,6 +202,15 @@ pub enum FileSource {
     Engine(TorrentHandle, usize),
     /// Only on disk.
     Disk(PathBuf),
+}
+
+struct FilesOf {
+    info_hash: String,
+    save_path: PathBuf,
+    status: DownloadStatus,
+    selected_files: Option<Vec<usize>>,
+    handle: Option<TorrentHandle>,
+    engaged: bool,
 }
 
 pub struct DownloadFile {
@@ -355,14 +367,16 @@ impl DownloadManager {
     /// queued, for the next engine.
     fn disengage_all(&self) {
         let mut items = self.items();
+        let mut left = Vec::new();
         for item in items.values_mut().filter(|i| i.is_engaged()) {
             item.detach();
             if item.wants_engine() {
                 item.status = DownloadStatus::Queued;
             }
             item.clear_stats();
-            self.persist(item);
+            left.push(item.id);
         }
+        self.save(left.iter().filter_map(|id| items.get(id)));
         drop(items);
         self.changed();
     }
@@ -440,14 +454,21 @@ impl DownloadManager {
                 // Coarse, so a running download doesn't re-send this every few seconds.
                 t.free_bytes = free.map(|f| f / (64 << 20) * (64 << 20));
             });
+            // Every event goes past, a download's progress each second among them; only a settings
+            // change (or a missed one) is worth looking again before the next check.
+            let settings_change = async {
+                loop {
+                    match settings_changed.recv().await {
+                        Ok(event) if event.name != "settings.changed" => {}
+                        Err(broadcast::error::RecvError::Closed) => std::future::pending().await,
+                        _ => return,
+                    }
+                }
+            };
             tokio::select! {
                 _ = self.stop.cancelled() => return,
                 _ = tokio::time::sleep(CHECK) => {}
-                event = settings_changed.recv() => {
-                    if !matches!(event, Ok(event) if event.name == "settings.changed") {
-                        continue;
-                    }
-                }
+                _ = settings_change => {}
             }
         }
     }
@@ -506,12 +527,16 @@ impl DownloadManager {
 
     /// Rows the tray lists: downloading, seeding or fetching metadata.
     pub fn active(&self) -> Vec<DownloadDto> {
-        self.list()
-            .into_iter()
-            .filter(|d| {
-                matches!(d.status, DownloadStatus::Downloading | DownloadStatus::Seeding | DownloadStatus::FetchingMetadata)
+        let mut active: Vec<DownloadDto> = self
+            .items()
+            .values()
+            .filter(|i| {
+                matches!(i.status, DownloadStatus::Downloading | DownloadStatus::Seeding | DownloadStatus::FetchingMetadata)
             })
-            .collect()
+            .map(Item::to_dto)
+            .collect();
+        active.sort_by(|a, b| b.added_at.cmp(&a.added_at));
+        active
     }
 
     /// Series downloads that died for want of peers: (download id, episode, info hash).
@@ -577,7 +602,7 @@ impl DownloadManager {
         save_folder: Option<String>,
     ) -> ApiResult<DownloadDto> {
         if bytes.len() > MAX_TORRENT_FILE {
-            return Err(ApiError::bad("That .torrent file is larger than 4 MB."));
+            return Err(torrent_too_large());
         }
         let (hash, trackers) = torrent_identity(&bytes).ok_or_else(|| ApiError::bad("That is not a valid .torrent file."))?;
         let metadata =
@@ -686,15 +711,9 @@ impl DownloadManager {
     /// The torrent's files with what each has so far. Needs the metadata, so not while it is
     /// still being fetched.
     pub fn files(&self, id: i64) -> ApiResult<Vec<DownloadFileDto>> {
-        let (metadata, done, selected) = {
-            let items = self.items();
-            let item = items.get(&id).ok_or_else(|| not_found(id))?;
-            let metadata = self
-                .metadata(&item.info_hash)
-                .ok_or_else(|| ApiError::bad("The file list arrives with the torrent's details."))?;
-            let (done, _) = self.files_done(item, &metadata);
-            (metadata, done, item.selected_files.clone())
-        };
+        let (view, metadata) = self.files_of(id)?;
+        let (done, _) = self.files_done(&view, &metadata);
+        let selected = view.selected_files;
         Ok(metadata
             .files
             .iter()
@@ -707,7 +726,7 @@ impl DownloadManager {
                 size,
                 done,
                 selected: selected.as_ref().is_none_or(|s| s.contains(&index)),
-                playable: is_playable(path),
+                media: media_kind(path),
             })
             .collect())
     }
@@ -717,8 +736,8 @@ impl DownloadManager {
     pub async fn select_files(self: &Arc<Self>, id: i64, mut files: Vec<usize>) -> ApiResult<DownloadDto> {
         files.sort_unstable();
         files.dedup();
-        let hash = self.items().get(&id).map(|i| i.info_hash.clone()).ok_or_else(|| not_found(id))?;
-        let metadata = self.metadata(&hash).ok_or_else(|| ApiError::bad("The file list arrives with the torrent's details."))?;
+        let (view, metadata) = self.files_of(id)?;
+        let (done, _) = self.files_done(&view, &metadata);
         let count = metadata.files.len();
         if files.is_empty() {
             return Err(ApiError::bad("Choose at least one file, or delete the download."));
@@ -730,7 +749,6 @@ impl DownloadManager {
         let handle = {
             let mut items = self.items();
             let item = items.get_mut(&id).ok_or_else(|| not_found(id))?;
-            let (done, _) = self.files_done(item, &metadata);
             let chosen = |index: &usize| selection.as_ref().is_none_or(|s| s.contains(index));
             let was_chosen = |index: &usize| item.selected_files.as_ref().is_none_or(|s| s.contains(index));
             // A finished download only goes back to work for a newly chosen file it doesn't have.
@@ -758,22 +776,15 @@ impl DownloadManager {
 
     /// One file of a download, to stream: from the engine while it has the torrent, else from disk.
     pub fn open_file(&self, id: i64, index: usize) -> ApiResult<DownloadFile> {
-        let (metadata, save_path, handle, settled, done) = {
-            let items = self.items();
-            let item = items.get(&id).ok_or_else(|| not_found(id))?;
-            let metadata = self
-                .metadata(&item.info_hash)
-                .ok_or_else(|| ApiError::bad("The file list arrives with the torrent's details."))?;
-            let (done, settled) = self.files_done(item, &metadata);
-            (metadata, PathBuf::from(&item.save_path), item.handle.clone(), settled, done)
-        };
+        let (view, metadata) = self.files_of(id)?;
+        let (done, settled) = self.files_done(&view, &metadata);
         let path = metadata.files.get(index).ok_or_else(|| ApiError::not_found(format!("No file {index} in download {id}.")))?;
         let size = metadata.file_sizes[index];
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let on_disk = metadata.output_folder(&save_path).join(path);
+        let on_disk = metadata.output_folder(&view.save_path).join(path);
         // Unfinished, only a running torrent fetches what the player reaches; a paused one would
         // leave it waiting forever.
-        let source = match handle {
+        let source = match view.handle {
             _ if !settled => return Err(ApiError::bad("The download is starting. Try again in a moment.")),
             _ if done[index] == size => FileSource::Disk(on_disk),
             Some(handle) => FileSource::Engine(handle, index),
@@ -800,7 +811,7 @@ impl DownloadManager {
     /// chosen file to its full length when a torrent starts, so the length on disk says nothing: the
     /// engine's count does, or the pieces it saved, or else the download's own state. While the
     /// engine takes a torrent up and checks it, its saved pieces may be out of date.
-    fn files_done(&self, item: &Item, metadata: &Metadata) -> (Vec<u64>, bool) {
+    fn files_done(&self, item: &FilesOf, metadata: &Metadata) -> (Vec<u64>, bool) {
         let handle = item.handle.clone().or_else(|| self.engine().and_then(|e| e.handle(&item.info_hash)));
         let progress = handle.as_ref().map(Engine::file_progress).unwrap_or_default();
         if progress.len() == metadata.file_sizes.len() {
@@ -810,7 +821,7 @@ impl DownloadManager {
             // Every chosen file is there. One left out may be too, if it was fetched before; the
             // engine no longer keeps pieces for a finished download, so its length has to do.
             let chosen = |index: usize| item.selected_files.as_ref().is_none_or(|s| s.contains(&index));
-            let folder = metadata.output_folder(Path::new(&item.save_path));
+            let folder = metadata.output_folder(&item.save_path);
             let done = (metadata.files.iter().zip(&metadata.file_sizes).enumerate())
                 .map(|(i, (path, &size))| match chosen(i) {
                     true => size,
@@ -820,7 +831,27 @@ impl DownloadManager {
             return (done, true);
         }
         let saved = std::fs::read(self.torrent_session.join(format!("{}.bitv", item.info_hash.to_lowercase())));
-        (bytes_in_pieces(&saved.unwrap_or_default(), metadata.piece_length, &metadata.file_sizes), !item.is_engaged())
+        (bytes_in_pieces(&saved.unwrap_or_default(), metadata.piece_length, &metadata.file_sizes), !item.engaged)
+    }
+
+    /// What reading a download's files needs of it, and its torrent's details. Copied out, so the
+    /// disk is read after the downloads are unlocked.
+    fn files_of(&self, id: i64) -> ApiResult<(FilesOf, Arc<Metadata>)> {
+        let view = {
+            let items = self.items();
+            let item = items.get(&id).ok_or_else(|| not_found(id))?;
+            FilesOf {
+                info_hash: item.info_hash.clone(),
+                save_path: PathBuf::from(&item.save_path),
+                status: item.status,
+                selected_files: item.selected_files.clone(),
+                handle: item.handle.clone(),
+                engaged: item.is_engaged(),
+            }
+        };
+        let metadata =
+            self.metadata(&view.info_hash).ok_or_else(|| ApiError::bad("The file list arrives with the torrent's details."))?;
+        Ok((view, metadata))
     }
 
     fn cached_torrent_path(&self, hash: &str) -> PathBuf {
@@ -835,9 +866,11 @@ impl DownloadManager {
         let parsed =
             Arc::new(std::fs::read(self.cached_torrent_path(hash)).ok().and_then(|bytes| Metadata::from_torrent(bytes).ok())?);
         let mut cache = self.metadata.lock().unwrap_or_else(|e| e.into_inner());
-        // Small, and emptied rather than managed: parsing again is cheap, holding every torrent isn't.
-        if cache.len() >= METADATA_CACHE {
-            cache.clear();
+        // Small: parsing again is cheap, holding every torrent isn't. Making room drops one, not all.
+        if cache.len() >= METADATA_CACHE
+            && let Some(some) = cache.keys().next().cloned()
+        {
+            cache.remove(&some);
         }
         cache.insert(key, parsed.clone());
         Some(parsed)
@@ -856,7 +889,6 @@ impl DownloadManager {
         if item.is_engaged() {
             return;
         }
-        let _ = std::fs::create_dir_all(&item.save_path);
         let cached = self.cached_torrent_path(&item.info_hash);
         item.status = if cached.exists() { DownloadStatus::Downloading } else { DownloadStatus::FetchingMetadata };
         item.error = None;
@@ -865,16 +897,17 @@ impl DownloadManager {
         let token = CancellationToken::new();
         item.attaching = Some(token.clone());
         self.send_start_notification(item);
-        let (manager, id, attempt, magnet, save_path, only_files) = (
+        let (manager, id, attempt, magnet, hash, save_path, only_files) = (
             self.clone(),
             item.id,
             item.attempt,
             item.magnet_uri.clone(),
+            item.info_hash.clone(),
             PathBuf::from(&item.save_path),
             item.selected_files.clone(),
         );
         tokio::spawn(async move {
-            let run = manager.run_attach(&engine, id, attempt, &magnet, &cached, &save_path, only_files.as_deref());
+            let run = manager.run_attach(&engine, id, attempt, &magnet, &hash, &save_path, only_files.as_deref());
             tokio::select! {
                 _ = token.cancelled() => {}
                 outcome = run => if let Err(error) = outcome {
@@ -891,21 +924,23 @@ impl DownloadManager {
         id: i64,
         attempt: u64,
         magnet: &str,
-        cached: &Path,
+        hash: &str,
         save_path: &Path,
         only_files: Option<&[usize]>,
     ) -> anyhow::Result<()> {
-        let metadata = match std::fs::read(cached).ok().and_then(|bytes| Metadata::from_torrent(bytes).ok()) {
+        let _ = std::fs::create_dir_all(save_path);
+        let cached = self.cached_torrent_path(hash);
+        let metadata = match self.metadata(hash) {
             Some(metadata) => metadata,
             None => match tokio::time::timeout(METADATA_TIMEOUT, engine.resolve(magnet)).await {
-                Ok(resolved) => resolved?,
+                Ok(resolved) => Arc::new(resolved?),
                 Err(_) => {
                     tracing::info!("Gave up fetching metadata for download {id} after 3 min (no peers)");
                     anyhow::bail!("{NO_PEERS} — the torrent may be dead or have no seeders.");
                 }
             },
         };
-        self.on_metadata(id, attempt, &metadata, cached);
+        self.on_metadata(id, attempt, &metadata, &cached);
         let only_files = only_files.filter(|files| files.iter().all(|&f| f < metadata.files.len()));
         let handle = engine.add(&metadata, save_path, only_files).await?;
         let shutting_down = self.shutting_down.load(Ordering::SeqCst);
@@ -959,13 +994,28 @@ impl DownloadManager {
     }
 
     fn fail(&self, id: i64, attempt: u64, message: String) {
+        self.settle(id, |item| {
+            (item.attempt == attempt).then(|| {
+                item.status = DownloadStatus::Error;
+                item.error = Some(message);
+                true
+            })
+        });
+    }
+
+    /// Changes a download and saves it; `change` returns None to leave it alone, else whether the
+    /// download now leaves the engine (its numbers cleared, its torrent dropped in the background).
+    fn settle(&self, id: i64, change: impl FnOnce(&mut Item) -> Option<bool>) {
         let handle = {
             let mut items = self.items();
-            let Some(item) = items.get_mut(&id).filter(|i| i.attempt == attempt) else { return };
-            let handle = item.detach();
-            item.status = DownloadStatus::Error;
-            item.error = Some(message);
-            item.clear_stats();
+            let Some(item) = items.get_mut(&id) else { return };
+            let Some(leaves) = change(item) else { return };
+            let handle = if leaves {
+                item.clear_stats();
+                item.detach()
+            } else {
+                None
+            };
             self.persist(item);
             handle
         };
@@ -1073,43 +1123,26 @@ impl DownloadManager {
             return;
         }
         let settings = self.settings.get();
-        let handle = {
-            let mut items = self.items();
-            let Some(item) = items.get_mut(&id) else { return };
+        self.settle(id, |item| {
             item.progress = 100.0;
             if !item.complete_notification_sent {
                 item.complete_notification_sent = true;
                 item.completed_at = Some(now_iso());
                 self.notifications.notify("completed", "Download finished", item.name.clone());
             }
-            let handle = if settings.post_download_action == PostDownloadAction::StopSeeding || seeded_enough(&settings, item) {
-                item.status = DownloadStatus::Completed;
-                item.clear_stats();
-                item.detach()
-            } else {
-                item.status = DownloadStatus::Seeding;
-                None
-            };
-            self.persist(item);
-            handle
-        };
-        self.changed();
-        self.remove_in_background(handle);
+            let stop = settings.post_download_action == PostDownloadAction::StopSeeding || seeded_enough(&settings, item);
+            item.status = if stop { DownloadStatus::Completed } else { DownloadStatus::Seeding };
+            Some(stop)
+        });
     }
 
     /// A seeding download that has given back what the settings ask for.
     fn stop_seeding(&self, id: i64) {
-        let handle = {
-            let mut items = self.items();
-            let Some(item) = items.get_mut(&id) else { return };
+        self.settle(id, |item| {
             tracing::info!("Download {id} reached a ratio of {:.2}; it stops seeding", item.ratio());
             item.status = DownloadStatus::Completed;
-            item.clear_stats();
-            self.persist(item);
-            item.detach()
-        };
-        self.changed();
-        self.remove_in_background(handle);
+            Some(true)
+        });
     }
 
     /// Asks for a `downloads.changed` broadcast; bursts of changes are sent once.
@@ -1129,16 +1162,29 @@ impl DownloadManager {
     }
 
     /// One transaction, so a periodic save is one commit rather than one per download.
+    /// Saves every download, or with `everything` false those in the engine whose numbers moved.
     fn persist_all(&self, everything: bool) {
-        let items = self.items();
+        let mut items = self.items();
+        let mut moved = Vec::new();
+        for item in items.values_mut() {
+            let numbers = ((item.progress * 100.0) as u64, item.uploaded_bytes);
+            if everything || (item.handle.is_some() && numbers != item.saved) {
+                item.saved = numbers;
+                moved.push(item.id);
+            }
+        }
+        self.save(moved.iter().filter_map(|id| items.get(id)));
+    }
+
+    /// Writes these downloads in one transaction.
+    fn save<'a>(&self, items: impl Iterator<Item = &'a Item>) {
         let mut db = self.db.lock();
         let saved = db.transaction().and_then(|tx| {
-            for item in items.values().filter(|i| everything || i.handle.is_some()) {
+            for item in items {
                 write_item(&tx, item)?;
             }
             tx.commit()
         });
-        drop(db);
         if let Err(error) = saved {
             tracing::error!("Could not save downloads: {error}");
         }
@@ -1173,11 +1219,10 @@ fn torrent_identity(bytes: &[u8]) -> Option<(String, Vec<String>)> {
     Some((parsed.info_hash.as_string(), trackers))
 }
 
-const PLAYABLE: [&str; 14] =
-    ["mp4", "m4v", "mkv", "webm", "mov", "avi", "ts", "m2ts", "mp3", "m4a", "flac", "ogg", "opus", "wav"];
-
-fn is_playable(path: &Path) -> bool {
-    path.extension().and_then(|e| e.to_str()).is_some_and(|e| PLAYABLE.contains(&e.to_ascii_lowercase().as_str()))
+/// "video" or "audio", by the type a browser plays the file as; None for anything else.
+pub fn media_kind(path: &Path) -> Option<&'static str> {
+    let kind = super::media::media_type(&path.to_string_lossy());
+    ["video", "audio"].into_iter().find(|media| kind.starts_with(&format!("{media}/")))
 }
 
 fn write_item(db: &rusqlite::Connection, item: &Item) -> rusqlite::Result<usize> {
@@ -1200,6 +1245,10 @@ fn write_item(db: &rusqlite::Connection, item: &Item) -> rusqlite::Result<usize>
             item.id
         ],
     )
+}
+
+pub fn torrent_too_large() -> ApiError {
+    ApiError::bad(format!("That .torrent file is larger than {} MB.", MAX_TORRENT_FILE >> 20))
 }
 
 fn not_found(id: i64) -> ApiError {

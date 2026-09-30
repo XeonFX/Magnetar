@@ -168,16 +168,11 @@ mod platform {
 mod platform {
     use super::{HandlerStatus, installed_exe};
     use crate::error::{ApiError, ApiResult};
-    use crate::system::hidden_command;
 
     const CLASSES: &str = r"HKCU\Software\Classes";
 
     fn reg(args: &[&str]) -> Result<String, String> {
-        match hidden_command("reg").args(args).output() {
-            Ok(out) if out.status.success() => Ok(String::from_utf8_lossy(&out.stdout).into_owned()),
-            Ok(out) => Err(String::from_utf8_lossy(&out.stderr).trim().to_owned()),
-            Err(error) => Err(error.to_string()),
-        }
+        crate::system::run_captured("reg", args)
     }
 
     fn command(exe: &std::path::Path) -> String {
@@ -227,10 +222,7 @@ mod platform {
     const TYPES: [&str; 2] = ["x-scheme-handler/magnet", "application/x-bittorrent"];
 
     fn applications() -> std::path::PathBuf {
-        std::env::var_os("XDG_DATA_HOME")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| crate::paths::home_dir().join(".local/share"))
-            .join("applications")
+        crate::paths::xdg_data_home().join("applications")
     }
 
     pub fn status() -> HandlerStatus {
@@ -282,7 +274,7 @@ pub fn read_torrent_file(path: &Path) -> ApiResult<Vec<u8>> {
     }
     let metadata = std::fs::metadata(path).map_err(|e| ApiError::bad(format!("Could not read {}: {e}", path.display())))?;
     if metadata.len() > crate::downloads::manager::MAX_TORRENT_FILE as u64 {
-        return Err(ApiError::bad("That .torrent file is larger than 4 MB."));
+        return Err(crate::downloads::manager::torrent_too_large());
     }
     Ok(std::fs::read(path)?)
 }
