@@ -68,13 +68,24 @@ mod tests {
 
     use super::*;
 
+    /// Linux won't run a file a process has open for writing, and a CLI started by one test
+    /// inherits the other test's script while it is being written ("Text file busy"). So the tests
+    /// write and run their fake CLIs one at a time.
+    static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    fn fake_cli(dir: &Path, script: &str) -> PathBuf {
+        let cli = dir.join("claude");
+        std::fs::write(&cli, script).unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+        cli
+    }
+
     #[tokio::test]
     async fn replaces_any_earlier_entry_with_a_user_scope_one() {
+        let _turn = ONE_AT_A_TIME.lock().await;
         let dir = tempfile::tempdir().unwrap();
         let log = dir.path().join("calls.log");
-        let cli = dir.path().join("claude");
-        std::fs::write(&cli, format!("#!/bin/sh\necho \"$@\" >> '{}'\n", log.display())).unwrap();
-        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let cli = fake_cli(dir.path(), &format!("#!/bin/sh\necho \"$@\" >> '{}'\n", log.display()));
 
         register(&cli, "http://localhost:47821/mcp").await.unwrap();
         let calls = std::fs::read_to_string(&log).unwrap();
@@ -87,10 +98,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_failing_cli_reports_its_error() {
+        let _turn = ONE_AT_A_TIME.lock().await;
         let dir = tempfile::tempdir().unwrap();
-        let cli = dir.path().join("claude");
-        std::fs::write(&cli, "#!/bin/sh\n[ \"$2\" = add ] && { echo 'boom' >&2; exit 1; }\nexit 0\n").unwrap();
-        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let cli = fake_cli(dir.path(), "#!/bin/sh\n[ \"$2\" = add ] && { echo 'boom' >&2; exit 1; }\nexit 0\n");
         let error = register(&cli, "http://localhost:1/mcp").await.unwrap_err();
         assert!(error.message.ends_with("boom"), "{}", error.message);
     }
