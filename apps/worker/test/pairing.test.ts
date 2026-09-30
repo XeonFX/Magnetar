@@ -132,14 +132,16 @@ describe('pairing', () => {
   test('starting pairings is rate limited per address', async () => {
     const ip = freshIp()
     const start = () => call('/api/pair/start', { method: 'POST', headers: { 'cf-connecting-ip': ip }, json: {} })
-    // The dev environment allows 100 a minute.
-    const statuses = []
-    for (let i = 0; i < 101; i++) statuses.push((await start()).status)
-    expect(statuses.slice(0, 100).every(s => s === 200)).toBe(true)
-    expect(statuses[100]).toBe(429)
+    // Local rate limits count in one-minute windows on the wall clock; don't straddle two.
+    const leftInWindow = 60_000 - (Date.now() % 60_000)
+    if (leftInWindow < 5000) await new Promise(resolve => setTimeout(resolve, leftInWindow + 100))
+    // The dev environment allows 100 a minute: all of them at once pass, the next one doesn't.
+    const statuses = await Promise.all(Array.from({ length: 100 }, async () => (await start()).status))
+    expect(statuses.filter(s => s === 200)).toHaveLength(100)
+    expect((await start()).status).toBe(429)
     // Another address still gets through.
     await startPairing()
-  })
+  }, 30_000)
 
   test('refuses bodies that are not JSON, or too big', async () => {
     expect((await call('/api/pair/start', { method: 'POST', body: 'name=x', headers: { 'content-type': 'application/x-www-form-urlencoded' } })).status).toBe(415)

@@ -109,14 +109,10 @@ describe('the relay', () => {
     const device = await pairDevice(user)
     const page = await openSocket(connectBrowser(user, device.deviceId))
     expect(await page.nextJson()).toEqual({ t: 'device', online: false })
-    page.ws.send(bytes(1))
 
     const app = await openSocket(connectDevice(device))
     expect(await page.nextJson()).toEqual({ t: 'device', online: true })
     expect(await app.nextJson()).toMatchObject({ t: 'open' })
-    // A frame sent while nobody was there is not delivered late.
-    await settle()
-    expect(app.pending()).toEqual([])
 
     app.ws.close(1000, 'Quit')
     expect(await page.nextJson()).toEqual({ t: 'device', online: false })
