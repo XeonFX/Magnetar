@@ -1,10 +1,11 @@
-import type { SearchResultDto, SeriesResolution, SourceOutcomeDto, TorrentDetailsDto } from '@magnetar/protocol'
+import type { SearchResultDto, SourceOutcomeDto, TorrentDetailsDto } from '@magnetar/protocol'
 import { formatBytes } from '@magnetar/protocol/bytes'
 import { BellRing, Check, CircleAlert, Copy, Download, ExternalLink, FolderOpen, SearchIcon, SearchX, Sprout, Telescope, X } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useFormatDate, useFormatRelative, useT } from '../../lib/i18n.tsx'
-import { readSearch, searchKey, writeSearch, type SearchView } from '../../lib/urlState.ts'
+import { RESOLUTIONS } from '../../lib/quality.ts'
+import { readSearch, searchKey, writeSearch } from '../../lib/urlState.ts'
 import { askNotificationPermission } from '../../lib/notifications.ts'
 import { releaseTags } from '../../lib/releaseTags.ts'
 import { PageHeader, Segmented } from '../../ui/controls.tsx'
@@ -26,8 +27,7 @@ const SORTS: Record<Sort, (a: SearchResultDto, b: SearchResultDto) => number> = 
   smallest: (a, b) => a.sizeBytes - b.sizeBytes,
 }
 /** The first is the default, left out of links. */
-const SORT_NAMES = Object.keys(SORTS) as Sort[]
-const RESOLUTIONS = ['', '720p', '1080p', '2160p'] as const
+const SORT_NAMES = Object.keys(SORTS) as [Sort, ...Sort[]]
 
 /** Starts a download and says so, with a way to go and watch it. */
 function useStartDownload() {
@@ -48,7 +48,7 @@ function useStartDownload() {
 export function SearchPage() {
   const t = useT()
   const { connection, connectionState, sources, basePath } = useDevice()
-  const { search, setSearch } = useSearch()
+  const { search, setSearch, setSearchAddress } = useSearch()
   const navigate = useNavigate()
   const run = useRun()
   const startDownload = useStartDownload()
@@ -58,12 +58,12 @@ export function SearchPage() {
   // The search on screen lives in the address bar (query, resolution, source and sort), so a
   // reload, a bookmark, a shared link or Back shows the same one.
   const [params, setParams] = useSearchParams()
-  const view = readSearch(params, RESOLUTIONS, SORT_NAMES)
-  const sort = view.sort as Sort
+  const view = useMemo(() => readSearch(params, RESOLUTIONS, SORT_NAMES), [params])
+  const { sort } = view
   const key = searchKey(view)
-  const show = (change: Partial<SearchView>, how: { replace: boolean }) => setParams(writeSearch({ ...view, ...change }, SORT_NAMES), how)
+  const show = (change: Partial<typeof view>, how: { replace: boolean }) => setParams(writeSearch({ ...view, ...change }, RESOLUTIONS, SORT_NAMES), how)
 
-  const start = async (target: SearchView) => {
+  const start = async (target: typeof view) => {
     if (search.searchId && search.searching) void connection.call('search.cancel', { searchId: search.searchId }).catch(() => {})
     setShown(PAGE_SIZE)
     setSearch(s => ({ ...s, query: target.query, ran: searchKey(target), searching: true, results: [], outcomes: [], searchId: null }))
@@ -84,13 +84,9 @@ export function SearchPage() {
   useEffect(() => {
     if (key && key !== search.ran && connectionState.status === 'open') void start(view)
   }, [key, connectionState.status])
-  // Coming back to Search from another page brings back the search left on screen.
+  // The links back to Search open this one again.
   useEffect(() => {
-    if (params.size === 0 && search.url) setParams(new URLSearchParams(search.url), { replace: true })
-  }, [])
-  useEffect(() => {
-    const url = params.toString()
-    setSearch(s => (s.url === url ? s : { ...s, url }))
+    if (key) setSearchAddress(params.toString())
   }, [params])
 
   const results = useMemo(() => (search.results ? [...search.results].sort(SORTS[sort]) : null), [search.results, sort])
@@ -117,7 +113,7 @@ export function SearchPage() {
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Segmented label={t('search.resolution')} value={view.resolution as (typeof RESOLUTIONS)[number]}
+          <Segmented label={t('search.resolution')} value={view.resolution}
             onChange={resolution => show({ resolution }, { replace: true })} options={resolutionOptions(t)} />
           <select className="select select-sm w-auto rounded-full" aria-label={t('search.source')} value={view.source}
             onChange={e => show({ source: e.target.value }, { replace: true })}>
@@ -126,7 +122,7 @@ export function SearchPage() {
           </select>
           {results && results.length > 1 && (
             <select className="select select-sm ml-auto w-auto rounded-full" aria-label={t('search.sort')} value={sort}
-              onChange={e => show({ sort: e.target.value }, { replace: true })}>
+              onChange={e => show({ sort: e.target.value as Sort }, { replace: true })}>
               {SORT_NAMES.map(s => <option key={s} value={s}>{t(`search.sort.${s}`)}</option>)}
             </select>
           )}
@@ -135,7 +131,7 @@ export function SearchPage() {
 
       {search.outcomes.length > 0 && <Outcomes outcomes={search.outcomes} total={results?.length ?? 0} searching={search.searching}
         onWatch={search.searching ? undefined : () => navigate(`${basePath}/series/releases`, {
-          state: { watch: { query: view.query, resolution: (view.resolution || null) as SeriesResolution | null } },
+          state: { watch: { query: view.query, resolution: view.resolution || null } },
         })} />}
       {search.searching && !results?.length && <div className="flex justify-center py-16"><span className="loading loading-dots loading-lg text-primary" /></div>}
 

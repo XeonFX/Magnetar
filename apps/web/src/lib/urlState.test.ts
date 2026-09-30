@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import fc from 'fast-check'
-import { pickParam, readSearch, searchKey, withParam, writeSearch, type SearchView } from './urlState.ts'
+import { pathChoice, pickParam, readSearch, searchKey, withParam, writeSearch, type SearchView } from './urlState.ts'
 
 const RESOLUTIONS = ['', '720p', '1080p', '2160p'] as const
 const SORTS = ['seeders', 'newest', 'largest', 'smallest'] as const
@@ -35,8 +35,8 @@ describe('a search in the address bar', () => {
   })
 
   test('writes a short link: the defaults stay out', () => {
-    expect(writeSearch({ query: 'dragon', resolution: '', source: '', sort: 'seeders' }, SORTS).toString()).toBe('q=dragon')
-    expect(writeSearch({ query: 'Łódź & co?', resolution: '2160p', source: 'The Pirate Bay', sort: 'smallest' }, SORTS).toString())
+    expect(writeSearch({ query: 'dragon', resolution: '', source: '', sort: 'seeders' }, RESOLUTIONS, SORTS).toString()).toBe('q=dragon')
+    expect(writeSearch({ query: 'Łódź & co?', resolution: '2160p', source: 'The Pirate Bay', sort: 'smallest' }, RESOLUTIONS, SORTS).toString())
       .toBe('q=%C5%81%C3%B3d%C5%BA+%26+co%3F&res=2160p&source=The+Pirate+Bay&sort=smallest')
   })
 
@@ -59,9 +59,34 @@ describe('a search in the address bar', () => {
       sort: fc.constantFrom(...SORTS),
     })
     fc.assert(fc.property(view, v => {
-      const again = readSearch(new URLSearchParams(writeSearch(v, SORTS).toString()), RESOLUTIONS, SORTS)
+      const again = readSearch(new URLSearchParams(writeSearch(v, RESOLUTIONS, SORTS).toString()), RESOLUTIONS, SORTS)
       expect(again).toEqual(v)
       expect(searchKey(again)).toBe(searchKey(v))
     }))
+  })
+})
+
+describe('a choice in the path', () => {
+  const SECTIONS = ['general', 'downloads', 'agents'] as const
+  const at = (segment: string | undefined, query = '') => pathChoice(segment, new URLSearchParams(query), SECTIONS, 'section')
+
+  test('the bare path is the first choice, and a known segment is itself', () => {
+    expect(at(undefined)).toEqual({ value: 'general', redirect: null })
+    expect(at('agents')).toEqual({ value: 'agents', redirect: null })
+  })
+
+  test('older query links move to their path', () => {
+    expect(at(undefined, 'section=agents')).toEqual({ value: 'general', redirect: 'agents' })
+    expect(at(undefined, 'section=general')).toEqual({ value: 'general', redirect: 'general' })
+    expect(at(undefined, 'section=nope')).toEqual({ value: 'general', redirect: 'general' })
+    // Only the bare path reads the old parameter.
+    expect(at('downloads', 'section=agents')).toEqual({ value: 'downloads', redirect: null })
+  })
+
+  test('an unknown segment, or the first one spelled out, goes to the bare path', () => {
+    expect(at('nope')).toEqual({ value: 'general', redirect: 'general' })
+    expect(at('general')).toEqual({ value: 'general', redirect: 'general' })
+    expect(at('Agents')).toEqual({ value: 'general', redirect: 'general' })
+    expect(at('')).toEqual({ value: 'general', redirect: 'general' })
   })
 })

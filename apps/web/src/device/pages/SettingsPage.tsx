@@ -3,7 +3,7 @@ import {
   Bell, Bot, Cloud, Copy, Download, Eye, EyeOff, Info, Mail, RefreshCw, Send, Server, Smartphone, SlidersHorizontal, Sparkles, Upload,
 } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, Navigate, useParams, useSearchParams } from 'react-router'
+import { Link, Navigate, useParams } from 'react-router'
 import { LANGUAGES, useFormatDate, useT } from '../../lib/i18n.tsx'
 import { askNotificationPermission } from '../../lib/notifications.ts'
 import { PageHeader, Segmented, SettingGroup, SettingRow, Switch } from '../../ui/controls.tsx'
@@ -12,6 +12,7 @@ import { ConfirmDialog } from '../../ui/Modal.tsx'
 import { useTheme, type ThemeMode } from '../../ui/theme.ts'
 import { useCopy, useToast } from '../../ui/toast.tsx'
 import { useDevice } from '../DeviceContext.tsx'
+import { usePathChoice } from '../../lib/urlState.ts'
 import { BrowserPushChannel } from '../components/browserPush.tsx'
 import { FolderField } from '../components/folders.tsx'
 import { useLegacyImport } from '../components/legacyImport.tsx'
@@ -30,25 +31,20 @@ const SECTIONS = [
   { id: 'about', icon: Info },
 ] as const
 type SectionId = (typeof SECTIONS)[number]['id']
+const SECTION_IDS = SECTIONS.map(s => s.id) as [SectionId, ...SectionId[]]
 
 export function SettingsPage() {
   const t = useT()
   const { settings, basePath } = useDevice()
   // Each section has its own address: /settings is General, /settings/agents the AI agents.
-  const { section } = useParams()
-  const [params] = useSearchParams()
-  const legacy = params.get('section')
-  const current = SECTIONS.find(s => s.id === section)?.id
+  const { value: shown, redirect } = usePathChoice(useParams().section, SECTION_IDS, 'section')
   const href = (id: SectionId) => `${basePath}/settings${id === 'general' ? '' : `/${id}`}`
   // On a phone the sections scroll sideways; a link straight to one scrolls it into sight.
   const nav = useRef<HTMLElement>(null)
   useEffect(() => {
     nav.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [current, settings !== null])
-  // Older links named the section in the query (?section=agents); unknown sections go to General.
-  if (!section && legacy) return <Navigate to={href(SECTIONS.find(s => s.id === legacy)?.id ?? 'general')} replace />
-  if (section && (!current || current === 'general')) return <Navigate to={href('general')} replace />
-  const shown = current ?? 'general'
+  }, [shown, settings !== null])
+  if (redirect) return <Navigate to={href(redirect)} replace />
   if (!settings) return <Loading />
 
   return (

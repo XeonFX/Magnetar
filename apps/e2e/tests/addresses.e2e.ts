@@ -36,7 +36,7 @@ test('the Watchlist tab is part of the address', async ({ page }) => {
   await expect(page).toHaveURL(/\/series$/)
 })
 
-test('search choices survive a reload and come back with the Search page', async ({ page }) => {
+test('search choices survive a reload, and unknown ones fall back', async ({ page }) => {
   // No query, so no site is asked; the choices alone are kept.
   await page.goto('/search?res=1080p&sort=newest')
   const resolution = (name: string) => page.getByRole('radiogroup', { name: 'Resolution' }).getByRole('radio', { name })

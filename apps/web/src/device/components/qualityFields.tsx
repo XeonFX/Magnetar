@@ -1,6 +1,6 @@
 import type { SeriesResolution } from '@magnetar/protocol'
 import { useT } from '../../lib/i18n.tsx'
-import { parseQuality, type QualityForm } from '../../lib/quality.ts'
+import { parseQuality, resolutionLabel, RESOLUTIONS, type QualityForm } from '../../lib/quality.ts'
 import { Segmented } from '../../ui/controls.tsx'
 import { Field, TextField } from '../../ui/fields.tsx'
 
@@ -8,7 +8,7 @@ type T = ReturnType<typeof useT>
 
 /** The resolutions to choose from, "any" first. */
 export function resolutionOptions(t: T): { value: SeriesResolution | ''; label: string }[] {
-  return [{ value: '', label: t('search.resolutionAny') }, { value: '720p', label: '720p' }, { value: '1080p', label: '1080p' }, { value: '2160p', label: '4K' }]
+  return RESOLUTIONS.map(value => ({ value, label: value ? resolutionLabel(value)! : t('search.resolutionAny') }))
 }
 
 /** "Every 6 hours" and the like, in whole days, hours or minutes. */
