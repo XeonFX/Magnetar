@@ -1,5 +1,5 @@
 {
-  "name": "@md/e2e",
+  "name": "@magnetar/e2e",
   "private": true,
   "type": "module",
   "scripts": {

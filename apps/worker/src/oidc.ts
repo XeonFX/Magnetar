@@ -1,4 +1,4 @@
-import { fromBase64Url } from '@md/protocol/base64'
+import { fromBase64Url } from '@magnetar/protocol/base64'
 
 const GOOGLE_JWKS_URL = 'https://www.googleapis.com/oauth2/v3/certs'
 const GOOGLE_ISSUERS = new Set(['https://accounts.google.com', 'accounts.google.com'])

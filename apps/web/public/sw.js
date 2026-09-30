@@ -1,5 +1,5 @@
 /*
- * MediaDownloader's service worker, on the website only.
+ * Magnetar's service worker, on the website only.
  *
  * Playback through the relay: a <video> on the page asks for /__stream/<key>/<name> with byte
  * ranges; this worker asks the page for the bytes, which reads them from the device over its
@@ -40,7 +40,7 @@ async function pageFor(event, key) {
   const own = event.clientId ? await self.clients.get(event.clientId) : null
   const candidates = own ? [own] : await self.clients.matchAll({ type: 'window' })
   for (const client of candidates) {
-    const meta = await ask(client, { type: 'md-stream-meta', key })
+    const meta = await ask(client, { type: 'magnetar-stream-meta', key })
     if (meta) return { client, meta }
   }
   return null
@@ -67,7 +67,7 @@ async function stream(event, key) {
   const body = new ReadableStream({
     async pull(controller) {
       if (offset > end) return controller.close()
-      const reply = await ask(client, { type: 'md-stream-read', key, offset, length: Math.min(CHUNK, end - offset + 1) })
+      const reply = await ask(client, { type: 'magnetar-stream-read', key, offset, length: Math.min(CHUNK, end - offset + 1) })
       if (!reply || reply.error) return controller.error(new Error(reply?.error ?? 'The device did not answer'))
       const bytes = new Uint8Array(reply.data)
       if (bytes.length === 0) return controller.close()
@@ -96,7 +96,7 @@ self.addEventListener('push', event => {
   } catch {
     message = { body: event.data ? event.data.text() : '' }
   }
-  event.waitUntil(self.registration.showNotification(message.title || 'MediaDownloader', {
+  event.waitUntil(self.registration.showNotification(message.title || 'Magnetar', {
     body: message.body || '',
     icon: '/icon-192.png',
     badge: '/icon-192.png',

@@ -1,10 +1,10 @@
 /**
- * Builds the single-file MediaDownloader executable for one platform, with the dashboard embedded.
+ * Builds the single-file Magnetar executable for one platform, with the dashboard embedded.
  *
- *   bun run package.ts [--target aarch64-apple-darwin] [--version 2.0.0] [--skip-web]
+ *   bun run package.ts [--target aarch64-apple-darwin] [--version 1.0.0] [--skip-web]
  *
- * Output in dist/: `MediaDownloader-<version>-<platform>-<arch>` (.exe on Windows). On macOS it
- * is also wrapped in MediaDownloader.app and zipped, which is the release asset: signed with the
+ * Output in dist/: `Magnetar-<version>-<platform>-<arch>` (.exe on Windows). On macOS it
+ * is also wrapped in Magnetar.app and zipped, which is the release asset: signed with the
  * Developer ID in MACOS_SIGNING_IDENTITY and notarized when APPLE_ID, APPLE_TEAM_ID and
  * APPLE_APP_PASSWORD are set, ad-hoc signed otherwise. On Windows the .exe is signed when
  * WINDOWS_CERTIFICATE is set.
@@ -36,48 +36,48 @@ if (!target) throw new Error('Could not determine the Rust target')
 const platform = target.includes('apple-darwin') ? 'macos' : target.includes('windows') ? 'windows' : 'linux'
 const arch = target.startsWith('aarch64') ? 'arm64' : 'x64'
 const exe = platform === 'windows' ? '.exe' : ''
-const name = `MediaDownloader-${version}-${platform}-${arch}`
+const name = `Magnetar-${version}-${platform}-${arch}`
 
 if (!values['skip-web']) {
   await $`bun run build`.cwd(join(repo, 'apps', 'web')).env({ ...process.env, VITE_APP_VERSION: version })
 }
 if (!existsSync(join(repo, 'apps', 'web', 'dist', 'index.html'))) throw new Error('apps/web/dist is missing; build the dashboard first')
-if (!process.env.MD_RELEASE_PUBLIC_KEY && !existsSync(join(root, 'release-public-key.txt'))) {
+if (!process.env.MAGNETAR_RELEASE_PUBLIC_KEY && !existsSync(join(root, 'release-public-key.txt'))) {
   console.warn('No release public key: this build will open the release page instead of installing updates')
 }
 
-await $`cargo build --release --locked --target ${target} -p mediadownloader`.cwd(repo).env({ ...process.env, MD_VERSION: version })
+await $`cargo build --release --locked --target ${target} -p magnetar`.cwd(repo).env({ ...process.env, MAGNETAR_VERSION: version })
 
 mkdirSync(dist, { recursive: true })
 const outfile = join(dist, name + exe)
-cpSync(join(repo, 'target', target, 'release', `mediadownloader${exe}`), outfile)
+cpSync(join(repo, 'target', target, 'release', `magnetar${exe}`), outfile)
 if (platform !== 'windows') chmodSync(outfile, 0o755)
 console.log(`Built ${relative(process.cwd(), outfile)}`)
 
 if (platform === 'macos') await packageMacApp()
 if (platform === 'windows') await signWindowsExecutable(outfile)
 
-/** MediaDownloader.app: a menu-bar agent (no Dock icon), ad-hoc signed, zipped with ditto. */
+/** Magnetar.app: a menu-bar agent (no Dock icon), ad-hoc signed, zipped with ditto. */
 async function packageMacApp(): Promise<void> {
-  const app = join(dist, 'MediaDownloader.app')
+  const app = join(dist, 'Magnetar.app')
   rmSync(app, { recursive: true, force: true })
   mkdirSync(join(app, 'Contents', 'MacOS'), { recursive: true })
   mkdirSync(join(app, 'Contents', 'Resources'), { recursive: true })
-  cpSync(outfile, join(app, 'Contents', 'MacOS', 'MediaDownloader'))
-  chmodSync(join(app, 'Contents', 'MacOS', 'MediaDownloader'), 0o755)
+  cpSync(outfile, join(app, 'Contents', 'MacOS', 'Magnetar'))
+  chmodSync(join(app, 'Contents', 'MacOS', 'Magnetar'), 0o755)
   cpSync(join(root, 'assets', 'AppIcon.icns'), join(app, 'Contents', 'Resources', 'AppIcon.icns'))
   const plainVersion = version.replace(/-.*/, '')
   writeFileSync(join(app, 'Contents', 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>MediaDownloader</string>
-  <key>CFBundleDisplayName</key><string>MediaDownloader</string>
-  <key>CFBundleIdentifier</key><string>cc.codefusion.mediadownloader</string>
+  <key>CFBundleName</key><string>Magnetar</string>
+  <key>CFBundleDisplayName</key><string>Magnetar</string>
+  <key>CFBundleIdentifier</key><string>cc.codefusion.magnetar</string>
   <key>CFBundleVersion</key><string>${plainVersion}</string>
   <key>CFBundleShortVersionString</key><string>${plainVersion}</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleExecutable</key><string>MediaDownloader</string>
+  <key>CFBundleExecutable</key><string>Magnetar</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSUIElement</key><true/>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
@@ -122,9 +122,9 @@ async function packageMacApp(): Promise<void> {
   // imported), otherwise ad-hoc: Gatekeeper then asks the user to confirm the first launch.
   const identity = process.env.MACOS_SIGNING_IDENTITY
   if (identity) {
-    await $`/usr/bin/codesign --force --options runtime --timestamp --sign ${identity} --identifier cc.codefusion.mediadownloader ${app}`
+    await $`/usr/bin/codesign --force --options runtime --timestamp --sign ${identity} --identifier cc.codefusion.magnetar ${app}`
   } else {
-    await $`/usr/bin/codesign --force --sign - --identifier cc.codefusion.mediadownloader --timestamp=none ${app}`
+    await $`/usr/bin/codesign --force --sign - --identifier cc.codefusion.magnetar --timestamp=none ${app}`
   }
   await $`/usr/bin/codesign --verify --deep --strict --verbose=2 ${app}`
   const zip = join(dist, `${name}.zip`)
@@ -152,7 +152,7 @@ async function packageMacApp(): Promise<void> {
 async function signWindowsExecutable(file: string): Promise<void> {
   const { WINDOWS_CERTIFICATE, WINDOWS_CERTIFICATE_PASSWORD } = process.env
   if (!WINDOWS_CERTIFICATE || process.platform !== 'win32') return
-  const pfx = join(tmpdir(), `md-signing-${process.pid}.pfx`)
+  const pfx = join(tmpdir(), `magnetar-signing-${process.pid}.pfx`)
   writeFileSync(pfx, Buffer.from(WINDOWS_CERTIFICATE, 'base64'))
   try {
     const kits = 'C:/Program Files (x86)/Windows Kits/10/bin'

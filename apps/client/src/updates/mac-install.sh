@@ -11,7 +11,7 @@ exec >> "$work/install.log" 2>&1
 if [ "$mode" = prepare ]; then
     /usr/bin/ditto "$source_app" "$replacement"
     /usr/bin/codesign --verify --deep --strict "$replacement"
-    /usr/bin/codesign --verify -R '=identifier "cc.codefusion.mediadownloader"' "$replacement"
+    /usr/bin/codesign --verify -R '=identifier "cc.codefusion.magnetar"' "$replacement"
     # Ad-hoc releases have no Apple trust ticket; the release signature was verified before this
     # script ran. Keep Gatekeeper enforcement for an installation signed with a certificate.
     installed_signature="$(/usr/bin/codesign --display --verbose=2 "$bundle" 2>&1)"

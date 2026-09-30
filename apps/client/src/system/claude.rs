@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::error::{ApiError, ApiResult};
 use crate::paths::home_dir;
 
-const SERVER_NAME: &str = "mediadownloader";
+const SERVER_NAME: &str = "magnetar";
 const TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The command that registers the server for every project (`--scope user`).
@@ -80,9 +80,9 @@ mod tests {
         let calls = std::fs::read_to_string(&log).unwrap();
         assert_eq!(
             calls,
-            "mcp remove --scope user mediadownloader\nmcp add --transport http --scope user mediadownloader http://localhost:47821/mcp\n"
+            "mcp remove --scope user magnetar\nmcp add --transport http --scope user magnetar http://localhost:47821/mcp\n"
         );
-        assert_eq!(command("http://x/mcp"), "claude mcp add --transport http --scope user mediadownloader http://x/mcp");
+        assert_eq!(command("http://x/mcp"), "claude mcp add --transport http --scope user magnetar http://x/mcp");
     }
 
     #[tokio::test]

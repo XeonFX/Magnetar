@@ -1,5 +1,5 @@
-import { fromBase64Url, toBase64Url } from '@md/protocol/base64'
-import { importBrowserKey } from '@md/protocol/e2e'
+import { fromBase64Url, toBase64Url } from '@magnetar/protocol/base64'
+import { importBrowserKey } from '@magnetar/protocol/e2e'
 
 /**
  * This browser's keys for its linked devices. Each is stored as a non-extractable CryptoKey: page
@@ -13,7 +13,7 @@ export interface StoredDeviceKey {
   linkedAt: string
 }
 
-const DB_NAME = 'mediadownloader'
+const DB_NAME = 'magnetar'
 const STORE = 'deviceKeys'
 
 function open(): Promise<IDBDatabase> {
@@ -60,7 +60,7 @@ export async function forgetDeviceKey(deviceId: string): Promise<void> {
  * A key received in a link fragment, parked for the length of a sign-in redirect. Session storage
  * is per tab and cleared when it closes; it is removed as soon as the key is imported.
  */
-const PENDING = 'md-pending-key'
+const PENDING = 'magnetar-pending-key'
 
 export interface PendingKey {
   /** `pair` while waiting for a pairing approval, `link` for a device that is already paired. */

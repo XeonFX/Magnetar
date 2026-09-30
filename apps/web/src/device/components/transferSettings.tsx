@@ -1,5 +1,5 @@
-import type { NetworkInterfaceDto, SettingsDto, SettingsPatch } from '@md/protocol'
-import { MIN_SPEED_LIMIT } from '@md/protocol/limits'
+import type { NetworkInterfaceDto, SettingsDto, SettingsPatch } from '@magnetar/protocol'
+import { MIN_SPEED_LIMIT } from '@magnetar/protocol/limits'
 import { Gauge, Network, ShieldCheck } from 'lucide-react'
 import { useEffect, useId, useMemo, useState } from 'react'
 import { useLanguage, useT } from '../../lib/i18n.tsx'
@@ -182,14 +182,14 @@ export function NetworkSettings({ settings, save }: { settings: SettingsDto; sav
       {!list.supported ? (
         <p className="muted text-sm">{t('settings.networkUnsupported')}</p>
       ) : (
-        <SettingRow layout="stack" title={t('settings.networkInterface')} htmlFor="md-interface"
+        <SettingRow layout="stack" title={t('settings.networkInterface')} htmlFor="magnetar-interface"
           description={chosen
             ? <span className={missing ? 'text-warning' : 'inline-flex items-center gap-1 text-success'}>
                 {missing ? t('settings.networkMissing', chosen) : <><ShieldCheck size={14} />{t('settings.networkBound', chosen)}</>}
               </span>
             : t('settings.networkAny')}>
           <div className="flex gap-2">
-            <select id="md-interface" className="select w-full sm:max-w-md" value={chosen} onFocus={refresh}
+            <select id="magnetar-interface" className="select w-full sm:max-w-md" value={chosen} onFocus={refresh}
               onChange={e => save({ networkInterface: e.target.value })}>
               <option value="">{t('settings.networkAnyOption')}</option>
               {missing && <option value={chosen}>{t('settings.networkMissingOption', chosen)}</option>}

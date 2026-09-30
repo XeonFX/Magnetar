@@ -9,7 +9,7 @@ import { defineConfig, devices } from '@playwright/test'
  * them; everything else is the product as a user drives it.
  */
 const PORT = 47_890
-const scratch = mkdtempSync(join(tmpdir(), 'md-e2e-'))
+const scratch = mkdtempSync(join(tmpdir(), 'magnetar-e2e-'))
 
 export default defineConfig({
   testDir: './tests',
@@ -29,20 +29,20 @@ export default defineConfig({
     { name: 'phone', use: { ...devices['Pixel 7'] }, testMatch: /phone\.e2e\.ts/ },
   ],
   webServer: {
-    command: 'bun run --cwd ../web build && cargo run -q -p mediadownloader',
+    command: 'bun run --cwd ../web build && cargo run -q -p magnetar',
     url: `http://localhost:${PORT}/health`,
     timeout: 600_000,
     reuseExistingServer: false,
     stdout: 'ignore',
     stderr: 'pipe',
     env: {
-      MD_PORT: String(PORT),
-      MD_DATA_DIRECTORY: join(scratch, 'data'),
-      MD_DOWNLOAD_FOLDER: join(scratch, 'downloads'),
-      MD_LEGACY_DATABASE: join(scratch, 'no-legacy.db'),
-      MD_CLOUD_URL: 'http://127.0.0.1:9',
-      MD_NO_TRAY: '1',
-      MD_NO_BROWSER: '1',
+      MAGNETAR_PORT: String(PORT),
+      MAGNETAR_DATA_DIRECTORY: join(scratch, 'data'),
+      MAGNETAR_DOWNLOAD_FOLDER: join(scratch, 'downloads'),
+      MAGNETAR_LEGACY_DATABASE: join(scratch, 'no-legacy.db'),
+      MAGNETAR_CLOUD_URL: 'http://127.0.0.1:9',
+      MAGNETAR_NO_TRAY: '1',
+      MAGNETAR_NO_BROWSER: '1',
       PATH: `/opt/homebrew/opt/rustup/bin:${process.env.PATH}`,
     },
   },

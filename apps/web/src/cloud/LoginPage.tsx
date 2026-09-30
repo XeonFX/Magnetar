@@ -72,8 +72,8 @@ export function LoginPage() {
             <Point icon={<ShieldCheck size={20} />} title={t('cloud.pointPrivate')} text={t('cloud.e2eNote')} />
             <Point icon={<Download size={20} />} title={t('cloud.pointApp')} text={t('cloud.pointAppText')} />
           </ul>
-          <section className="surface mt-8 max-w-md p-5" aria-labelledby="md-get-app">
-            <h2 id="md-get-app" className="mb-3 font-semibold">{t('get.title')}</h2>
+          <section className="surface mt-8 max-w-md p-5" aria-labelledby="magnetar-get-app">
+            <h2 id="magnetar-get-app" className="mb-3 font-semibold">{t('get.title')}</h2>
             <DownloadApp />
           </section>
         </div>

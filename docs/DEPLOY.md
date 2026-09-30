@@ -1,4 +1,4 @@
-# Deploying mediadownloader.codefusion.cc
+# Deploying magnetar.codefusion.cc
 
 The Worker in `apps/worker` serves the website, sign-in, pairing and the relay. One-time setup, then `bun run deploy`.
 
@@ -6,9 +6,9 @@ The Worker in `apps/worker` serves the website, sign-in, pairing and the relay. 
 
 Google Cloud Console → **APIs & Services → Credentials → Create credentials → OAuth client ID**:
 
-- Application type: **Web application**, name `MediaDownloader`
-- Authorized JavaScript origins: `https://mediadownloader.codefusion.cc`
-- Authorized redirect URIs: `https://mediadownloader.codefusion.cc/api/auth/google/callback`
+- Application type: **Web application**, name `Magnetar`
+- Authorized JavaScript origins: `https://magnetar.codefusion.cc`
+- Authorized redirect URIs: `https://magnetar.codefusion.cc/api/auth/google/callback`
 
 The consent screen needs only the `openid`, `email` and `profile` scopes. Put the client id in
 `apps/worker/wrangler.jsonc` → `vars.GOOGLE_CLIENT_ID`. It is public; no client secret is used.
@@ -17,7 +17,7 @@ The consent screen needs only the `openid`, `email` and `profile` scopes. Put th
 
 ```bash
 cd apps/worker
-bunx wrangler d1 create mediadownloader
+bunx wrangler d1 create magnetar
 ```
 
 Paste the printed `database_id` into both `d1_databases` entries of `wrangler.jsonc`, then apply the schema:
@@ -32,11 +32,11 @@ In the codefusion-console repo, add the app to `config/apps.json` so its failure
 
 ```json
 {
-  "id": "mediadownloader",
-  "name": "MediaDownloader",
+  "id": "magnetar",
+  "name": "Magnetar",
   "brand": "codefusion",
-  "url": "https://mediadownloader.codefusion.cc",
-  "telemetry": { "scripts": { "mediadownloader": "production" } }
+  "url": "https://magnetar.codefusion.cc",
+  "telemetry": { "scripts": { "magnetar": "production" } }
 }
 ```
 
@@ -90,5 +90,5 @@ Without them the website doesn't offer browser notifications. Changing the pair 
 ## Downloads on the website
 
 The sign-in page and an empty device list offer the app for the visitor's system, from the latest GitHub release of
-`RELEASES_REPO` (a Worker var, `XeonFX/MediaDownloader` by default). Asset names must stay
-`MediaDownloader-<version>-<macos|windows|linux>-<arm64|x64>[.zip|.exe]`.
+`RELEASES_REPO` (a Worker var, `XeonFX/Magnetar` by default). Asset names must stay
+`Magnetar-<version>-<macos|windows|linux>-<arm64|x64>[.zip|.exe]`.

@@ -1,5 +1,5 @@
-import type { PairingInfoDto } from '@md/protocol/cloud'
-import { fromBase64Url } from '@md/protocol/base64'
+import type { PairingInfoDto } from '@magnetar/protocol/cloud'
+import { fromBase64Url } from '@magnetar/protocol/base64'
 import { Check, Laptop, Link2, ShieldCheck } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router'
@@ -77,7 +77,7 @@ export function PairPage() {
               <Laptop size={28} className="shrink-0 text-primary" />
               <div className="min-w-0">
                 <div className="truncate font-semibold">{info.name}</div>
-                <div className="text-xs text-base-content/60">{info.platform} · MediaDownloader {info.version}</div>
+                <div className="text-xs text-base-content/60">{info.platform} · Magnetar {info.version}</div>
               </div>
             </div>
             <p className="text-sm">{t('pair.question', account.email)}</p>

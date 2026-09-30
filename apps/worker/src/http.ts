@@ -1,4 +1,4 @@
-import { toBase64Url } from '@md/protocol/base64'
+import { toBase64Url } from '@magnetar/protocol/base64'
 import { allowedOrigins, type Env } from './env.ts'
 
 export class HttpError extends Error {

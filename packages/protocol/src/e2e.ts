@@ -20,7 +20,7 @@
 import { fromBase64Url, randomBytes, toBase64Url } from './base64.ts'
 
 export const E2E_VERSION = 1
-const LABEL = 'md-e2e-v1'
+const LABEL = 'magnetar-e2e-v1'
 const KEY_BYTES = 32
 const NONCE_BYTES = 16
 

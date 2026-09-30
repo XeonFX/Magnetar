@@ -1,5 +1,5 @@
-import type { DownloadDto } from '@md/protocol'
-import { formatRate } from '@md/protocol/bytes'
+import type { DownloadDto } from '@magnetar/protocol'
+import { formatRate } from '@magnetar/protocol/bytes'
 import { ArrowDown, ArrowUp, CloudDownload, Plus, Search, Tv } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'

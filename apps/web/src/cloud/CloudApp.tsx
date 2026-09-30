@@ -1,4 +1,4 @@
-import type { AccountDto } from '@md/protocol/cloud'
+import type { AccountDto } from '@magnetar/protocol/cloud'
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router'
 import type { AppConfig } from '../lib/cloudApi.ts'

@@ -1,4 +1,4 @@
-import type { FailureReport } from '@md/protocol/cloud'
+import type { FailureReport } from '@magnetar/protocol/cloud'
 import type { DeviceRelay } from './relay.ts'
 
 export interface ConsoleTelemetry {

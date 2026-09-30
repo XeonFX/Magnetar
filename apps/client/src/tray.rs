@@ -75,10 +75,10 @@ fn entries(app: &App, dashboard_url: &str) -> Vec<Entry> {
     entries.push(Entry::Separator);
     let updates = app.updates.status();
     if updates.installing {
-        entries.push(Entry::Label(format!("MediaDownloader v{VERSION}")));
+        entries.push(Entry::Label(format!("Magnetar v{VERSION}")));
         entries.push(Entry::Label("Installing update…".into()));
     } else if let Some(available) = &updates.available {
-        entries.push(Entry::Label(format!("MediaDownloader v{VERSION} — {} available", available.tag)));
+        entries.push(Entry::Label(format!("Magnetar v{VERSION} — {} available", available.tag)));
         let how = if updates.can_self_install { "(restarts the app)" } else { "(opens release page)" };
         entries.push(Entry::Command(format!("Update to {} {how}", available.tag), Command::InstallUpdate));
     } else {
@@ -89,7 +89,7 @@ fn entries(app: &App, dashboard_url: &str) -> Vec<Entry> {
         } else {
             String::new()
         };
-        entries.push(Entry::Label(format!("MediaDownloader v{VERSION}{suffix}")));
+        entries.push(Entry::Label(format!("Magnetar v{VERSION}{suffix}")));
         entries.push(if updates.checking {
             Entry::Label("Checking for updates…".into())
         } else {
@@ -97,7 +97,7 @@ fn entries(app: &App, dashboard_url: &str) -> Vec<Entry> {
         });
     }
     entries.push(Entry::Separator);
-    entries.push(Entry::Command("Quit MediaDownloader".into(), Command::Quit));
+    entries.push(Entry::Command("Quit Magnetar".into(), Command::Quit));
     entries
 }
 
@@ -168,7 +168,7 @@ pub fn run(app: Arc<App>, dashboard_url: String, runtime: tokio::runtime::Handle
                 Ok(TrayIconBuilder::new()
                     .with_icon(icon)
                     .with_icon_as_template(cfg!(target_os = "macos"))
-                    .with_tooltip("MediaDownloader")
+                    .with_tooltip("Magnetar")
                     .with_menu_on_left_click(cfg!(target_os = "macos"))
                     .build()?)
             });

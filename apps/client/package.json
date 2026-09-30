@@ -1,9 +1,9 @@
 {
-  "name": "@md/client",
+  "name": "@magnetar/client",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "cargo run -p mediadownloader",
+    "dev": "cargo run -p magnetar",
     "build": "bun run package.ts",
     "typecheck": "tsc -p ."
   }

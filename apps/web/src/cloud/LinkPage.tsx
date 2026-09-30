@@ -8,7 +8,7 @@ import { useAccount } from './CloudApp.tsx'
 import { CloudFrame } from './CloudFrame.tsx'
 import { captureFragmentKey } from './PairPage.tsx'
 
-const TARGET = 'md-link-device'
+const TARGET = 'magnetar-link-device'
 
 /** Opened from a QR code shown by the device or a linked browser: stores the key it carries. */
 export function LinkPage() {

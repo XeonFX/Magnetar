@@ -4,11 +4,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use mediadownloader::app::{App, AppOptions};
-use mediadownloader::downloads::manager::EngineSource;
-use mediadownloader::paths::Paths;
-use mediadownloader::rpc::RpcSession;
-use mediadownloader::search::types::{Provider, TorrentSearchResult};
+use magnetar::app::{App, AppOptions};
+use magnetar::downloads::manager::EngineSource;
+use magnetar::paths::Paths;
+use magnetar::rpc::RpcSession;
+use magnetar::search::types::{Provider, TorrentSearchResult};
 use serde_json::{Value, json};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio_util::sync::CancellationToken;

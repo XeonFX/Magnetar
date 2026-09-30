@@ -1,4 +1,4 @@
-import type { AppConfig, FailureReport } from '@md/protocol/cloud'
+import type { AppConfig, FailureReport } from '@magnetar/protocol/cloud'
 import { handleAuth } from './auth.ts'
 import { handleDevices } from './devices.ts'
 import { devLoginEnabled, type Env } from './env.ts'

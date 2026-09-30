@@ -1,5 +1,5 @@
-import type { DownloadDto, DownloadStatus } from '@md/protocol'
-import { formatBytes, formatRate } from '@md/protocol/bytes'
+import type { DownloadDto, DownloadStatus } from '@magnetar/protocol'
+import { formatBytes, formatRate } from '@magnetar/protocol/bytes'
 import { ArrowDown, ArrowUp, Clock, Files, Pause, Play, RotateCw, Trash2, Tv, Users } from 'lucide-react'
 import { memo, useState } from 'react'
 import { useFormatEta, useT } from '../../lib/i18n.tsx'

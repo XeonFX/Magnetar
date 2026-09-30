@@ -1,6 +1,6 @@
-/** Shapes of the Worker's HTTP API at mediadownloader.codefusion.cc. */
+/** Shapes of the Worker's HTTP API at magnetar.codefusion.cc. */
 
-export const DEFAULT_CLOUD_URL = 'https://mediadownloader.codefusion.cc'
+export const DEFAULT_CLOUD_URL = 'https://magnetar.codefusion.cc'
 
 /** Registered with Google as the OAuth redirect URI. */
 export const GOOGLE_CALLBACK_PATH = '/api/auth/google/callback'

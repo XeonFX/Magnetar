@@ -4,17 +4,17 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use mediadownloader::app::{App, AppOptions};
-use mediadownloader::config::{DEFAULT_PORT, IS_DEV, VERSION};
-use mediadownloader::http::server;
-use mediadownloader::instance::{self, Acquired};
-use mediadownloader::paths::Paths;
-use mediadownloader::system::handlers::OpenTarget;
-use mediadownloader::system::{open_in_browser, process_alive};
+use magnetar::app::{App, AppOptions};
+use magnetar::config::{DEFAULT_PORT, IS_DEV, VERSION};
+use magnetar::http::server;
+use magnetar::instance::{self, Acquired};
+use magnetar::paths::Paths;
+use magnetar::system::handlers::OpenTarget;
+use magnetar::system::{open_in_browser, process_alive};
 
 /// After a self-update the new executable waits for the old one to exit.
 fn wait_for_previous_process() {
-    let Some(pid) = std::env::var("MD_WAIT_FOR_PID").ok().and_then(|p| p.parse::<u32>().ok()) else { return };
+    let Some(pid) = std::env::var("MAGNETAR_WAIT_FOR_PID").ok().and_then(|p| p.parse::<u32>().ok()) else { return };
     for _ in 0..120 {
         if !process_alive(pid) {
             return;
@@ -42,8 +42,8 @@ async fn termination() {
 fn main() -> anyhow::Result<()> {
     wait_for_previous_process();
     let paths = Paths::from_environment()?;
-    mediadownloader::log::init(Some(paths.logs.clone()), *IS_DEV);
-    tracing::info!("MediaDownloader {VERSION} starting (data: {})", paths.data_dir.display());
+    magnetar::log::init(Some(paths.logs.clone()), *IS_DEV);
+    tracing::info!("Magnetar {VERSION} starting (data: {})", paths.data_dir.display());
 
     // Opened for a magnet link or a .torrent file (Windows and Linux pass it as an argument).
     let opened = OpenTarget::from_args(std::env::args());
@@ -60,9 +60,9 @@ fn main() -> anyhow::Result<()> {
             }
         };
         let app = App::new(AppOptions::production(paths.clone()))?;
-        mediadownloader::telemetry::start(app.settings.clone(), app.http.clone());
+        magnetar::telemetry::start(app.settings.clone(), app.http.clone());
         app.start();
-        let port = std::env::var("MD_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(DEFAULT_PORT);
+        let port = std::env::var("MAGNETAR_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(DEFAULT_PORT);
         let server = Arc::new(server::start(app.clone(), port).await?);
         anyhow::Ok((app, server, Arc::new(lock)))
     })?;
@@ -96,7 +96,7 @@ fn main() -> anyhow::Result<()> {
         std::process::exit(0);
     });
 
-    let tray_enabled = std::env::var("MD_NO_TRAY").as_deref() != Ok("1") && !*IS_DEV;
+    let tray_enabled = std::env::var("MAGNETAR_NO_TRAY").as_deref() != Ok("1") && !*IS_DEV;
     #[cfg(any(target_os = "macos", windows))]
     if tray_enabled {
         let (quit_handle, quit_shutdown) = (handle.clone(), shutdown.clone());
@@ -104,11 +104,11 @@ fn main() -> anyhow::Result<()> {
             quit_handle.block_on(quit_shutdown());
             std::process::exit(0);
         });
-        mediadownloader::tray::run(app, dashboard_url, handle, quit);
+        magnetar::tray::run(app, dashboard_url, handle, quit);
     }
     if (!tray_enabled || cfg!(not(any(target_os = "macos", windows))))
         && !*IS_DEV
-        && std::env::var("MD_NO_BROWSER").as_deref() != Ok("1")
+        && std::env::var("MAGNETAR_NO_BROWSER").as_deref() != Ok("1")
     {
         open_in_browser(&dashboard_url);
     }

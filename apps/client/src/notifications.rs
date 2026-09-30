@@ -153,7 +153,7 @@ impl NotificationDispatcher {
         let message = Message::builder()
             .from(from.parse::<Mailbox>()?)
             .to(s.email_to.trim().parse::<Mailbox>()?)
-            .subject(format!("[MediaDownloader] {}", event.title))
+            .subject(format!("[Magnetar] {}", event.title))
             .body(event.message.clone())?;
         builder.build().send(message).await?;
         Ok(())

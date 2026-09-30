@@ -1,13 +1,13 @@
 [package]
-name = "mediadownloader"
-version = "2.0.0"
+name = "magnetar"
+version = "1.0.0"
 edition = "2024"
 license = "MIT"
 publish = false
-description = "MediaDownloader: torrent search and download manager in a single executable"
+description = "Magnetar: torrent search and download manager in a single executable"
 
 [[bin]]
-name = "mediadownloader"
+name = "magnetar"
 path = "src/main.rs"
 
 [dependencies]

@@ -7,12 +7,12 @@ use std::time::Duration;
 
 use librqbit::spawn_utils::BlockingSpawner;
 use librqbit::{CreateTorrentOptions, create_torrent};
-use mediadownloader::app::{App, AppOptions};
-use mediadownloader::downloads::AddDownload;
-use mediadownloader::downloads::engine::{Engine, NetworkOptions, SpeedLimits};
-use mediadownloader::downloads::manager::{EngineSource, FileSource};
-use mediadownloader::paths::Paths;
-use mediadownloader::protocol::{DownloadStatus, PostDownloadAction};
+use magnetar::app::{App, AppOptions};
+use magnetar::downloads::AddDownload;
+use magnetar::downloads::engine::{Engine, NetworkOptions, SpeedLimits};
+use magnetar::downloads::manager::{EngineSource, FileSource};
+use magnetar::paths::Paths;
+use magnetar::protocol::{DownloadStatus, PostDownloadAction};
 
 async fn start_app(paths: &Paths) -> Arc<App> {
     let engine = Arc::new(Engine::start(paths, &NetworkOptions::default(), SpeedLimits::default()).await.unwrap());
@@ -166,7 +166,7 @@ async fn an_update_pauses_downloads_and_the_next_start_resumes_only_those() {
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn downloads_wait_for_the_chosen_interface_and_stop_without_it() {
-    use mediadownloader::protocol::EngineState;
+    use magnetar::protocol::EngineState;
     let loopback = if cfg!(target_os = "macos") { "lo0" } else { "lo" };
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path().join("data")).unwrap();
@@ -179,7 +179,7 @@ async fn downloads_wait_for_the_chosen_interface_and_stop_without_it() {
     })
     .unwrap();
     app.settings.update(|s| {
-        s.network_interface = "md-missing0".into();
+        s.network_interface = "magnetar-missing0".into();
         s.download_folder = dir.path().join("Downloads").display().to_string();
     });
     app.start();
@@ -215,7 +215,7 @@ async fn downloads_wait_for_the_chosen_interface_and_stop_without_it() {
     wait_for(&app, added.id, DownloadStatus::FetchingMetadata).await;
     assert_eq!(app.downloads.transfer_status().network_interface.as_deref(), Some(loopback));
 
-    app.settings.update(|s| s.network_interface = "md-missing0".into());
+    app.settings.update(|s| s.network_interface = "magnetar-missing0".into());
     wait_engine(EngineState::WaitingForNetwork).await;
     wait_for(&app, added.id, DownloadStatus::Queued).await;
     app.stop().await;

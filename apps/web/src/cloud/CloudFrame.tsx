@@ -20,7 +20,7 @@ export function CloudFrame({ children, wide = false }: { children: ReactNode; wi
         <div className={`mx-auto flex h-14 w-full items-center gap-2 px-4 ${wide ? 'max-w-5xl' : 'max-w-3xl'}`}>
           <Link to="/" className="flex flex-1 items-center gap-2.5">
             <BrandMark />
-            <span className="font-semibold tracking-tight">MediaDownloader</span>
+            <span className="font-semibold tracking-tight">Magnetar</span>
           </Link>
           {install && (
             <button type="button" className="btn btn-ghost btn-sm" onClick={install} title={t('install.hint')}>

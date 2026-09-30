@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 
-const KEY = 'md-theme'
-const CHANGED = 'md-theme-changed'
+const KEY = 'magnetar-theme'
+const CHANGED = 'magnetar-theme-changed'
 
 function savedMode(): ThemeMode {
   try {

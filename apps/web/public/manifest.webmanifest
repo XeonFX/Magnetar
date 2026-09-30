@@ -1,6 +1,6 @@
 {
-  "name": "MediaDownloader",
-  "short_name": "MediaDownloader",
+  "name": "Magnetar",
+  "short_name": "Magnetar",
   "description": "Search for torrents and manage downloads on your computers.",
   "start_url": "/",
   "scope": "/",

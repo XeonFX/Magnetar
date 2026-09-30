@@ -46,7 +46,7 @@ pub fn start(settings: Arc<SettingsService>, http: reqwest::Client) {
             "stack": null,
             "page": page,
             "version": VERSION,
-            "client": format!("MediaDownloader {VERSION} · {PLATFORM} {ARCH} · desktop"),
+            "client": format!("Magnetar {VERSION} · {PLATFORM} {ARCH} · desktop"),
         });
         let request = http
             .post(format!("{}/api/telemetry/failure", *CLOUD_URL))

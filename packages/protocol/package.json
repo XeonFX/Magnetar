@@ -1,5 +1,5 @@
 {
-  "name": "@md/protocol",
+  "name": "@magnetar/protocol",
   "private": true,
   "type": "module",
   "exports": {

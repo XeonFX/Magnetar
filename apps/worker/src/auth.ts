@@ -1,5 +1,5 @@
-import type { AccountDto } from '@md/protocol/cloud'
-import { randomId } from '@md/protocol/base64'
+import type { AccountDto } from '@magnetar/protocol/cloud'
+import { randomId } from '@magnetar/protocol/base64'
 import { devLoginEnabled, type Env } from './env.ts'
 import { clientIp, cookie, error, HttpError, json, limit, readJson, requireSameOrigin, setCookie, sha256 } from './http.ts'
 import { verifyGoogleIdToken } from './oidc.ts'

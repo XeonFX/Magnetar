@@ -9,18 +9,18 @@ describe('latest release', () => {
     const release = toLatestRelease({
       tag_name: 'v2.1.0', html_url: 'https://github.com/o/r/releases/tag/v2.1.0', published_at: '2026-09-29T10:00:00Z',
       assets: [
-        asset('MediaDownloader-2.1.0-macos-arm64.zip'), asset('MediaDownloader-2.1.0-windows-x64.exe'),
-        asset('MediaDownloader-2.1.0-linux-arm64'), asset('MediaDownloader-2.1.0-rc.1-linux-x64'),
-        asset('SHA256SUMS.txt'), asset('SHA256SUMS.txt.sig'), asset('MediaDownloader-2.1.0-macos-arm64'), asset('Other-2.1.0-linux-x64'),
+        asset('Magnetar-2.1.0-macos-arm64.zip'), asset('Magnetar-2.1.0-windows-x64.exe'),
+        asset('Magnetar-2.1.0-linux-arm64'), asset('Magnetar-2.1.0-rc.1-linux-x64'),
+        asset('SHA256SUMS.txt'), asset('SHA256SUMS.txt.sig'), asset('Magnetar-2.1.0-macos-arm64'), asset('Other-2.1.0-linux-x64'),
       ],
     })
     expect(release.version).toBe('2.1.0')
     expect(release.assets.map(a => [a.name, a.platform, a.arch])).toEqual([
-      ['MediaDownloader-2.1.0-macos-arm64.zip', 'macos', 'arm64'],
-      ['MediaDownloader-2.1.0-windows-x64.exe', 'windows', 'x64'],
-      ['MediaDownloader-2.1.0-linux-arm64', 'linux', 'arm64'],
-      ['MediaDownloader-2.1.0-rc.1-linux-x64', 'linux', 'x64'],
-      ['MediaDownloader-2.1.0-macos-arm64', 'macos', 'arm64'],
+      ['Magnetar-2.1.0-macos-arm64.zip', 'macos', 'arm64'],
+      ['Magnetar-2.1.0-windows-x64.exe', 'windows', 'x64'],
+      ['Magnetar-2.1.0-linux-arm64', 'linux', 'arm64'],
+      ['Magnetar-2.1.0-rc.1-linux-x64', 'linux', 'x64'],
+      ['Magnetar-2.1.0-macos-arm64', 'macos', 'arm64'],
     ])
   })
 

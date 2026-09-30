@@ -1,5 +1,5 @@
-import type { SearchResultDto, SeriesResolution, SourceOutcomeDto, TorrentDetailsDto } from '@md/protocol'
-import { formatBytes } from '@md/protocol/bytes'
+import type { SearchResultDto, SeriesResolution, SourceOutcomeDto, TorrentDetailsDto } from '@magnetar/protocol'
+import { formatBytes } from '@magnetar/protocol/bytes'
 import { BellRing, Check, CircleAlert, Copy, Download, ExternalLink, FolderOpen, SearchIcon, SearchX, Sprout, Telescope, X } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'

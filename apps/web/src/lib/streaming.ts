@@ -37,8 +37,8 @@ function listen(): void {
     const port = event.ports[0]
     if (!port || !message.key) return
     const stream = relayed.get(message.key)
-    if (message.type === 'md-stream-meta') return port.postMessage(stream ? { size: stream.size, type: stream.type } : null)
-    if (message.type !== 'md-stream-read') return
+    if (message.type === 'magnetar-stream-meta') return port.postMessage(stream ? { size: stream.size, type: stream.type } : null)
+    if (message.type !== 'magnetar-stream-read') return
     if (!stream) return port.postMessage({ error: 'This stream is closed.' })
     stream.connection.call('stream.read', { streamId: stream.streamId, offset: message.offset ?? 0, length: message.length ?? 1 })
       .then(({ data }) => {

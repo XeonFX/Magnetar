@@ -1,9 +1,9 @@
-import type { LatestReleaseDto, ReleaseArch, ReleasePlatform } from '@md/protocol/cloud'
+import type { LatestReleaseDto, ReleaseArch, ReleasePlatform } from '@magnetar/protocol/cloud'
 import type { Env } from './env.ts'
 import { error, json } from './http.ts'
 
-/** `MediaDownloader-2.1.0-macos-arm64.zip`, `…-windows-x64.exe`, `…-linux-arm64`. */
-const ASSET = /^MediaDownloader-([\w.-]+?)-(macos|windows|linux)-(arm64|x64)(\.zip|\.exe)?$/
+/** `Magnetar-2.1.0-macos-arm64.zip`, `…-windows-x64.exe`, `…-linux-arm64`. */
+const ASSET = /^Magnetar-([\w.-]+?)-(macos|windows|linux)-(arm64|x64)(\.zip|\.exe)?$/
 const CACHE_SECONDS = 600
 
 interface GitHubRelease {
@@ -32,9 +32,9 @@ export function toLatestRelease(release: GitHubRelease): LatestReleaseDto {
  */
 export async function handleReleases(request: Request, env: Env, path: string, send: typeof fetch = fetch): Promise<Response | null> {
   if (path !== '/api/releases/latest' || request.method !== 'GET') return null
-  const repo = env.RELEASES_REPO || 'XeonFX/MediaDownloader'
+  const repo = env.RELEASES_REPO || 'XeonFX/Magnetar'
   const answer = await send(`https://api.github.com/repos/${repo}/releases/latest`, {
-    headers: { accept: 'application/vnd.github+json', 'user-agent': 'mediadownloader.codefusion.cc' },
+    headers: { accept: 'application/vnd.github+json', 'user-agent': 'magnetar.codefusion.cc' },
     cf: { cacheTtl: CACHE_SECONDS, cacheEverything: true },
   } as RequestInit)
   if (!answer.ok) return error(502, `GitHub answered HTTP ${answer.status}`)

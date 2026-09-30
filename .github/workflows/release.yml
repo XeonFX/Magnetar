@@ -74,7 +74,7 @@ jobs:
         run: |
           mkdir -p out
           cd apps/client/dist
-          if ls *.zip >/dev/null 2>&1; then cp *.zip ../../../out/; else cp MediaDownloader-* ../../../out/; fi
+          if ls *.zip >/dev/null 2>&1; then cp *.zip ../../../out/; else cp Magnetar-* ../../../out/; fi
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
@@ -96,7 +96,7 @@ jobs:
         env:
           RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
         run: |
-          cd assets && sha256sum MediaDownloader-* > SHA256SUMS.txt && cd ..
+          cd assets && sha256sum Magnetar-* > SHA256SUMS.txt && cd ..
           bun scripts/sign-release.ts assets
       - uses: softprops/action-gh-release@v2
         with:

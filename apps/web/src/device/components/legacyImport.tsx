@@ -1,4 +1,4 @@
-import type { LegacyImportStatusDto } from '@md/protocol'
+import type { LegacyImportStatusDto } from '@magnetar/protocol'
 import { HardDriveDownload, Upload } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useT } from '../../lib/i18n.tsx'
@@ -6,7 +6,7 @@ import { useToast } from '../../ui/toast.tsx'
 import { useDevice } from '../DeviceContext.tsx'
 import { useRun } from '../useRun.ts'
 
-const DISMISSED = 'md-import-dismissed'
+const DISMISSED = 'magnetar-import-dismissed'
 
 /** Whether a MediaDownloader 1.x database is there to import, and the import itself. */
 export function useLegacyImport() {

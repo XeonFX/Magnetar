@@ -1,4 +1,4 @@
-import { fromBase64Url, toBase64Url } from '@md/protocol/base64'
+import { fromBase64Url, toBase64Url } from '@magnetar/protocol/base64'
 import type { RpcClient } from './rpcClient.ts'
 import { ensureServiceWorker } from './streaming.ts'
 
@@ -24,7 +24,7 @@ function vapidKey(): Promise<string | null> {
   return serverKey
 }
 
-const flag = (keyId: string | null) => `md-push:${keyId ?? ''}`
+const flag = (keyId: string | null) => `magnetar-push:${keyId ?? ''}`
 
 /** Whether this browser gets this device's notifications by push (so the page need not show them). */
 export function pushEnabledFor(connection: RpcClient): boolean {

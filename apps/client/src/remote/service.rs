@@ -1,4 +1,4 @@
-//! Pairing with mediadownloader.codefusion.cc and the relay connection that lets linked browsers
+//! Pairing with magnetar.codefusion.cc and the relay connection that lets linked browsers
 //! reach this device. Everything after the handshake is sealed end to end; the Worker only moves
 //! opaque frames between sockets.
 

@@ -134,7 +134,7 @@ impl Engine {
             fastresume: true,
             persistence: Some(SessionPersistenceConfig::Json { folder: Some(paths.torrent_session.clone()) }),
             trackers: DEFAULT_TRACKERS.iter().filter_map(|t| t.parse().ok()).collect(),
-            client_name_and_version: Some(format!("MediaDownloader {VERSION}")),
+            client_name_and_version: Some(format!("Magnetar {VERSION}")),
             ..Default::default()
         };
         let session = Session::new_with_opts(paths.data_dir.join("downloads"), options).await?;

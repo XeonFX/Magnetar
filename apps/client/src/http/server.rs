@@ -66,7 +66,7 @@ fn not_found() -> Response {
 
 /// The Vite dev server's origin, allowed to open the dashboard socket in development only.
 fn dev_origin() -> Option<String> {
-    IS_DEV.then(|| std::env::var("MD_DEV_ORIGIN").unwrap_or_else(|_| "http://localhost:5173".into()))
+    IS_DEV.then(|| std::env::var("MAGNETAR_DEV_ORIGIN").unwrap_or_else(|_| "http://localhost:5173".into()))
 }
 
 async fn handle(State(app): State<Arc<App>>, ConnectInfo(peer): ConnectInfo<SocketAddr>, request: Request) -> Response {

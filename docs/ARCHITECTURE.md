@@ -1,9 +1,9 @@
 # Architecture and security
 
 ```
- phone / laptop browser                mediadownloader.codefusion.cc                 your computer
+ phone / laptop browser                magnetar.codefusion.cc                 your computer
 ┌──────────────────────┐   HTTPS    ┌──────────────────────────────────┐   WSS    ┌───────────────────────┐
-│ React dashboard      │──cookie───►│ Worker: sign-in, pairing, D1     │◄─token───│ MediaDownloader (Rust)│
+│ React dashboard      │──cookie───►│ Worker: sign-in, pairing, D1     │◄─token───│ Magnetar (Rust)│
 │ key in IndexedDB     │            │ DeviceRelay DO (one per device)  │          │ engine, providers, …  │
 │                      │◄═══════════╪══ sealed frames, relayed as-is ══╪═════════►│ browser keys (sealed) │
 └──────────────────────┘            └──────────────────────────────────┘          └───────────────────────┘
@@ -31,7 +31,7 @@ changes, desktop notifications). The dashboard's side is typed with zod; the app
 
 1. The local dashboard asks the app to pair. The app calls `POST /api/pair/start` and receives a pairing id and a
    poll secret. It also mints a **browser key** (below), inactive for now, and opens
-   `https://mediadownloader.codefusion.cc/pair/<pairingId>#i=<keyId>&k=<key>`.
+   `https://magnetar.codefusion.cc/pair/<pairingId>#i=<keyId>&k=<key>`.
 2. The website parks the key from the fragment in session storage, has you sign in, and shows the device name.
    Approving creates the device in D1 with a fresh random token, stored only as a hash.
 3. The app polls `POST /api/pair/poll` with the poll secret, collects the token (handed over once, then deleted),
@@ -57,9 +57,9 @@ each one.
 ```
 browser → device   hello   { kid, eB, nB }            eB: ephemeral P-256 public key, nB: 16 random bytes
 device             looks up K by kid; ephemeral eD, nonce nD
-                   th   = SHA-256("md-e2e-v1" ‖ kid ‖ eB ‖ nB ‖ eD ‖ nD)
+                   th   = SHA-256("magnetar-e2e-v1" ‖ kid ‖ eB ‖ nB ‖ eD ‖ nD)
                    salt = HMAC-SHA256(K, th)
-                   okm  = HKDF-SHA256(ECDH(eD, eB), salt, "md-e2e-v1 keys", 96 bytes)
+                   okm  = HKDF-SHA256(ECDH(eD, eB), salt, "magnetar-e2e-v1 keys", 96 bytes)
                    k_b→d, k_d→b, k_confirm = okm[0:32], okm[32:64], okm[64:96]
 device → browser   welcome { eD, nD, confirm = HMAC(k_confirm, "device" ‖ th) }
 browser            derives the same keys and checks confirm

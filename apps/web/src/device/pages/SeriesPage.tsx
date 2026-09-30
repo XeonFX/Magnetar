@@ -1,4 +1,4 @@
-import type { AiringDto, DownloadDto, SeriesResolution, SeriesTaskDto, ShowInfoDto, WatchInput } from '@md/protocol'
+import type { AiringDto, DownloadDto, SeriesResolution, SeriesTaskDto, ShowInfoDto, WatchInput } from '@magnetar/protocol'
 import { ChevronDown, CircleCheck, Clapperboard, ExternalLink, Pencil, Plus, RefreshCw, Trash2, Tv } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useLocation, useSearchParams } from 'react-router'

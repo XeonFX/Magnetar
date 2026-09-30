@@ -1,14 +1,14 @@
-import type { ClientMessage, ServerMessage } from '@md/protocol'
+import type { ClientMessage, ServerMessage } from '@magnetar/protocol'
 import {
   decodeHandshake, encodeHandshake, FRAME_HANDSHAKE, FRAME_SEALED, startBrowserHandshake, type E2ESession,
   type PendingBrowserHandshake,
-} from '@md/protocol/e2e'
-import { RELAY_CLOSE, RELAY_PING, type RelayToBrowser } from '@md/protocol/relay'
+} from '@magnetar/protocol/e2e'
+import { RELAY_CLOSE, RELAY_PING, type RelayToBrowser } from '@magnetar/protocol/relay'
 import type { StoredDeviceKey } from './keyStore.ts'
 import { backoff, RpcClient } from './rpcClient.ts'
 
 /**
- * A device reached through mediadownloader.codefusion.cc. The relay authenticates the account;
+ * A device reached through magnetar.codefusion.cc. The relay authenticates the account;
  * everything after the handshake is sealed with keys only this browser and the device can derive,
  * so the relay forwards ciphertext it cannot read or forge.
  */

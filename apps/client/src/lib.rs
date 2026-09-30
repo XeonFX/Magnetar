@@ -1,4 +1,4 @@
-//! MediaDownloader: torrent search, downloads and series rules behind a local dashboard, reachable
+//! Magnetar: torrent search, downloads and series rules behind a local dashboard, reachable
 //! remotely through an end-to-end encrypted relay. `main.rs` adds the process lifecycle and tray.
 
 pub mod api;

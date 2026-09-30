@@ -12,7 +12,7 @@ use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 
 const RETAINED_DAYS: usize = 14;
-const OWN_CRATE: &str = "mediadownloader";
+const OWN_CRATE: &str = "magnetar";
 
 type ErrorSink = Box<dyn Fn(&str, &str) + Send + Sync>;
 static ERROR_SINK: OnceLock<ErrorSink> = OnceLock::new();
@@ -83,7 +83,7 @@ impl Visit for Fields {
     }
 }
 
-/// `mediadownloader::downloads::manager` → `downloads`; other crates by their own name.
+/// `magnetar::downloads::manager` → `downloads`; other crates by their own name.
 fn scope(target: &str) -> &str {
     let mut parts = target.split("::");
     match parts.next() {

@@ -11,18 +11,18 @@
       },
     },
     "apps/client": {
-      "name": "@md/client",
+      "name": "@magnetar/client",
     },
     "apps/e2e": {
-      "name": "@md/e2e",
+      "name": "@magnetar/e2e",
       "devDependencies": {
         "@playwright/test": "^1.56.0",
       },
     },
     "apps/web": {
-      "name": "@md/web",
+      "name": "@magnetar/web",
       "dependencies": {
-        "@md/protocol": "workspace:*",
+        "@magnetar/protocol": "workspace:*",
         "lucide-react": "^1.48.0",
         "qrcode": "^1.5.4",
         "react": "^19.3.0",
@@ -41,9 +41,9 @@
       },
     },
     "apps/worker": {
-      "name": "@md/worker",
+      "name": "@magnetar/worker",
       "dependencies": {
-        "@md/protocol": "workspace:*",
+        "@magnetar/protocol": "workspace:*",
       },
       "devDependencies": {
         "@cloudflare/workers-types": "^5.20260928.1",
@@ -51,7 +51,7 @@
       },
     },
     "packages/protocol": {
-      "name": "@md/protocol",
+      "name": "@magnetar/protocol",
       "dependencies": {
         "zod": "^4.6.5",
       },
@@ -194,15 +194,15 @@
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
-    "@md/client": ["@md/client@workspace:apps/client"],
+    "@magnetar/client": ["@magnetar/client@workspace:apps/client"],
 
-    "@md/e2e": ["@md/e2e@workspace:apps/e2e"],
+    "@magnetar/e2e": ["@magnetar/e2e@workspace:apps/e2e"],
 
-    "@md/protocol": ["@md/protocol@workspace:packages/protocol"],
+    "@magnetar/protocol": ["@magnetar/protocol@workspace:packages/protocol"],
 
-    "@md/web": ["@md/web@workspace:apps/web"],
+    "@magnetar/web": ["@magnetar/web@workspace:apps/web"],
 
-    "@md/worker": ["@md/worker@workspace:apps/worker"],
+    "@magnetar/worker": ["@magnetar/worker@workspace:apps/worker"],
 
     "@oxc-project/types": ["@oxc-project/types@0.151.0", "", {}, "sha512-J1yXrIlNDZVzE3ada310xeAw7nH8yCAyLPuUIsjKatFPmfn5bS1oW+cM+QsGOtVWd5nhSpbwZWx/rue+r5Z+PA=="],
 

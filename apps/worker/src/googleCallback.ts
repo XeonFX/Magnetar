@@ -1,5 +1,5 @@
-import { fromBase64Url } from '@md/protocol/base64'
-import { GOOGLE_CALLBACK_PATH } from '@md/protocol/cloud'
+import { fromBase64Url } from '@magnetar/protocol/base64'
+import { GOOGLE_CALLBACK_PATH } from '@magnetar/protocol/cloud'
 import { allowedOrigins, type Env } from './env.ts'
 import { json, MAX_BODY } from './http.ts'
 

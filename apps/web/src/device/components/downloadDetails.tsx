@@ -1,5 +1,5 @@
-import type { DownloadDto, DownloadFileDto } from '@md/protocol'
-import { formatBytes } from '@md/protocol/bytes'
+import type { DownloadDto, DownloadFileDto } from '@magnetar/protocol'
+import { formatBytes } from '@magnetar/protocol/bytes'
 import { FileAudio, FileText, FileVideo, FolderOpen, Info, Play } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useFormatDate, useT } from '../../lib/i18n.tsx'
@@ -116,9 +116,9 @@ function FileList({ download: d }: { download: DownloadDto }) {
   }
 
   return (
-    <section aria-labelledby="md-files">
+    <section aria-labelledby="magnetar-files">
       <div className="mb-2 flex items-center gap-2">
-        <h4 id="md-files" className="flex-1 text-sm font-semibold">{t('details.files', files.length)}</h4>
+        <h4 id="magnetar-files" className="flex-1 text-sm font-semibold">{t('details.files', files.length)}</h4>
         {files.length > 1 && (
           <button type="button" className="btn btn-ghost btn-xs" onClick={() => setChosen(selected.size === files.length ? new Set() : new Set(files.map(f => f.index)))}>
             {selected.size === files.length ? t('details.selectNone') : t('details.selectAll')}

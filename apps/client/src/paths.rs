@@ -22,7 +22,7 @@ impl Paths {
     pub fn new(data_dir: PathBuf) -> std::io::Result<Self> {
         std::fs::create_dir_all(&data_dir)?;
         Ok(Self {
-            database: data_dir.join("mediadownloader.db"),
+            database: data_dir.join("magnetar.db"),
             secret_key: data_dir.join("secret.key"),
             torrent_files: data_dir.join("torrents"),
             logs: data_dir.join("logs"),
@@ -35,9 +35,9 @@ impl Paths {
         })
     }
 
-    /// `MD_DATA_DIRECTORY`, or the platform's per-user application data folder.
+    /// `MAGNETAR_DATA_DIRECTORY`, or the platform's per-user application data folder.
     pub fn from_environment() -> std::io::Result<Self> {
-        Self::new(match std::env::var_os("MD_DATA_DIRECTORY") {
+        Self::new(match std::env::var_os("MAGNETAR_DATA_DIRECTORY") {
             Some(configured) => std::path::absolute(configured)?,
             None => default_data_dir(),
         })
@@ -54,29 +54,26 @@ fn local_app_data() -> PathBuf {
 
 fn default_data_dir() -> PathBuf {
     if cfg!(target_os = "macos") {
-        home_dir().join("Library/Application Support/cc.codefusion.mediadownloader")
+        home_dir().join("Library/Application Support/cc.codefusion.magnetar")
     } else if cfg!(windows) {
-        local_app_data().join("CodeFusion").join("MediaDownloader")
+        local_app_data().join("CodeFusion").join("Magnetar")
     } else {
-        std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home_dir().join(".local/share"))
-            .join("mediadownloader")
+        std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home_dir().join(".local/share")).join("magnetar")
     }
 }
 
-/// `MD_DOWNLOAD_FOLDER` (test and scratch runs keep out of the user's folder), or
-/// ~/Downloads/MediaDownloader.
+/// `MAGNETAR_DOWNLOAD_FOLDER` (test and scratch runs keep out of the user's folder), or
+/// ~/Downloads/Magnetar.
 pub fn default_download_folder() -> PathBuf {
-    match std::env::var_os("MD_DOWNLOAD_FOLDER") {
-        Some(configured) => std::path::absolute(configured).unwrap_or_else(|_| PathBuf::from("MediaDownloader")),
-        None => home_dir().join("Downloads").join("MediaDownloader"),
+    match std::env::var_os("MAGNETAR_DOWNLOAD_FOLDER") {
+        Some(configured) => std::path::absolute(configured).unwrap_or_else(|_| PathBuf::from("Magnetar")),
+        None => home_dir().join("Downloads").join("Magnetar"),
     }
 }
 
 /// Where the legacy .NET MediaDownloader kept its database.
 pub fn legacy_database_path() -> Option<PathBuf> {
-    if let Some(configured) = std::env::var_os("MD_LEGACY_DATABASE") {
+    if let Some(configured) = std::env::var_os("MAGNETAR_LEGACY_DATABASE") {
         return std::path::absolute(configured).ok();
     }
     if cfg!(target_os = "macos") {

@@ -1,4 +1,4 @@
-import type { AgentStatusDto, HandlerStatus, LoginStartupStatus, SettingsDto, SettingsPatch } from '@md/protocol'
+import type { AgentStatusDto, HandlerStatus, LoginStartupStatus, SettingsDto, SettingsPatch } from '@magnetar/protocol'
 import {
   Bell, Bot, Cloud, Copy, Download, Eye, EyeOff, Info, Mail, RefreshCw, Send, Server, Smartphone, SlidersHorizontal, Sparkles, Upload,
 } from 'lucide-react'
@@ -91,8 +91,8 @@ function GeneralSection({ settings }: { settings: SettingsDto }) {
 
   return (
     <SettingGroup>
-      <SettingRow layout="wide" title={t('settings.language')} htmlFor="md-language">
-        <select id="md-language" className="select w-full sm:w-52" value={settings.language} onChange={e => save({ language: e.target.value })}>
+      <SettingRow layout="wide" title={t('settings.language')} htmlFor="magnetar-language">
+        <select id="magnetar-language" className="select w-full sm:w-52" value={settings.language} onChange={e => save({ language: e.target.value })}>
           {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
         </select>
       </SettingRow>
@@ -324,7 +324,7 @@ function AgentSection() {
     if (next) setAgent(next)
     if (next && patch.allowRemote !== undefined) toast(t('settings.agentRestart'), 'info')
   }
-  const command = `claude mcp add --transport http --scope user mediadownloader ${agent.mcpUrl}`
+  const command = `claude mcp add --transport http --scope user magnetar ${agent.mcpUrl}`
 
   /** Registers the MCP server with Claude Code on this computer (turning agent access on). */
   const connectClaude = async () => {

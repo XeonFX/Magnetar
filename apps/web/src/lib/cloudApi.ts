@@ -1,4 +1,4 @@
-import type { AccountDto, AppConfig, CloudDeviceDto, LatestReleaseDto, PairApproveResponse, PairingInfoDto } from '@md/protocol/cloud'
+import type { AccountDto, AppConfig, CloudDeviceDto, LatestReleaseDto, PairApproveResponse, PairingInfoDto } from '@magnetar/protocol/cloud'
 
 export type { AppConfig }
 

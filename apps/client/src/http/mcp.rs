@@ -113,7 +113,7 @@ fn tools() -> Vec<Value> {
         tool("resume_download", "Resume a paused download.", schema(id.clone(), &["id"]), write(true, false, false)),
         tool(
             "delete_download",
-            "Remove a download from MediaDownloader. deleteFiles defaults to false. Setting it true permanently erases downloaded data from disk.",
+            "Remove a download from Magnetar. deleteFiles defaults to false. Setting it true permanently erases downloaded data from disk.",
             schema(
                 with(
                     id.as_object().cloned().unwrap_or_default(),
@@ -260,7 +260,7 @@ fn tool_result(result: ApiResult<Value>) -> Value {
         Err(error) => {
             let message = if error.is_internal() {
                 tracing::error!("MCP tool failed: {}", error.message);
-                "The operation failed. See the MediaDownloader log for details.".to_owned()
+                "The operation failed. See the Magnetar log for details.".to_owned()
             } else {
                 error.message
             };
@@ -289,7 +289,7 @@ async fn message(actions: &Actions, message: &Value, cancel: &CancellationToken)
             json!({
                 "protocolVersion": version,
                 "capabilities": { "tools": { "listChanged": false } },
-                "serverInfo": { "name": "mediadownloader", "version": VERSION },
+                "serverInfo": { "name": "magnetar", "version": VERSION },
             })
         }
         "ping" => json!({}),

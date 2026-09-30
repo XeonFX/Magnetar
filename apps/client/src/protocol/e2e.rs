@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 use super::encoding::{from_base64url, random_bytes, to_base64url};
 
 pub const E2E_VERSION: u32 = 1;
-const LABEL: &[u8] = b"md-e2e-v1";
+const LABEL: &[u8] = b"magnetar-e2e-v1";
 pub const KEY_BYTES: usize = 32;
 const NONCE_BYTES: usize = 16;
 
@@ -109,7 +109,7 @@ pub fn derive(
     let shared = p256::ecdh::diffie_hellman(own.to_nonzero_scalar(), peer.as_affine());
     let mut okm = [0u8; 96];
     hkdf::Hkdf::<Sha256>::new(Some(&salt), shared.raw_secret_bytes())
-        .expand(b"md-e2e-v1 keys", &mut okm)
+        .expand(b"magnetar-e2e-v1 keys", &mut okm)
         .map_err(|_| anyhow::anyhow!("HKDF output length"))?;
     let part = |i: usize| -> [u8; 32] { okm[i * 32..(i + 1) * 32].try_into().unwrap() };
     Ok(Derived { browser_to_device: part(0), device_to_browser: part(1), confirm: part(2), transcript_hash })

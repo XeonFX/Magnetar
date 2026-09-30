@@ -1,5 +1,5 @@
-import type { SettingsDto, TransferStatusDto } from '@md/protocol'
-import { formatBytes, formatRate } from '@md/protocol/bytes'
+import type { SettingsDto, TransferStatusDto } from '@magnetar/protocol'
+import { formatBytes, formatRate } from '@magnetar/protocol/bytes'
 import { Gauge, HardDrive, ShieldAlert, TriangleAlert } from 'lucide-react'
 import { Link } from 'react-router'
 import { useT } from '../../lib/i18n.tsx'

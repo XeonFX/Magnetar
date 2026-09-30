@@ -105,7 +105,7 @@ pub fn evaluate(r: &AgentRequest<'_>) -> AgentAuth {
 /// Status and message for a refused request.
 pub fn refusal(result: AgentAuth) -> (u16, &'static str) {
     match result {
-        AgentAuth::Disabled => (404, "The agent API is turned off. Enable it in MediaDownloader under Settings → AI agents."),
+        AgentAuth::Disabled => (404, "The agent API is turned off. Enable it in Magnetar under Settings → AI agents."),
         AgentAuth::RemoteDisabled => (404, "Remote agent access is turned off."),
         AgentAuth::InsecureTransport => {
             (426, "Remote agent requests require HTTPS. Put a TLS reverse proxy on this machine in front of the loopback URL.")

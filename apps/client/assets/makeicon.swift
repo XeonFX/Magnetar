@@ -1,7 +1,7 @@
 import AppKit
 import CoreGraphics
 
-// MediaDownloader icon: a violet tile with a white play triangle turned downwards over a tray —
+// Magnetar icon: a violet tile with a white play triangle turned downwards over a tray —
 // media and download in one shape. Renders the macOS iconset, the Windows tray icon sizes, the
 // web icons (favicon, apple-touch, PWA and maskable) and monochrome menu-bar template images.
 // The same shape lives as SVG in apps/web/public/icon.svg and apps/web/src/ui/BrandMark.tsx.

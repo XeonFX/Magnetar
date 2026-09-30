@@ -11,7 +11,7 @@ const CloudApp = lazy(() => import('./cloud/CloudApp.tsx'))
 
 captureInstallOffer()
 
-/** One build, two homes: the device serves it on localhost, the Worker at mediadownloader.codefusion.cc. */
+/** One build, two homes: the device serves it on localhost, the Worker at magnetar.codefusion.cc. */
 function Root() {
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [error, setError] = useState<string | null>(null)

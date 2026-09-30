@@ -1,4 +1,4 @@
-import type { FolderListing } from '@md/protocol'
+import type { FolderListing } from '@magnetar/protocol'
 import { ArrowUp, Folder, FolderOpen, FolderPlus, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useId, useState } from 'react'
 import { useT } from '../../lib/i18n.tsx'

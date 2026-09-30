@@ -8,7 +8,7 @@ import { LocalConnection } from './lib/localConnection.ts'
 /** The dashboard as served by the app itself on localhost: no account needed. */
 export function LocalApp() {
   const connection = useMemo(() => new LocalConnection(), [])
-  const [deviceName, setDeviceName] = useState('MediaDownloader')
+  const [deviceName, setDeviceName] = useState('Magnetar')
   useEffect(() => {
     const load = () => void connection.call('remote.status').then(s => setDeviceName(s.deviceName)).catch(() => {})
     const offState = connection.onState(state => state.status === 'open' && load())

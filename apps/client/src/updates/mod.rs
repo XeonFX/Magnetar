@@ -51,7 +51,7 @@ struct State {
 
 pub type QuitHook = Box<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
 
-/// The asset for this platform: `MediaDownloader-<version>-<platform>-<arch>.<ext>`.
+/// The asset for this platform: `Magnetar-<version>-<platform>-<arch>.<ext>`.
 pub fn asset_suffix() -> String {
     let extension = match PLATFORM {
         "macos" => ".zip",
@@ -205,7 +205,7 @@ impl UpdateService {
         let response = self
             .http
             .get(format!("https://api.github.com/repos/{}/releases/latest", *GITHUB_REPO))
-            .header("user-agent", "MediaDownloader")
+            .header("user-agent", "Magnetar")
             .header("accept", "application/vnd.github+json")
             .timeout(Duration::from_secs(30))
             .send()
@@ -241,7 +241,7 @@ impl UpdateService {
         if first_notice {
             self.notifications.notify(
                 "update",
-                format!("MediaDownloader {} is available", release.tag_name),
+                format!("Magnetar {} is available", release.tag_name),
                 format!(
                     "You are running {VERSION}. Install it from Settings or the menu-bar icon, or download it from {}",
                     release.html_url
@@ -267,7 +267,7 @@ impl UpdateService {
             update
         };
         self.changed();
-        let staging = std::env::temp_dir().join(format!("mediadownloader-update-{}", random_id(6)));
+        let staging = std::env::temp_dir().join(format!("magnetar-update-{}", random_id(6)));
         match self.stage(&update, &staging).await {
             Ok(()) => {
                 tracing::info!("Update {} staged; restarting", update.tag);
@@ -313,7 +313,7 @@ impl UpdateService {
     }
 
     async fn download(&self, url: &str, timeout: Duration) -> anyhow::Result<Vec<u8>> {
-        let response = self.http.get(url).header("user-agent", "MediaDownloader").timeout(timeout).send().await?;
+        let response = self.http.get(url).header("user-agent", "Magnetar").timeout(timeout).send().await?;
         anyhow::ensure!(response.status().is_success(), "Download failed: HTTP {}", response.status().as_u16());
         Ok(response.bytes().await?.to_vec())
     }
@@ -362,15 +362,11 @@ impl MacInstaller {
     async fn prepare(zip: &Path, staging: &Path) -> anyhow::Result<Self> {
         let bundle = mac_app_bundle().expect("checked by can_self_install");
         run("/usr/bin/ditto", &["-x".as_ref(), "-k".as_ref(), zip.as_os_str(), staging.as_os_str()]).await?;
-        let new_app = staging.join("MediaDownloader.app");
-        anyhow::ensure!(
-            new_app.join("Contents/MacOS/MediaDownloader").exists(),
-            "The downloaded bundle has no MediaDownloader executable"
-        );
+        let new_app = staging.join("Magnetar.app");
+        anyhow::ensure!(new_app.join("Contents/MacOS/Magnetar").exists(), "The downloaded bundle has no Magnetar executable");
         // Copy beside the destination and validate it while this app still runs; the helper only
         // renames bundles once we have exited.
-        let work =
-            bundle.parent().unwrap_or(Path::new("/Applications")).join(format!(".MediaDownloader-update-{}", random_id(6)));
+        let work = bundle.parent().unwrap_or(Path::new("/Applications")).join(format!(".Magnetar-update-{}", random_id(6)));
         std::fs::create_dir_all(&work)?;
         let script = work.join("install.sh");
         crate::db::write_private(&script, MAC_INSTALL_SCRIPT.as_bytes(), false)?;
@@ -422,7 +418,7 @@ fn install_executable(new_path: &Path) -> anyhow::Result<()> {
     #[cfg(unix)]
     std::fs::set_permissions(&current, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
     crate::system::hidden_command(&current)
-        .env("MD_WAIT_FOR_PID", std::process::id().to_string())
+        .env("MAGNETAR_WAIT_FOR_PID", std::process::id().to_string())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -459,17 +455,17 @@ mod tests {
 
     #[test]
     fn reads_sha256sum_manifests() {
-        let manifest = "abc123  MediaDownloader-2.1.0-macos-arm64.zip\nDEF456 *MediaDownloader-2.1.0-windows-x64.exe\n";
-        assert_eq!(find_checksum(manifest, "MediaDownloader-2.1.0-windows-x64.exe").as_deref(), Some("def456"));
+        let manifest = "abc123  Magnetar-2.1.0-macos-arm64.zip\nDEF456 *Magnetar-2.1.0-windows-x64.exe\n";
+        assert_eq!(find_checksum(manifest, "Magnetar-2.1.0-windows-x64.exe").as_deref(), Some("def456"));
         assert_eq!(find_checksum(manifest, "missing"), None);
-        assert_eq!(previous_executable_path(Path::new("/x/MediaDownloader.exe")), Path::new("/x/MediaDownloader.previous.exe"));
+        assert_eq!(previous_executable_path(Path::new("/x/Magnetar.exe")), Path::new("/x/Magnetar.previous.exe"));
     }
 
     #[test]
     fn manifest_signatures_must_match_the_release_key() {
         let signing = SigningKey::from_bytes(&[7; 32]);
         let public = to_base64url(signing.verifying_key().as_bytes());
-        let manifest = b"abc  MediaDownloader-2.1.0-linux-x64\n";
+        let manifest = b"abc  Magnetar-2.1.0-linux-x64\n";
         let signature = to_base64url(&signing.sign(manifest).to_bytes());
         verify_manifest(manifest, &signature, &public).unwrap();
         assert!(verify_manifest(b"tampered", &signature, &public).is_err());

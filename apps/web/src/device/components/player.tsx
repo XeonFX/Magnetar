@@ -1,4 +1,4 @@
-import type { DownloadFileDto } from '@md/protocol'
+import type { DownloadFileDto } from '@magnetar/protocol'
 import { Copy, ExternalLink, Play } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { openStream, srtToVtt, type OpenedStream } from '../../lib/streaming.ts'

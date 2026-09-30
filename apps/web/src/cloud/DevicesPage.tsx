@@ -1,4 +1,4 @@
-import type { CloudDeviceDto } from '@md/protocol/cloud'
+import type { CloudDeviceDto } from '@magnetar/protocol/cloud'
 import { ChevronRight, Laptop, Magnet, MonitorSmartphone, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'

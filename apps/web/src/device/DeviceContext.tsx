@@ -1,8 +1,8 @@
 import type {
   AppInfoDto, DownloadDto, RemoteStatusDto, SearchResultDto, SeriesTaskDto, SettingsDto, SourceDto, SourceOutcomeDto,
   TransferStatusDto, UpdateStatusDto, WatchDto,
-} from '@md/protocol'
-import { mergeByInfoHash } from '@md/protocol/merge'
+} from '@magnetar/protocol'
+import { mergeByInfoHash } from '@magnetar/protocol/merge'
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { pushEnabledFor } from '../lib/push.ts'
 import type { ConnectionState, RpcClient } from '../lib/rpcClient.ts'

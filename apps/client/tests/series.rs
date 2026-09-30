@@ -4,11 +4,11 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use mediadownloader::app::{App, AppOptions};
-use mediadownloader::downloads::manager::EngineSource;
-use mediadownloader::paths::Paths;
-use mediadownloader::protocol::{DownloadStatus, SeriesTaskInput, StartFrom};
-use mediadownloader::search::types::{Provider, TorrentSearchResult};
+use magnetar::app::{App, AppOptions};
+use magnetar::downloads::manager::EngineSource;
+use magnetar::paths::Paths;
+use magnetar::protocol::{DownloadStatus, SeriesTaskInput, StartFrom};
+use magnetar::search::types::{Provider, TorrentSearchResult};
 use tokio_util::sync::CancellationToken;
 
 /// Releases of "Show", every episode up to `aired`, in 720p and 1080p from two groups.
@@ -179,7 +179,7 @@ async fn a_release_nobody_seeds_is_replaced_by_the_next_best() {
 
 #[tokio::test]
 async fn a_watch_reports_the_first_release_its_rules_allow_then_rests_until_armed_again() {
-    use mediadownloader::protocol::WatchInput;
+    use magnetar::protocol::WatchInput;
     let (app, _, _dir) = app(2);
     let watch = |value: serde_json::Value| serde_json::from_value::<WatchInput>(value).unwrap();
     let store = &app.monitor.watches;

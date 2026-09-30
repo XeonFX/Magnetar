@@ -4,9 +4,9 @@ import { defineConfig } from 'vite'
 
 /**
  * In development the dashboard talks either to a local client (`bun run dev:client`, port 47820, or
- * MD_CLIENT_PORT) or to the Worker (port 8790); MD_WEB_TARGET picks which one Vite proxies to.
+ * MAGNETAR_CLIENT_PORT) or to the Worker (port 8790); MAGNETAR_WEB_TARGET picks which one Vite proxies to.
  */
-const target = process.env.MD_WEB_TARGET === 'cloud' ? 'http://localhost:8790' : `http://localhost:${process.env.MD_CLIENT_PORT ?? 47820}`
+const target = process.env.MAGNETAR_WEB_TARGET === 'cloud' ? 'http://localhost:8790' : `http://localhost:${process.env.MAGNETAR_CLIENT_PORT ?? 47820}`
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

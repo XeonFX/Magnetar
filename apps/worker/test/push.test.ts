@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { fromBase64Url, toBase64Url } from '@md/protocol/base64'
+import { fromBase64Url, toBase64Url } from '@magnetar/protocol/base64'
 import type { Env } from '../src/env.ts'
 import { handlePush, isPushService, resetPushCaches, vapidJwt } from '../src/push.ts'
 
@@ -13,13 +13,13 @@ function env(overrides: Partial<Env> = {}): Env {
   // Just enough D1 for deviceFromToken: every token hash finds the one test device.
   const DB = { prepare: () => ({ bind: () => ({ first: async () => ({ id: 'd_1' }) }) }) }
   return {
-    DB, ORIGIN: 'https://mediadownloader.codefusion.cc', VAPID_PUBLIC_KEY: publicKey, VAPID_PRIVATE_KEY: d,
+    DB, ORIGIN: 'https://magnetar.codefusion.cc', VAPID_PUBLIC_KEY: publicKey, VAPID_PRIVATE_KEY: d,
     PUSH_LIMITER: { limit: async () => ({ success: true }) },
     ...overrides,
   } as unknown as Env
 }
 
-const post = (body: unknown, token = DEVICE_TOKEN) => new Request('https://mediadownloader.codefusion.cc/api/device/push', {
+const post = (body: unknown, token = DEVICE_TOKEN) => new Request('https://magnetar.codefusion.cc/api/device/push', {
   method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify(body),
 })
 
@@ -42,7 +42,7 @@ describe('Web Push', () => {
     const [header, claims, signature] = jwt.split('.')
     const decode = (part: string) => JSON.parse(new TextDecoder().decode(fromBase64Url(part))) as Record<string, unknown>
     expect(decode(header!)).toEqual({ typ: 'JWT', alg: 'ES256' })
-    expect(decode(claims!)).toEqual({ aud: 'https://fcm.googleapis.com', exp: now / 1000 + 12 * 3600, sub: 'https://mediadownloader.codefusion.cc' })
+    expect(decode(claims!)).toEqual({ aud: 'https://fcm.googleapis.com', exp: now / 1000 + 12 * 3600, sub: 'https://magnetar.codefusion.cc' })
     const verified = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, pair.publicKey, fromBase64Url(signature!), new TextEncoder().encode(`${header}.${claims}`))
     expect(verified).toBe(true)
     expect(await vapidJwt(env(), 'https://fcm.googleapis.com', now + 60_000)).toBe(jwt)

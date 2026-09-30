@@ -1,16 +1,16 @@
-# MediaDownloader
+# Magnetar
 
 A torrent search-and-download manager that runs as **one self-contained executable** on your computer, with a
-React dashboard you can open locally or from anywhere at **[mediadownloader.codefusion.cc](https://mediadownloader.codefusion.cc)**.
+React dashboard you can open locally or from anywhere at **[magnetar.codefusion.cc](https://magnetar.codefusion.cc)**.
 Remote access is **end-to-end encrypted**: the website relays data between your browser and your computer, but can't
 read what you search for, what you download, or your settings.
 
 > **Legal notice:** downloading copyrighted material without permission may be illegal where you live. Use this for
 > content you are entitled to download (Linux ISOs, public-domain and Creative Commons media, your own files).
 
-This is version 2, a rewrite of the .NET/Blazor [MediaDownloader 1.x](https://github.com/XeonFX/MediaDownloader): the app
-is Rust, the dashboard and website TypeScript. It can import everything from a 1.x installation (see
-[Upgrading from 1.x](#upgrading-from-1x)).
+Magnetar succeeds the .NET/Blazor [MediaDownloader](https://github.com/XeonFX/MediaDownloader-legacy): the app is
+Rust, the dashboard and website TypeScript. It can import everything from a MediaDownloader installation (see
+[Coming from MediaDownloader](#coming-from-mediadownloader)).
 
 ## Features
 
@@ -25,7 +25,7 @@ is Rust, the dashboard and website TypeScript. It can import everything from a 1
   is already downloaded, and the peer port is forwarded on your router (UPnP). Torrents that can't find peers fail
   after 3 minutes instead of sitting on "Fetching metadata" forever. Updates pause active downloads only once the new
   version is downloaded and verified, and resume them when it starts; downloaded files are never touched.
-- **Add anything:** magnet links (paste one or many, or click one anywhere once MediaDownloader is the system's
+- **Add anything:** magnet links (paste one or many, or click one anywhere once Magnetar is the system's
   handler) and `.torrent` files (pick, drop on the Downloads page, or open one). The add dialog always shows what
   will start and where.
 - **Choose files** of a torrent (skip the extras of a season pack), see each file's progress, and show a download
@@ -54,52 +54,52 @@ is Rust, the dashboard and website TypeScript. It can import everything from a 1
 
 ## Install
 
-Download the file for your computer from the [latest release](https://github.com/XeonFX/MediaDownloader/releases/latest):
+Download the file for your computer from the [latest release](https://github.com/XeonFX/Magnetar/releases/latest):
 
 | Platform | File |
 |---|---|
-| macOS, Apple Silicon | `MediaDownloader-<version>-macos-arm64.zip` |
-| macOS, Intel | `MediaDownloader-<version>-macos-x64.zip` |
-| Windows | `MediaDownloader-<version>-windows-x64.exe` (or `-arm64`) |
-| Linux | `MediaDownloader-<version>-linux-x64` (or `-arm64`) |
+| macOS, Apple Silicon | `Magnetar-<version>-macos-arm64.zip` |
+| macOS, Intel | `Magnetar-<version>-macos-x64.zip` |
+| Windows | `Magnetar-<version>-windows-x64.exe` (or `-arm64`) |
+| Linux | `Magnetar-<version>-linux-x64` (or `-arm64`) |
 
-- **macOS:** unzip, move `MediaDownloader.app` to Applications and open it. Releases built without the Developer ID
+- **macOS:** unzip, move `Magnetar.app` to Applications and open it. Releases built without the Developer ID
   certificate are ad-hoc signed, so the first launch may need **System Settings → Privacy & Security → Open Anyway**.
   The app lives in the menu bar.
 - **Windows:** run the `.exe`; it sits in the notification area. SmartScreen may ask you to confirm the first run.
 - **Linux:** `chmod +x` the file and run it; the dashboard opens in your browser.
 
 The dashboard is at <http://localhost:47820> (the next free port if that one is taken). Data lives in
-`~/Library/Application Support/cc.codefusion.mediadownloader` (macOS), `%LOCALAPPDATA%\CodeFusion\MediaDownloader`
-(Windows) or `~/.local/share/mediadownloader` (Linux); set `MD_DATA_DIRECTORY` to use another folder, and
-`MD_DOWNLOAD_FOLDER` for another default download folder than `~/Downloads/MediaDownloader`.
+`~/Library/Application Support/cc.codefusion.magnetar` (macOS), `%LOCALAPPDATA%\CodeFusion\Magnetar`
+(Windows) or `~/.local/share/magnetar` (Linux); set `MAGNETAR_DATA_DIRECTORY` to use another folder, and
+`MAGNETAR_DOWNLOAD_FOLDER` for another default download folder than `~/Downloads/Magnetar`.
 
 ## Remote access
 
-1. On the computer running MediaDownloader, open **Settings → Remote access** and choose **Connect to your account**.
-2. A tab opens on mediadownloader.codefusion.cc. Sign in with Google and approve the device.
+1. On the computer running Magnetar, open **Settings → Remote access** and choose **Connect to your account**.
+2. A tab opens on magnetar.codefusion.cc. Sign in with Google and approve the device.
 3. That browser is now linked. To add your phone, choose **Link a phone or another browser** (from the local
    dashboard or any linked browser) and scan the QR code while signed in to the same account.
 
 Revoke a browser, rename the device or disconnect it from the same Settings section, or remove a device from the
 website's device list. How the encryption works is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#end-to-end-encryption).
 
-## Upgrading from 1.x
+## Coming from MediaDownloader
 
-Version 2 keeps its data separately, so 1.x keeps working. When the app finds 1.x data it offers to import it on the
-Downloads page (and under **Settings → About**): your downloads, series tasks and settings. Downloads that were still
-in progress come in paused (so the two apps never write the same files); resume them once you've quit 1.x. The SMTP
-password and Telegram bot token were encrypted with keys only 1.x can read, so re-enter them. Private-tracker (PTE)
-downloads are not imported: PTE isn't supported in 2.x.
+Magnetar keeps its data separately, so MediaDownloader keeps working. When Magnetar finds MediaDownloader data it
+offers to import it on the Downloads page (and under **Settings → About**): your downloads, series tasks and settings.
+Downloads that were still in progress come in paused (so the two apps never write the same files); resume them once
+you've quit MediaDownloader. The SMTP password and Telegram bot token were encrypted with keys only MediaDownloader can
+read, so re-enter them. Private-tracker (PTE) downloads are not imported: Magnetar doesn't support PTE.
 
 ## Agent access (MCP and REST)
 
-On the computer running MediaDownloader, **Settings → AI agents → Connect Claude** turns agent access on and adds
+On the computer running Magnetar, **Settings → AI agents → Connect Claude** turns agent access on and adds
 the server to Claude Code (for every project). Other MCP clients, or Claude Code where the app can't find it, use the URL
 shown there:
 
 ```bash
-claude mcp add --transport http --scope user mediadownloader http://localhost:47820/mcp
+claude mcp add --transport http --scope user magnetar http://localhost:47820/mcp
 ```
 
 The resolved URLs and bearer token are also written to `endpoint.json` in the data folder (owner-only). REST lives
@@ -118,8 +118,8 @@ Requires [Bun](https://bun.com) 1.4 and a stable [Rust](https://rustup.rs) toolc
 
 ```bash
 bun install
-bun run dev:client        # the app on http://localhost:47820 (cargo run; no tray, dev data in the normal folder unless MD_DATA_DIRECTORY is set)
-bun run dev:web           # Vite on http://localhost:5173, proxying to the client (MD_WEB_TARGET=cloud proxies to the Worker)
+bun run dev:client        # the app on http://localhost:47820 (cargo run; no tray, dev data in the normal folder unless MAGNETAR_DATA_DIRECTORY is set)
+bun run dev:web           # Vite on http://localhost:5173, proxying to the client (MAGNETAR_WEB_TARGET=cloud proxies to the Worker)
 bun run dev:worker        # the website on http://localhost:8790 with a local D1 and a passwordless dev sign-in
 bun run check             # oxlint, clippy, rustfmt, tsc, bun test and cargo test
 bun run e2e               # Playwright drives the real app (its own data and download folders) through the dashboard
@@ -127,8 +127,8 @@ bun run build:client      # the dashboard and a release executable in apps/clien
 ```
 
 The debug client serves the dashboard from `apps/web/dist`, so run `bun run build:web` once (or use `dev:web`). To try
-remote access locally, run the client with `MD_CLOUD_URL=http://localhost:8790` next to `dev:worker`.
-`MD_LIVE_TESTS=1 cargo test --test providers live_providers` checks every provider against the real sites (also run
+remote access locally, run the client with `MAGNETAR_CLOUD_URL=http://localhost:8790` next to `dev:worker`.
+`MAGNETAR_LIVE_TESTS=1 cargo test --test providers live_providers` checks every provider against the real sites (also run
 weekly in CI).
 
 | Path | What it is |

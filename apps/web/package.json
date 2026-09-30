@@ -1,5 +1,5 @@
 {
-  "name": "@md/web",
+  "name": "@magnetar/web",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,7 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
-    "@md/protocol": "workspace:*",
+    "@magnetar/protocol": "workspace:*",
     "lucide-react": "^1.48.0",
     "qrcode": "^1.5.4",
     "react": "^19.3.0",

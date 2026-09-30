@@ -6,9 +6,9 @@ use crate::error::{ApiError, ApiResult};
 use crate::protocol::LoginStartupStatus;
 
 #[cfg(target_os = "macos")]
-const MAC_LABEL: &str = "cc.codefusion.mediadownloader.start-at-login";
+const MAC_LABEL: &str = "cc.codefusion.magnetar.start-at-login";
 #[cfg(windows)]
-const WINDOWS_VALUE: &str = "MediaDownloader";
+const WINDOWS_VALUE: &str = "Magnetar";
 #[cfg(windows)]
 const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 
@@ -49,7 +49,7 @@ pub fn status() -> LoginStartupStatus {
     #[cfg(windows)]
     {
         let installed = std::env::current_exe().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase()));
-        if !installed.is_some_and(|name| name.starts_with("mediadownloader") && name.ends_with(".exe")) {
+        if !installed.is_some_and(|name| name.starts_with("magnetar") && name.ends_with(".exe")) {
             return LoginStartupStatus::Unavailable;
         }
         let (exists, _, _) = run("reg", &["query", RUN_KEY, "/v", WINDOWS_VALUE]);

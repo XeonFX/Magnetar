@@ -2,10 +2,10 @@
 
 use std::sync::Arc;
 
-use mediadownloader::app::{App, AppOptions};
-use mediadownloader::downloads::manager::EngineSource;
-use mediadownloader::http::server;
-use mediadownloader::paths::Paths;
+use magnetar::app::{App, AppOptions};
+use magnetar::downloads::manager::EngineSource;
+use magnetar::http::server;
+use magnetar::paths::Paths;
 use serde_json::{Value, json};
 
 async fn start() -> (Arc<App>, String, tempfile::TempDir) {
@@ -14,7 +14,7 @@ async fn start() -> (Arc<App>, String, tempfile::TempDir) {
     let app = App::new(AppOptions {
         paths,
         engine: EngineSource::Off,
-        providers: mediadownloader::search::providers::all(),
+        providers: magnetar::search::providers::all(),
         legacy_database: None,
         show_lookups: false,
     })
@@ -123,7 +123,7 @@ async fn mcp_initializes_lists_and_calls_tools() {
             .await
             .unwrap();
     assert_eq!(init["result"]["protocolVersion"], "2025-06-18");
-    assert_eq!(init["result"]["serverInfo"]["name"], "mediadownloader");
+    assert_eq!(init["result"]["serverInfo"]["name"], "magnetar");
     let notified = rpc(json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).await.unwrap();
     assert_eq!(notified.status(), 202);
 

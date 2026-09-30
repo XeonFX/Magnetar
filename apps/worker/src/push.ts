@@ -1,4 +1,4 @@
-import { fromBase64Url, toBase64Url } from '@md/protocol/base64'
+import { fromBase64Url, toBase64Url } from '@magnetar/protocol/base64'
 import type { Env } from './env.ts'
 import { deviceFromToken } from './devices.ts'
 import { error, json, limit, readJson } from './http.ts'

@@ -42,7 +42,7 @@ export function Shell({ headerStart, headerEnd }: { headerStart?: ReactNode; hea
         </nav>
         <div className="flex-1" />
         <DeviceStatus end={headerEnd} />
-        {info && <p className="muted px-3 text-xs">MediaDownloader {info.version}</p>}
+        {info && <p className="muted px-3 text-xs">Magnetar {info.version}</p>}
       </aside>
 
       <div className="flex min-h-screen min-w-0 flex-col">
@@ -77,7 +77,7 @@ function Brand() {
   return (
     <div className="flex min-w-0 items-center gap-2.5">
       <BrandMark />
-      <span className="truncate font-semibold tracking-tight">MediaDownloader</span>
+      <span className="truncate font-semibold tracking-tight">Magnetar</span>
     </div>
   )
 }

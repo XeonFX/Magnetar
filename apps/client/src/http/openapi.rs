@@ -42,7 +42,7 @@ pub fn document() -> Value {
     let create_series = json!({ "type": "object", "properties": create_properties, "required": ["name", "query"], "additionalProperties": false });
     json!({
         "openapi": "3.1.0",
-        "info": { "title": "MediaDownloader agent API", "version": VERSION },
+        "info": { "title": "Magnetar agent API", "version": VERSION },
         "paths": {
             "/api/sources": { "get": { "summary": "List sources", "responses": ok } },
             "/api/search": { "post": {

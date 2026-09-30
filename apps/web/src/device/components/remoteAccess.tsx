@@ -10,7 +10,7 @@ import { useDevice } from '../DeviceContext.tsx'
 import { useRun } from '../useRun.ts'
 
 /**
- * Connecting this device to mediadownloader.codefusion.cc. Pairing opens the website in a new
+ * Connecting this device to magnetar.codefusion.cc. Pairing opens the website in a new
  * tab; that browser signs in, approves, and receives its end-to-end key in the link fragment.
  * More browsers (a phone) are linked by scanning a QR code carrying a freshly minted key.
  */

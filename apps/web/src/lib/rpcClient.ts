@@ -1,6 +1,6 @@
 import type {
   ClientMessage, RpcEventName, RpcEvents, RpcMethod, RpcParams, RpcResults, ServerMessage,
-} from '@md/protocol'
+} from '@magnetar/protocol'
 
 export type ConnectionState =
   | { status: 'connecting' }

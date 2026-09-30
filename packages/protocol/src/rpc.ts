@@ -49,7 +49,7 @@ export const RPC_PARAMS = {
 
   /** Adds a .torrent file from this computer's disk. Local dashboard only. */
   'downloads.addTorrentPath': z.strictObject({ path: z.string().min(1) }),
-  /** Whether MediaDownloader opens magnet links and .torrent files, and making it do so. */
+  /** Whether Magnetar opens magnet links and .torrent files, and making it do so. */
   'handlers.status': none,
   'handlers.register': none,
 

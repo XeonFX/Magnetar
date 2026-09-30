@@ -1,5 +1,5 @@
-import type { SeriesResolution, WatchDto, WatchInput } from '@md/protocol'
-import { formatBytes } from '@md/protocol/bytes'
+import type { SeriesResolution, WatchDto, WatchInput } from '@magnetar/protocol'
+import { formatBytes } from '@magnetar/protocol/bytes'
 import { BellRing, CircleCheck, Clapperboard, Download, Pencil, Plus, RefreshCw, RotateCcw, Sprout, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'

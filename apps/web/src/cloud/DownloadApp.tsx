@@ -1,11 +1,11 @@
-import type { LatestReleaseDto, ReleaseArch, ReleaseAssetDto, ReleasePlatform } from '@md/protocol/cloud'
-import { formatBytes } from '@md/protocol/bytes'
+import type { LatestReleaseDto, ReleaseArch, ReleaseAssetDto, ReleasePlatform } from '@magnetar/protocol/cloud'
+import { formatBytes } from '@magnetar/protocol/bytes'
 import { Download, ExternalLink, Laptop, Monitor, Terminal } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { cloud } from '../lib/cloudApi.ts'
 import { useT } from '../lib/i18n.tsx'
 
-const RELEASES_PAGE = 'https://github.com/XeonFX/MediaDownloader/releases/latest'
+const RELEASES_PAGE = 'https://github.com/XeonFX/Magnetar/releases/latest'
 const ICONS = { macos: Laptop, windows: Monitor, linux: Terminal }
 const NAMES: Record<ReleasePlatform, string> = { macos: 'macOS', windows: 'Windows', linux: 'Linux' }
 

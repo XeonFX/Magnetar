@@ -1,8 +1,8 @@
 //! Parsers against pages captured from each site.
 
 use chrono::{DateTime, Datelike, TimeZone, Utc};
-use mediadownloader::search::providers::{eztv, leetx, nyaa, piratebay, rarbg, torrentscsv};
-use mediadownloader::search::types::{TorrentSearchResult, is_real_info_hash};
+use magnetar::search::providers::{eztv, leetx, nyaa, piratebay, rarbg, torrentscsv};
+use magnetar::search::types::{TorrentSearchResult, is_real_info_hash};
 
 fn fixture(name: &str) -> String {
     std::fs::read_to_string(format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap()
@@ -185,16 +185,16 @@ fn live_page_sanity() {
 }
 
 /// Hits the real sites: fails when a provider returns nothing or unparseable rows. Runs only with
-/// MD_LIVE_TESTS=1 (the weekly Provider health workflow sets it).
+/// MAGNETAR_LIVE_TESTS=1 (the weekly Provider health workflow sets it).
 #[tokio::test]
 async fn live_providers() {
-    if std::env::var("MD_LIVE_TESTS").as_deref() != Ok("1") {
+    if std::env::var("MAGNETAR_LIVE_TESTS").as_deref() != Ok("1") {
         return;
     }
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let http = reqwest::Client::new();
     let mut failures = Vec::new();
-    for provider in mediadownloader::search::providers::all() {
+    for provider in magnetar::search::providers::all() {
         // EZTV only pages through recent TV releases, so it needs a query that is always airing.
         let query = match provider.name() {
             "EZTV" => "S01",

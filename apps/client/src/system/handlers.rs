@@ -1,4 +1,4 @@
-//! MediaDownloader as the system's app for magnet links and .torrent files. Clicking one opens the
+//! Magnetar as the system's app for magnet links and .torrent files. Clicking one opens the
 //! dashboard with the add dialog filled in, so the user sees what is being added and where it goes
 //! before anything starts.
 //!
@@ -59,7 +59,7 @@ impl OpenTarget {
     }
 }
 
-const BUNDLE_ID: &str = "cc.codefusion.mediadownloader";
+const BUNDLE_ID: &str = "cc.codefusion.magnetar";
 
 pub fn status() -> HandlerStatus {
     platform::status()
@@ -78,7 +78,7 @@ pub fn register() -> ApiResult<HandlerStatus> {
 fn installed_exe() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let name = exe.file_name()?.to_string_lossy().to_lowercase();
-    (name.starts_with("mediadownloader") && !cfg!(debug_assertions)).then_some(exe)
+    (name.starts_with("magnetar") && !cfg!(debug_assertions)).then_some(exe)
 }
 
 #[cfg(target_os = "macos")]
@@ -197,7 +197,7 @@ mod platform {
         let open = command(&exe);
         let icon = format!("\"{}\",0", exe.display());
         let magnet = format!(r"{CLASSES}\magnet");
-        let torrent = format!(r"{CLASSES}\MediaDownloader.torrent");
+        let torrent = format!(r"{CLASSES}\Magnetar.torrent");
         let steps: Vec<Vec<String>> = vec![
             vec![magnet.clone(), "/ve".into(), "/d".into(), "URL:Magnet link".into()],
             vec![magnet.clone(), "/v".into(), "URL Protocol".into(), "/d".into(), String::new()],
@@ -206,7 +206,7 @@ mod platform {
             vec![torrent.clone(), "/ve".into(), "/d".into(), "Torrent file".into()],
             vec![format!(r"{torrent}\DefaultIcon"), "/ve".into(), "/d".into(), icon],
             vec![format!(r"{torrent}\shell\open\command"), "/ve".into(), "/d".into(), open],
-            vec![format!(r"{CLASSES}\.torrent"), "/ve".into(), "/d".into(), "MediaDownloader.torrent".into()],
+            vec![format!(r"{CLASSES}\.torrent"), "/ve".into(), "/d".into(), "Magnetar.torrent".into()],
         ];
         for step in steps {
             let args: Vec<&str> =
@@ -223,7 +223,7 @@ mod platform {
     use crate::error::{ApiError, ApiResult};
     use crate::system::hidden_command;
 
-    const DESKTOP_FILE: &str = "mediadownloader.desktop";
+    const DESKTOP_FILE: &str = "magnetar.desktop";
     const TYPES: [&str; 2] = ["x-scheme-handler/magnet", "application/x-bittorrent"];
 
     fn applications() -> std::path::PathBuf {
@@ -249,7 +249,7 @@ mod platform {
         // Desktop entry quoting: a path with spaces is quoted, and `"` `` ` `` `$` `\` escaped inside.
         let quoted = exe.display().to_string().replace('\\', "\\\\").replace('"', "\\\"").replace('`', "\\`").replace('$', "\\$");
         let entry = format!(
-            "[Desktop Entry]\nType=Application\nName=MediaDownloader\nExec=\"{quoted}\" %u\nTerminal=false\nNoDisplay=true\nMimeType={};\n",
+            "[Desktop Entry]\nType=Application\nName=Magnetar\nExec=\"{quoted}\" %u\nTerminal=false\nNoDisplay=true\nMimeType={};\n",
             TYPES.join(";")
         );
         let folder = applications();
