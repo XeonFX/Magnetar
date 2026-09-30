@@ -83,9 +83,10 @@ and Gatekeeper only once the installed app is itself certificate-signed.
 
 ## Browser notifications (Web Push)
 
-Once: `bun scripts/vapid-keys.ts`. Put the public key in `VAPID_PUBLIC_KEY` in `wrangler.jsonc` and the private key
-in a secret (`wrangler secret put VAPID_PRIVATE_KEY`). For `wrangler dev`, put both lines in `apps/worker/.dev.vars`.
-Without them the website doesn't offer browser notifications. Changing the pair makes every browser subscribe again.
+Once, from `apps/worker`: `bunx -p @codefusion-cc/web-push codefusion-vapid | bunx wrangler secret put VAPID_PRIVATE_KEY`.
+The Worker derives the public key browsers subscribe with. For `wrangler dev`, put the printed key in
+`apps/worker/.dev.vars` as `VAPID_PRIVATE_KEY='…'`. Without it the website doesn't offer browser notifications. A new
+key makes every browser subscribe again.
 
 ## Downloads on the website
 

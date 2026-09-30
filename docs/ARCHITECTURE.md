@@ -135,9 +135,8 @@ builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the ser
 - **Browser push**: a linked browser subscribes with the Worker's VAPID public key and gives the subscription to the
   device over the encrypted channel (`push_subscriptions`, removed with the browser's key). Each notification is
   sealed on the device for that subscription (RFC 8291, `protocol/webpush.rs`) and posted to the Worker, which adds
-  the VAPID signature and forwards the ciphertext to the push service. Both only send to the hosts in
-  `packages/protocol/src/push-services.json`. A 404 or 410 drops the
-  subscription.
+  the VAPID signature and forwards the ciphertext to the push service (`@codefusion-cc/web-push`). Both only send to the browsers' push
+  services. A 404 or 410 drops the subscription.
 - **Opening magnet links and .torrent files**: the macOS bundle declares both and becomes the default through Launch
   Services; Windows registers per-user classes, Linux a desktop entry set with xdg-mime (`system/handlers.rs`). The
   app, or the running instance, opens the dashboard at `/?add=…` or `/?torrent=…`, which fills in the add dialog.

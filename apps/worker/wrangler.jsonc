@@ -39,10 +39,10 @@
     "APP_ENV": "production",
     "ORIGIN": "https://magnetar.codefusion.cc",
     // The OAuth client created for this app in Google Cloud Console.
-    "GOOGLE_CLIENT_ID": "",
-    // Web Push: `bun scripts/vapid-keys.ts` prints a pair; the private half is a secret
-    // (`wrangler secret put VAPID_PRIVATE_KEY`). Empty turns browser notifications off.
-    "VAPID_PUBLIC_KEY": ""
+    "GOOGLE_CLIENT_ID": ""
+    // Web Push: the VAPID key is a secret, made and stored with
+    // `bunx -p @codefusion-cc/web-push codefusion-vapid | bunx wrangler secret put VAPID_PRIVATE_KEY`.
+    // Without it browser notifications are off.
   },
   "env": {
     // `wrangler dev --env dev`: a passwordless dev sign-in, local D1, no console.

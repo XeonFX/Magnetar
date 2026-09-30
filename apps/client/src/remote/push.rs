@@ -26,29 +26,21 @@ pub struct PushPayload<'a> {
     pub url: String,
 }
 
-/// Push services this app sends to, shared with the Worker. Anything else is refused, so a
-/// subscription can't turn the device into a way to make requests elsewhere.
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PushServices {
-    hosts: Vec<String>,
-    max_endpoint_length: usize,
-}
-
-static PUSH_SERVICES: std::sync::LazyLock<PushServices> = std::sync::LazyLock::new(|| {
-    serde_json::from_str(include_str!("../../../../packages/protocol/src/push-services.json")).expect("push-services.json")
-});
+/// Push services this app sends to: the ones the Worker's `@codefusion-cc/web-push` sends to, which
+/// refuses anything else too. Refusing it here as well means a subscription can't turn the device
+/// into a way to make requests elsewhere.
+const PUSH_HOSTS: [&str; 4] =
+    ["fcm.googleapis.com", "updates.push.services.mozilla.com", ".push.apple.com", ".notify.windows.com"];
+/// The package's `MAX_ENDPOINT_LENGTH`: longer than any address the push services hand out.
+const MAX_ENDPOINT_LENGTH: usize = 1024;
 
 pub fn is_push_service(endpoint: &str) -> bool {
     let Ok(url) = url::Url::parse(endpoint) else { return false };
     let Some(host) = url.host_str() else { return false };
-    endpoint.len() <= PUSH_SERVICES.max_endpoint_length
+    endpoint.len() <= MAX_ENDPOINT_LENGTH
         && url.scheme() == "https"
         && url.port().is_none()
-        && PUSH_SERVICES
-            .hosts
-            .iter()
-            .any(|allowed| if allowed.starts_with('.') { host.ends_with(allowed.as_str()) } else { host == allowed })
+        && PUSH_HOSTS.iter().any(|allowed| if allowed.starts_with('.') { host.ends_with(allowed) } else { host == *allowed })
 }
 
 pub struct PushSubscriptions {
@@ -123,7 +115,7 @@ mod tests {
             "https://notify.windows.com/x",
             "https://169.254.169.254/latest",
             "not a url",
-            &format!("https://fcm.googleapis.com/{}", "a".repeat(1000)),
+            &format!("https://fcm.googleapis.com/{}", "a".repeat(1024)),
         ] {
             assert!(!is_push_service(bad), "{bad}");
         }

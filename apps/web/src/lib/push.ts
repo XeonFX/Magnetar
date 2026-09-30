@@ -1,20 +1,11 @@
-import { fromBase64Url, toBase64Url } from '@magnetar/protocol/base64'
-import { isIosDevice } from './platform.ts'
+import { pushSupport, subscribePush, type PushSupport as BrowserPushSupport } from '@codefusion-cc/web-push/browser'
 import type { RpcClient } from './rpcClient.ts'
 import { ensureServiceWorker } from './streaming.ts'
 
-/** Why push can't be offered here, or 'ok'. */
-export type PushSupport = 'ok' | 'unsupported' | 'install' | 'denied' | 'server'
+export { pushSupport }
 
-const standalone = () => window.matchMedia('(display-mode: standalone)').matches || (navigator as { standalone?: boolean }).standalone === true
-
-/** Push needs a service worker and PushManager; on iPhone and iPad, the site added to the Home Screen. */
-export function pushSupport(): PushSupport {
-  if (!('serviceWorker' in navigator) || !('Notification' in window)) return 'unsupported'
-  if (!('PushManager' in window)) return isIosDevice() && !standalone() ? 'install' : 'unsupported'
-  if (Notification.permission === 'denied') return 'denied'
-  return 'ok'
-}
+/** Why push can't be offered here, or 'ok'; 'server' when the website doesn't send push. */
+export type PushSupport = BrowserPushSupport | 'server'
 
 let serverKey: Promise<string | null> | null = null
 
@@ -67,17 +58,11 @@ export async function enablePush(connection: RpcClient): Promise<PushSupport> {
   const key = await vapidKey()
   if (!key) return 'server'
   if (await Notification.requestPermission() !== 'granted') return 'denied'
-  const registration = await ensureServiceWorker()
-  let subscription = await registration.pushManager.getSubscription()
-  // A subscription made with another server key can't be used: replace it.
-  const current = subscription?.options.applicationServerKey
-  if (subscription && current && toBase64Url(new Uint8Array(current)) !== key) {
-    await subscription.unsubscribe()
-    subscription = null
-  }
-  subscription ??= await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: fromBase64Url(key) })
-  const json = subscription.toJSON()
-  await connection.call('push.subscribe', { endpoint: subscription.endpoint, p256dh: json.keys?.p256dh ?? '', auth: json.keys?.auth ?? '' })
+  // One subscription for every device this browser links to; one made with an older server key is
+  // replaced, and this device forgets that one.
+  const { subscription, replaced } = await subscribePush({ registration: await ensureServiceWorker(), key })
+  if (replaced) await connection.call('push.unsubscribe', { endpoint: replaced })
+  await connection.call('push.subscribe', subscription)
   remember(connection, true)
   return 'ok'
 }
