@@ -31,9 +31,9 @@ impl Server {
     }
 }
 
-/// Who is really asking. A TLS reverse proxy on this machine may forward the real client address
-/// and scheme; those headers are trusted from a loopback peer only, and only one hop deep, so a
-/// LAN caller can't claim to be 127.0.0.1.
+/// Who is really asking. A TLS reverse proxy on this machine forwards remote callers, which then
+/// need HTTPS and the token. Anything forwarded counts as remote, whatever address it claims: a
+/// DNS-rebound page can add `X-Forwarded-For: 127.0.0.1` to its own requests.
 struct ClientFacts {
     loopback: bool,
     https: bool,
@@ -44,13 +44,8 @@ fn client_facts(headers: &HeaderMap, peer: SocketAddr) -> ClientFacts {
     let peer_is_loopback = peer.ip().is_loopback() || agent_auth::is_loopback_address(&peer.ip().to_string());
     let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
     match header("x-forwarded-for") {
-        Some(forwarded_for) if peer_is_loopback => {
-            let hops: Vec<&str> = forwarded_for.split(',').map(str::trim).filter(|h| !h.is_empty()).collect();
-            ClientFacts {
-                loopback: hops.len() == 1 && agent_auth::is_loopback_address(hops[0]),
-                https: header("x-forwarded-proto") == Some("https"),
-                forwarded: true,
-            }
+        Some(_) if peer_is_loopback => {
+            ClientFacts { loopback: false, https: header("x-forwarded-proto") == Some("https"), forwarded: true }
         }
         _ => ClientFacts { loopback: peer_is_loopback, https: false, forwarded: false },
     }

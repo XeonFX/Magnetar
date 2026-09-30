@@ -110,7 +110,7 @@ arguments after reading untrusted torrent titles and descriptions.
 
 Loopback requests need no token. Web pages can never call the API (cross-origin requests are refused, including after
 DNS rebinding). Remote agents need **Allow access from other devices**, HTTPS through a TLS reverse proxy on the same
-computer, and the bearer token.
+computer, and the bearer token. Whatever comes through the proxy counts as remote, even from this computer.
 
 ## Development
 

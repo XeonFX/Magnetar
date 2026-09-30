@@ -87,6 +87,26 @@ async fn agent_api_is_off_until_enabled_then_refuses_rebinding_and_cross_origin_
     // A remote caller through a local proxy needs HTTPS.
     let proxied = http.get(format!("{base}/api/downloads")).header("x-forwarded-for", "203.0.113.9").send().await.unwrap();
     assert_eq!(proxied.status(), 404, "remote access is off");
+    // A rebound page may add headers to its same-origin requests: claiming a proxy forwarded it
+    // from 127.0.0.1 doesn't make it this computer.
+    let rebound_as_proxied = http
+        .get(format!("{base}/api/downloads"))
+        .header("host", "evil.example:47820")
+        .header("x-forwarded-for", "127.0.0.1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rebound_as_proxied.status(), 404, "a forwarded request is remote, and remote access is off");
+    app.agent.set(None, Some(true));
+    let with_https_claimed = http
+        .get(format!("{base}/api/downloads"))
+        .header("host", "evil.example:47820")
+        .header("x-forwarded-for", "127.0.0.1")
+        .header("x-forwarded-proto", "https")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(with_https_claimed.status(), 401, "and remote callers need the token");
 }
 
 #[tokio::test]
