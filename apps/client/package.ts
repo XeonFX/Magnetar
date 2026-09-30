@@ -1,7 +1,10 @@
 /**
  * Builds the single-file Magnetar executable for one platform, with the dashboard embedded.
  *
- *   bun run package.ts [--target aarch64-apple-darwin] [--version 1.0.0] [--skip-web]
+ *   bun run package.ts [--target aarch64-apple-darwin] [--version 1.0.0] [--skip-web] [--profile ci]
+ *
+ * `--profile` picks the Cargo profile: `release` (the default, what ships) or `ci` (fast, unoptimized
+ * linking, for CI's smoke test).
  *
  * Output in dist/: `Magnetar-<version>-<platform>-<arch>` (.exe on Windows). On macOS it
  * is also wrapped in Magnetar.app and zipped, which is the release asset: signed with the
@@ -21,6 +24,7 @@ const { values } = parseArgs({
     target: { type: 'string' },
     version: { type: 'string' },
     'skip-web': { type: 'boolean', default: false },
+    profile: { type: 'string', default: 'release' },
   },
 })
 
@@ -46,11 +50,12 @@ if (!process.env.MAGNETAR_RELEASE_PUBLIC_KEY && !existsSync(join(root, 'release-
   console.warn('No release public key: this build will open the release page instead of installing updates')
 }
 
-await $`cargo build --release --locked --target ${target} -p magnetar`.cwd(repo).env({ ...process.env, MAGNETAR_VERSION: version })
+const profile = values.profile!
+await $`cargo build --profile ${profile} --locked --target ${target} -p magnetar`.cwd(repo).env({ ...process.env, MAGNETAR_VERSION: version })
 
 mkdirSync(dist, { recursive: true })
 const outfile = join(dist, name + exe)
-cpSync(join(repo, 'target', target, 'release', `magnetar${exe}`), outfile)
+cpSync(join(repo, 'target', target, profile === 'dev' ? 'debug' : profile, `magnetar${exe}`), outfile)
 if (platform !== 'windows') chmodSync(outfile, 0o755)
 console.log(`Built ${relative(process.cwd(), outfile)}`)
 

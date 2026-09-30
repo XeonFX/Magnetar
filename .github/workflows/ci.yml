@@ -11,6 +11,8 @@ permissions:
 env:
   # aws-lc (rustls' crypto) ships assembled objects for Windows; no NASM install needed.
   AWS_LC_SYS_PREBUILT_NASM: '1'
+  # Tests need no debugger symbols: less to compile, link and cache.
+  CARGO_PROFILE_DEV_DEBUG: '0'
 
 jobs:
   check:
@@ -34,7 +36,7 @@ jobs:
       - run: bun run typecheck
       - run: bun run test
       - name: Build the executable for this runner
-        run: bun run --cwd apps/client build --version 0.0.0-ci
+        run: bun run --cwd apps/client build --version 0.0.0-ci --profile ci
       - name: Smoke-test the executable
         shell: bash
         run: |
