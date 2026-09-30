@@ -2,7 +2,7 @@
 try {
   var saved = localStorage.getItem('magnetar-theme')
   var dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches
-  document.documentElement.setAttribute('data-theme', dark ? 'mddark' : 'mdlight')
+  document.documentElement.setAttribute('data-theme', dark ? 'magnetar-dark' : 'magnetar-light')
 } catch {
-  document.documentElement.setAttribute('data-theme', 'mdlight')
+  document.documentElement.setAttribute('data-theme', 'magnetar-light')
 }

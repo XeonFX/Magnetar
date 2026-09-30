@@ -358,7 +358,7 @@ function AgentSection() {
           <div className="flex flex-col gap-4 py-4 last:pb-0">
             <Field label={t('settings.agentToken')}>
               <div className="join w-full">
-                <input readOnly className="input join-item w-full min-w-0 font-mono text-sm" type={reveal ? 'text' : 'password'} value={agent.token} />
+                <input readOnly aria-label={t('settings.agentToken')} className="input join-item w-full min-w-0 font-mono text-sm" type={reveal ? 'text' : 'password'} value={agent.token} />
                 <button type="button" className="btn join-item" title={t('settings.agentReveal')} aria-label={t('settings.agentReveal')} onClick={() => setReveal(r => !r)}>{reveal ? <EyeOff size={16} /> : <Eye size={16} />}</button>
                 <button type="button" className="btn join-item" title={t('settings.agentCopy')} aria-label={t('settings.agentCopy')} onClick={() => void copy(agent.token)}><Copy size={16} /></button>
                 <button type="button" className="btn join-item" title={t('settings.agentRegenerate')} aria-label={t('settings.agentRegenerate')} onClick={() => setConfirming(true)}><RefreshCw size={16} /></button>

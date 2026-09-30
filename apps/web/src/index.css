@@ -10,7 +10,7 @@
  * error = failed.
  */
 @plugin "daisyui/theme" {
-  name: "mdlight";
+  name: "magnetar-light";
   default: true;
   color-scheme: light;
   --color-base-100: #ffffff;
@@ -44,7 +44,7 @@
 }
 
 @plugin "daisyui/theme" {
-  name: "mddark";
+  name: "magnetar-dark";
   prefersdark: true;
   color-scheme: dark;
   --color-base-100: #18181c;
@@ -106,7 +106,7 @@ body {
   box-shadow: 0 1px 2px rgb(24 24 27 / 0.05);
 }
 
-[data-theme="mddark"] .surface {
+[data-theme="magnetar-dark"] .surface {
   box-shadow: none;
 }
 

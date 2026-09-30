@@ -16,7 +16,7 @@ function savedMode(): ThemeMode {
 
 function apply(mode: ThemeMode): 'light' | 'dark' {
   const dark = mode === 'system' ? matchMedia('(prefers-color-scheme: dark)').matches : mode === 'dark'
-  document.documentElement.setAttribute('data-theme', dark ? 'mddark' : 'mdlight')
+  document.documentElement.setAttribute('data-theme', dark ? 'magnetar-dark' : 'magnetar-light')
   return dark ? 'dark' : 'light'
 }
 
