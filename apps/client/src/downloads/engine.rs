@@ -13,6 +13,7 @@ use librqbit::{
     AddTorrent, AddTorrentOptions, AddTorrentResponse, DhtSessionConfig, ListenerMode, ListenerOptions, ManagedTorrent,
     ManagedTorrentState, Session, SessionOptions, SessionPersistenceConfig, TorrentStatsState,
 };
+use tokio::sync::RwLock;
 
 use crate::config::VERSION;
 use crate::paths::Paths;
@@ -140,6 +141,10 @@ fn to_bps(limit: u64) -> Option<NonZeroU32> {
 /// were. The download manager's database stays the source of truth: `reconcile` drops the rest.
 pub struct Engine {
     session: Arc<Session>,
+    /// Held for writing while `reconcile` pauses or removes what the engine restored, so an add
+    /// waits instead of taking up a restored torrent halfway: one about to go still counts the
+    /// pieces it had when the app last stopped, however the files changed since.
+    restoring: Arc<RwLock<()>>,
 }
 
 impl Engine {
@@ -168,7 +173,7 @@ impl Engine {
             ..Default::default()
         };
         let session = Session::new_with_opts(paths.data_dir.join("downloads"), options).await?;
-        Ok(Self { session })
+        Ok(Self { session, restoring: Arc::default() })
     }
 
     /// Fetches a magnet's metadata from peers. Can take minutes, or forever for a dead torrent.
@@ -189,6 +194,8 @@ impl Engine {
         save_path: &Path,
         only_files: Option<&[usize]>,
     ) -> anyhow::Result<TorrentHandle> {
+        // Not while `reconcile` still pauses or removes what the engine restored.
+        drop(self.restoring.read().await);
         let options = AddTorrentOptions {
             overwrite: true,
             only_files: only_files.map(<[usize]>::to_vec),
@@ -214,8 +221,10 @@ impl Engine {
         Ok(handle)
     }
 
-    /// The torrent the engine has for this info hash, running or paused.
+    /// The torrent the engine has for this info hash, running or paused. None while `reconcile` is
+    /// still at work: what the engine restored may be on its way out.
     pub fn handle(&self, info_hash: &str) -> Option<TorrentHandle> {
+        let _settled = self.restoring.try_read().ok()?;
         self.session.get(Id20::from_str(info_hash).ok()?.into())
     }
 
@@ -288,17 +297,26 @@ impl Engine {
 
     /// Brings the torrents the engine restored in line with the download list: `wanted` maps each
     /// info hash (lowercase hex) to whether it should run. The rest are removed, and those that
-    /// should not run are paused.
-    pub async fn reconcile(&self, wanted: &HashMap<String, bool>) {
-        let handles: Vec<TorrentHandle> = self.session.with_torrents(|torrents| torrents.map(|(_, h)| h.clone()).collect());
-        for handle in handles {
-            let hash = handle.info_hash().as_string();
-            match wanted.get(&hash) {
-                None => self.remove(&hash).await,
-                Some(false) => self.pause(&handle).await,
-                Some(true) => {}
+    /// should not run are paused. Runs in the background; adds wait for it.
+    pub fn reconcile(self: &Arc<Self>, wanted: HashMap<String, bool>) {
+        // Taken here, not in the task, so an add started right after this call still waits.
+        let held = self.restoring.clone().try_write_owned();
+        let engine = self.clone();
+        tokio::spawn(async move {
+            let _restoring = match held {
+                Ok(held) => held,
+                Err(_) => engine.restoring.clone().write_owned().await,
+            };
+            let handles: Vec<TorrentHandle> = engine.session.with_torrents(|torrents| torrents.map(|(_, h)| h.clone()).collect());
+            for handle in handles {
+                let hash = handle.info_hash().as_string();
+                match wanted.get(&hash) {
+                    None => engine.remove(&hash).await,
+                    Some(false) => engine.pause(&handle).await,
+                    Some(true) => {}
+                }
             }
-        }
+        });
     }
 
     pub async fn stop(&self) {

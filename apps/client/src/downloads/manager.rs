@@ -351,8 +351,7 @@ impl DownloadManager {
             .filter(|i| !matches!(i.status, DownloadStatus::Completed | DownloadStatus::Error))
             .map(|i| (i.info_hash.to_lowercase(), i.status != DownloadStatus::Paused))
             .collect();
-        let reconciling = engine.clone();
-        tokio::spawn(async move { reconciling.reconcile(&wanted).await });
+        engine.reconcile(wanted);
         let mut resumed = 0;
         for item in items.values_mut().filter(|i| i.wants_engine()) {
             self.attach(item);
@@ -808,18 +807,14 @@ impl DownloadManager {
     }
 
     /// How much of each file is really there, and whether that is settled. The engine sets every
-    /// chosen file to its full length when a torrent starts, so the length on disk says nothing: the
-    /// engine's count does, or the pieces it saved, or else the download's own state. While the
-    /// engine takes a torrent up and checks it, its saved pieces may be out of date.
+    /// chosen file to its full length when a torrent starts, so the length on disk says nothing: a
+    /// finished download's own state does, or else the engine's count, or the pieces it saved. While
+    /// the engine takes a torrent up and checks it, its saved pieces may be out of date.
     fn files_done(&self, item: &FilesOf, metadata: &Metadata) -> (Vec<u64>, bool) {
-        let handle = item.handle.clone().or_else(|| self.engine().and_then(|e| e.handle(&item.info_hash)));
-        let progress = handle.as_ref().map(Engine::file_progress).unwrap_or_default();
-        if progress.len() == metadata.file_sizes.len() {
-            return (progress, true);
-        }
         if item.status == DownloadStatus::Completed {
-            // Every chosen file is there. One left out may be too, if it was fetched before; the
-            // engine no longer keeps pieces for a finished download, so its length has to do.
+            // Every chosen file is there. One left out may be too, if it was fetched before; its
+            // length has to do. Not the engine's count: it only has a finished download on its way
+            // out, restored with the pieces it had when the app last stopped, whatever went since.
             let chosen = |index: usize| item.selected_files.as_ref().is_none_or(|s| s.contains(&index));
             let folder = metadata.output_folder(&item.save_path);
             let done = (metadata.files.iter().zip(&metadata.file_sizes).enumerate())
@@ -829,6 +824,11 @@ impl DownloadManager {
                 })
                 .collect();
             return (done, true);
+        }
+        let handle = item.handle.clone().or_else(|| self.engine().and_then(|e| e.handle(&item.info_hash)));
+        let progress = handle.as_ref().map(Engine::file_progress).unwrap_or_default();
+        if progress.len() == metadata.file_sizes.len() {
+            return (progress, true);
         }
         let saved = std::fs::read(self.torrent_session.join(format!("{}.bitv", item.info_hash.to_lowercase())));
         (bytes_in_pieces(&saved.unwrap_or_default(), metadata.piece_length, &metadata.file_sizes), !item.engaged)

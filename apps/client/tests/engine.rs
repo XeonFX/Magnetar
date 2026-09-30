@@ -97,8 +97,10 @@ async fn a_torrent_file_starts_at_once_and_its_files_can_be_chosen() {
     let all = app.downloads.select_files(added.id, vec![1, 0]).await.unwrap();
     assert_eq!(all.partial_files, None, "every file chosen is not partial");
     assert_eq!(all.status, DownloadStatus::Completed, "the subtitle is already on disk");
+    // Straight after a start, while the engine still holds the torrent it restored with every piece.
     std::fs::remove_file(pack.join("e01.srt")).unwrap();
     app.downloads.select_files(added.id, vec![0]).await.unwrap();
+    assert_eq!(app.downloads.files(added.id).unwrap()[1].done, 0, "a left-out file that is gone has nothing");
     let widened = app.downloads.select_files(added.id, vec![0, 1]).await.unwrap();
     assert_ne!(widened.status, DownloadStatus::Completed, "a newly chosen missing file is fetched");
     // Nobody seeds the subtitle, so it waits for peers, in the engine.
