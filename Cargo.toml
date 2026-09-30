@@ -2,7 +2,14 @@
 members = ["apps/client"]
 resolver = "3"
 
+# What ships: the whole program optimized together. Slow to build; only releases build it.
 [profile.release]
-lto = "thin"
-codegen-units = 4
+lto = "fat"
+codegen-units = 1
 strip = true
+
+# CI's smoke test: the release code, built fast. It checks the app starts, not how fast it runs.
+[profile.ci]
+inherits = "release"
+lto = false
+codegen-units = 16

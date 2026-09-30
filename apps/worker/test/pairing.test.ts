@@ -141,7 +141,7 @@ describe('pairing', () => {
     expect((await start()).status).toBe(429)
     // Another address still gets through.
     await startPairing()
-  }, 30_000)
+  })
 
   test('refuses bodies that are not JSON, or too big', async () => {
     expect((await call('/api/pair/start', { method: 'POST', body: 'name=x', headers: { 'content-type': 'application/x-www-form-urlencoded' } })).status).toBe(415)
