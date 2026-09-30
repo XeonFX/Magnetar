@@ -120,8 +120,11 @@ builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the ser
   runs while it exists: when a VPN drops, downloads wait, queued. Progress goes out as `downloads.updated` with only
   the rows whose numbers changed; `downloads.changed` carries the whole list on structural changes.
 - **Playback**: a file is read from disk once complete, else through librqbit's `FileStream`, which fetches the
-  pieces the reader reaches first (`downloads/media.rs`). Locally `/stream/<token>` serves byte ranges; a token is
-  handed out over the dashboard socket for one file and 12 hours. Remotely the website's service worker (`sw.js`)
+  pieces the reader reaches first (`downloads/media.rs`). Complete means every piece verified: librqbit sets a file to
+  its full length when the torrent starts, so the size on disk says nothing. Per-file progress comes from the engine,
+  from the pieces it saved in `session/<hash>.bitv` while a download is paused, or from a finished download's state.
+  Locally `/stream/<token>` serves byte ranges; a token is handed out over the dashboard socket for one file and 12
+  hours. Remotely the website's service worker (`sw.js`)
   answers the player's range requests with bytes the page reads by `stream.read` over the encrypted channel (at
   most 448 KiB a read, to stay under the relay's frame size).
 - **Series and watches**: `SeriesMonitor` checks due series tasks and watches every minute. Each episode takes the
@@ -132,7 +135,8 @@ builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the ser
 - **Browser push**: a linked browser subscribes with the Worker's VAPID public key and gives the subscription to the
   device over the encrypted channel (`push_subscriptions`, removed with the browser's key). Each notification is
   sealed on the device for that subscription (RFC 8291, `protocol/webpush.rs`) and posted to the Worker, which adds
-  the VAPID signature and forwards the ciphertext to the push service (known push hosts only). A 404 or 410 drops the
+  the VAPID signature and forwards the ciphertext to the push service. Both only send to the hosts in
+  `packages/protocol/src/push-services.json`. A 404 or 410 drops the
   subscription.
 - **Opening magnet links and .torrent files**: the macOS bundle declares both and becomes the default through Launch
   Services; Windows registers per-user classes, Linux a desktop entry set with xdg-mime (`system/handlers.rs`). The

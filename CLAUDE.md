@@ -10,7 +10,8 @@ See docs/ARCHITECTURE.md before touching the relay, pairing or either `e2e` impl
   on PATH on the maintainer's Mac.
 - The wire contract lives twice: zod schemas and types in `packages/protocol/src/{model,rpc}.ts`, serde types in
   `apps/client/src/protocol/model.rs`. Change both together. The E2E handshake is also implemented twice and both
-  must keep matching `packages/protocol/src/e2e-vector.json`.
+  must keep matching `packages/protocol/src/e2e-vector.json`. Data both sides need lives once as JSON in
+  `packages/protocol/src` and the Rust side reads it with `include_str!` (`push-services.json`).
 - A new RPC method: schema and result type in `packages/protocol/src/rpc.ts`, handler in `apps/client/src/rpc.rs`.
   Anything an agent can do also goes through `apps/client/src/api/actions.rs` so REST, MCP and the dashboard agree.
 - New settings: add to `AppSettings` in `apps/client/src/settings.rs` (settings are one JSON row, no migration),
