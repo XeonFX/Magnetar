@@ -35,16 +35,15 @@ pub struct Metadata {
     pub files: Vec<PathBuf>,
     /// Each file's length, in the same order.
     pub file_sizes: Vec<u64>,
+    pub piece_length: u64,
     pub seen_peers: Vec<SocketAddr>,
 }
 
 impl Metadata {
     /// Parses a cached .torrent file.
     pub fn from_torrent(bytes: Vec<u8>) -> anyhow::Result<Self> {
-        let parsed = librqbit::torrent_from_bytes(&bytes)?;
-        let info = parsed.info.data.validate()?;
-        let (name, total_bytes, files, file_sizes) = describe(&info);
-        Ok(Self { torrent_bytes: bytes, name, total_bytes, files, file_sizes, seen_peers: Vec::new() })
+        let described = describe(&librqbit::torrent_from_bytes(&bytes)?.info.data.validate()?, Vec::new(), Vec::new());
+        Ok(Self { torrent_bytes: bytes, ..described })
     }
 
     /// A multi-file torrent gets a folder of its own, named after it, inside the save folder;
@@ -61,11 +60,42 @@ impl Metadata {
     }
 }
 
-type Description = (Option<String>, u64, Vec<PathBuf>, Vec<u64>);
+fn describe<B: AsRef<[u8]>>(
+    info: &librqbit::ValidatedTorrentMetaV1Info<B>,
+    torrent_bytes: Vec<u8>,
+    seen_peers: Vec<SocketAddr>,
+) -> Metadata {
+    let (files, file_sizes) = info.iter_file_details().map(|f| (f.filename.to_pathbuf(), f.len)).unzip();
+    Metadata {
+        torrent_bytes,
+        name: info.name().map(|n| n.into_owned()),
+        total_bytes: info.lengths().total_length(),
+        files,
+        file_sizes,
+        piece_length: info.lengths().default_piece_length().into(),
+        seen_peers,
+    }
+}
 
-fn describe<B: AsRef<[u8]>>(info: &librqbit::ValidatedTorrentMetaV1Info<B>) -> Description {
-    let (files, sizes) = info.iter_file_details().map(|f| (f.filename.to_pathbuf(), f.len)).unzip();
-    (info.name().map(|n| n.into_owned()), info.lengths().total_length(), files, sizes)
+/// Bytes of each file inside the pieces set in `have`: a piece bitfield with the first piece in the
+/// high bit of the first byte, as BitTorrent and the engine's saved `.bitv` files lay it out.
+pub fn bytes_in_pieces(have: &[u8], piece_length: u64, file_sizes: &[u64]) -> Vec<u64> {
+    let has = |piece: u64| have.get((piece / 8) as usize).is_some_and(|byte| byte & (0x80 >> (piece % 8)) != 0);
+    let mut offset = 0;
+    file_sizes
+        .iter()
+        .map(|&size| {
+            let (start, end) = (offset, offset + size);
+            offset = end;
+            if size == 0 || piece_length == 0 {
+                return 0;
+            }
+            (start / piece_length..=(end - 1) / piece_length)
+                .filter(|&piece| has(piece))
+                .map(|piece| end.min((piece + 1) * piece_length) - start.max(piece * piece_length))
+                .sum()
+        })
+        .collect()
 }
 
 /// Live numbers for one running torrent.
@@ -145,17 +175,7 @@ impl Engine {
     pub async fn resolve(&self, magnet: &str) -> anyhow::Result<Metadata> {
         let options = AddTorrentOptions { list_only: true, ..Default::default() };
         match self.session.add_torrent(AddTorrent::from_url(magnet), Some(options)).await? {
-            AddTorrentResponse::ListOnly(listed) => {
-                let (name, total_bytes, files, file_sizes) = describe(&listed.info);
-                Ok(Metadata {
-                    torrent_bytes: listed.torrent_bytes.to_vec(),
-                    name,
-                    total_bytes,
-                    files,
-                    file_sizes,
-                    seen_peers: listed.seen_peers,
-                })
-            }
+            AddTorrentResponse::ListOnly(listed) => Ok(describe(&listed.info, listed.torrent_bytes.to_vec(), listed.seen_peers)),
             _ => anyhow::bail!("The engine did not return the torrent's metadata"),
         }
     }
@@ -300,5 +320,23 @@ pub fn delete_files(metadata: &Metadata, save_path: &Path) {
         {
             tracing::warn!("Could not delete {}: {error}", path.display());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bytes_in_pieces;
+
+    #[test]
+    fn a_file_counts_only_its_share_of_the_pieces_there() {
+        // Pieces of 4 bytes over files of 3, 6, 0 and 5: [0,4) [4,8) [8,12) [12,14).
+        let sizes = [3, 6, 0, 5];
+        assert_eq!(bytes_in_pieces(&[0b1010_0000], 4, &sizes), [3, 2, 0, 3], "pieces 0 and 2");
+        assert_eq!(bytes_in_pieces(&[0b1111_0000], 4, &sizes), sizes, "every piece");
+        assert_eq!(bytes_in_pieces(&[0b0001_0000], 4, &sizes), [0, 0, 0, 2], "the short last piece");
+        assert_eq!(bytes_in_pieces(&[], 4, &sizes), [0, 0, 0, 0], "nothing saved");
+        // Piece 9 lives in the second byte, which this bitfield doesn't have.
+        assert_eq!(bytes_in_pieces(&[0xff], 1, &[8, 2]), [8, 0]);
+        assert_eq!(bytes_in_pieces(&[0xff, 0b0100_0000], 1, &[8, 2]), [8, 1]);
     }
 }

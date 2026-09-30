@@ -13,7 +13,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
 
 use crate::app::App;
-use crate::downloads::media::{media_type, open_reader, parse_range};
+use crate::downloads::media::{media_type, open_reader, plan_range};
 use crate::protocol::encoding::random_id;
 
 const GRANT_LIFETIME: Duration = Duration::from_secs(12 * 60 * 60);
@@ -62,12 +62,12 @@ pub async fn serve(app: &Arc<App>, token: &str, method: &Method, headers: &Heade
         Err(error) => return plain(StatusCode::CONFLICT, &error.message),
     };
     let range_header = headers.get(header::RANGE).and_then(|v| v.to_str().ok());
-    let Some((start, end)) = parse_range(range_header, file.size) else {
+    let Some(range) = plan_range(range_header, file.size) else {
         return (StatusCode::RANGE_NOT_SATISFIABLE, [(header::CONTENT_RANGE, format!("bytes */{}", file.size))]).into_response();
     };
-    let length = end - start + 1;
+    let (start, length) = (range.start, range.length);
     let mut response = Response::builder()
-        .status(if range_header.is_some() { StatusCode::PARTIAL_CONTENT } else { StatusCode::OK })
+        .status(if range.partial { StatusCode::PARTIAL_CONTENT } else { StatusCode::OK })
         .header(header::CONTENT_TYPE, media_type(&file.name))
         .header(header::ACCEPT_RANGES, "bytes")
         .header(header::CONTENT_LENGTH, length)
@@ -77,10 +77,10 @@ pub async fn serve(app: &Arc<App>, token: &str, method: &Method, headers: &Heade
             header::CONTENT_DISPOSITION,
             format!("inline; filename*=UTF-8''{}", crate::protocol::encoding::encode_uri_component(&file.name)),
         );
-    if range_header.is_some() {
-        response = response.header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{}", file.size));
+    if range.partial {
+        response = response.header(header::CONTENT_RANGE, format!("bytes {start}-{}/{}", start + length - 1, file.size));
     }
-    if method == Method::HEAD {
+    if method == Method::HEAD || length == 0 {
         return response.body(Body::empty()).unwrap();
     }
     let mut reader = match open_reader(&file).await {

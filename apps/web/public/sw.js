@@ -85,6 +85,17 @@ async function stream(event, key) {
   return new Response(body, { status: range.partial ? 206 : 200, headers })
 }
 
+/** A path on this site to open, or the start page: `//host` and `/\\host` lead elsewhere. */
+function sameSitePath(url) {
+  if (typeof url !== 'string') return '/'
+  try {
+    const target = new URL(url, self.location.origin)
+    return target.origin === self.location.origin ? target.pathname + target.search + target.hash : '/'
+  } catch {
+    return '/'
+  }
+}
+
 /*
  * Notifications from linked devices, sealed on the device for this browser and opened by the
  * browser's push service before they arrive here.
@@ -100,8 +111,8 @@ self.addEventListener('push', event => {
     body: message.body || '',
     icon: '/icon-192.png',
     badge: '/icon-192.png',
-    tag: message.kind === 'completed' ? `md-${message.body}` : undefined,
-    data: { url: typeof message.url === 'string' && message.url.startsWith('/') ? message.url : '/' },
+    tag: message.kind === 'completed' ? `magnetar-${message.body}` : undefined,
+    data: { url: sameSitePath(message.url) },
   }))
 })
 

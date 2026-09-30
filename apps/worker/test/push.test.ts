@@ -48,6 +48,21 @@ describe('Web Push', () => {
     expect(await vapidJwt(env(), 'https://fcm.googleapis.com', now + 60_000)).toBe(jwt)
   })
 
+  test('new VAPID keys sign at once, instead of the old key\'s cached signature', async () => {
+    const now = Date.UTC(2026, 8, 29)
+    const old = await vapidJwt(env(), 'https://fcm.googleapis.com', now)
+    const next = (await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])) as CryptoKeyPair
+    const rotated = env({
+      VAPID_PUBLIC_KEY: toBase64Url(new Uint8Array(await crypto.subtle.exportKey('raw', next.publicKey))),
+      VAPID_PRIVATE_KEY: (await crypto.subtle.exportKey('jwk', next.privateKey)).d,
+    })
+    const jwt = await vapidJwt(rotated, 'https://fcm.googleapis.com', now + 60_000)
+    expect(jwt).not.toBe(old)
+    const [header, claims, signature] = jwt.split('.')
+    const verified = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, next.publicKey, fromBase64Url(signature!), new TextEncoder().encode(`${header}.${claims}`))
+    expect(verified).toBe(true)
+  })
+
   test('forwards the sealed body with VAPID headers and reports the push service status', async () => {
     const sent: Request[] = []
     const send = (async (input: RequestInfo | URL, init?: RequestInit) => {

@@ -70,11 +70,20 @@ pub fn media_type(name: &str) -> &'static str {
     }
 }
 
-/// A `Range: bytes=…` header against a file of `size` bytes: the first and last byte to send.
-/// None when it can't be satisfied (416); no header, or one we don't understand, means all of it.
-pub fn parse_range(header: Option<&str>, size: u64) -> Option<(u64, u64)> {
+/// What to send of a file of `size` bytes.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ByteRange {
+    pub start: u64,
+    pub length: u64,
+    /// Answering a byte range (206), not the whole file (200).
+    pub partial: bool,
+}
+
+/// The answer to a request's `Range` header: None when the range can't be satisfied (416). No
+/// header, or one in a unit other than bytes, is the whole file.
+pub fn plan_range(header: Option<&str>, size: u64) -> Option<ByteRange> {
     let Some(spec) = header.and_then(|h| h.trim().strip_prefix("bytes=")) else {
-        return (size > 0).then(|| (0, size - 1));
+        return Some(ByteRange { start: 0, length: size, partial: false });
     };
     // Only the first range of a multi-range request is served, as most servers do.
     let first = spec.split(',').next().unwrap_or_default().trim();
@@ -90,7 +99,7 @@ pub fn parse_range(header: Option<&str>, size: u64) -> Option<(u64, u64)> {
         (start, "") => (start.parse().ok()?, size.checked_sub(1)?),
         (start, end) => (start.parse().ok()?, end.parse::<u64>().ok()?.min(size.checked_sub(1)?)),
     };
-    (start <= end && start < size).then_some((start, end))
+    (start <= end && start < size).then(|| ByteRange { start, length: end - start + 1, partial: true })
 }
 
 #[cfg(test)]
@@ -99,20 +108,22 @@ mod tests {
 
     #[test]
     fn ranges_follow_rfc_9110() {
-        assert_eq!(parse_range(None, 1000), Some((0, 999)));
-        assert_eq!(parse_range(Some("bytes=0-"), 1000), Some((0, 999)));
-        assert_eq!(parse_range(Some("bytes=0-1"), 1000), Some((0, 1)));
-        assert_eq!(parse_range(Some("bytes=500-2000"), 1000), Some((500, 999)), "an end past the file is clipped");
-        assert_eq!(parse_range(Some("bytes=-100"), 1000), Some((900, 999)));
-        assert_eq!(parse_range(Some("bytes=-5000"), 1000), Some((0, 999)), "a suffix longer than the file is all of it");
-        assert_eq!(parse_range(Some("bytes=999-999"), 1000), Some((999, 999)));
-        assert_eq!(parse_range(Some("bytes=10-20, 30-40"), 1000), Some((10, 20)));
+        let part = |start: u64, last: u64| Some(ByteRange { start, length: last - start + 1, partial: true });
+        let whole = |size: u64| Some(ByteRange { start: 0, length: size, partial: false });
+        assert_eq!(plan_range(None, 1000), whole(1000));
+        assert_eq!(plan_range(Some("bytes=0-"), 1000), part(0, 999));
+        assert_eq!(plan_range(Some("bytes=0-1"), 1000), part(0, 1));
+        assert_eq!(plan_range(Some("bytes=500-2000"), 1000), part(500, 999), "an end past the file is clipped");
+        assert_eq!(plan_range(Some("bytes=-100"), 1000), part(900, 999));
+        assert_eq!(plan_range(Some("bytes=-5000"), 1000), part(0, 999), "a suffix longer than the file is all of it");
+        assert_eq!(plan_range(Some("bytes=999-999"), 1000), part(999, 999));
+        assert_eq!(plan_range(Some("bytes=10-20, 30-40"), 1000), part(10, 20));
         for unsatisfiable in ["bytes=1000-", "bytes=5-4", "bytes=-0", "bytes=abc-", "bytes=1-x"] {
-            assert_eq!(parse_range(Some(unsatisfiable), 1000), None, "{unsatisfiable}");
+            assert_eq!(plan_range(Some(unsatisfiable), 1000), None, "{unsatisfiable}");
         }
-        assert_eq!(parse_range(Some("items=0-5"), 1000), Some((0, 999)), "another unit is ignored");
-        assert_eq!(parse_range(None, 0), None, "nothing to send from an empty file");
-        assert_eq!(parse_range(Some("bytes=0-"), 0), None);
+        assert_eq!(plan_range(Some("items=0-5"), 1000), whole(1000), "another unit is the whole file, not a range");
+        assert_eq!(plan_range(None, 0), whole(0), "an empty file is sent, empty");
+        assert_eq!(plan_range(Some("bytes=0-"), 0), None, "but no byte of it can be asked for");
     }
 
     #[test]

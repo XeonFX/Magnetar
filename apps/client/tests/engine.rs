@@ -60,8 +60,14 @@ async fn a_torrent_file_starts_at_once_and_its_files_can_be_chosen() {
     let pack = folder.join("Show S01");
     std::fs::create_dir_all(&pack).unwrap();
     std::fs::write(pack.join("e01.mkv"), vec![7u8; 600_000]).unwrap();
-    std::fs::write(pack.join("e01.srt"), b"1\n00:00:01,000 --> 00:00:02,000\nHello\n").unwrap();
-    let options = CreateTorrentOptions { trackers: vec!["udp://tracker.example:1337/announce".into()], ..Default::default() };
+    let subtitle = b"1\n00:00:01,000 --> 00:00:02,000\nHello\n";
+    std::fs::write(pack.join("e01.srt"), subtitle).unwrap();
+    // Small pieces, so the episode has whole pieces of its own besides the one it shares.
+    let options = CreateTorrentOptions {
+        trackers: vec!["udp://tracker.example:1337/announce".into()],
+        piece_length: Some(64 * 1024),
+        ..Default::default()
+    };
     let torrent = create_torrent(&pack, options, &BlockingSpawner::new(2)).await.unwrap();
 
     let app = start_app(&paths).await;
@@ -95,14 +101,43 @@ async fn a_torrent_file_starts_at_once_and_its_files_can_be_chosen() {
     app.downloads.select_files(added.id, vec![0]).await.unwrap();
     let widened = app.downloads.select_files(added.id, vec![0, 1]).await.unwrap();
     assert_ne!(widened.status, DownloadStatus::Completed, "a newly chosen missing file is fetched");
-    // Nobody seeds the subtitle, so it waits for peers.
-    wait_for(&app, added.id, DownloadStatus::Downloading).await;
-
-    let file = app.downloads.open_file(added.id, 0).unwrap();
-    assert_eq!(app.downloads.files(added.id).unwrap()[1].done, 0);
-    assert_eq!((file.name.as_str(), file.size), ("e01.mkv", 600_000));
-    assert!(matches!(file.source, FileSource::Disk(ref p) if p == &pack.join("e01.mkv")));
+    // Nobody seeds the subtitle, so it waits for peers, in the engine.
+    let subtitle_file = async {
+        for _ in 0..300 {
+            if let Ok(file) = app.downloads.open_file(added.id, 1) {
+                return file;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("the subtitle never became playable from the engine");
+    };
+    let file = subtitle_file.await;
+    assert_eq!((file.name.as_str(), file.size), ("e01.srt", subtitle.len() as u64));
+    assert!(matches!(file.source, FileSource::Engine(_, 1)));
+    // Once the engine has checked what is on disk, the episode counts and the subtitle doesn't.
+    let mut running = app.downloads.files(added.id).unwrap();
+    for _ in 0..300 {
+        if running[0].done > 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        running = app.downloads.files(added.id).unwrap();
+    }
+    assert_eq!(running[0].done, 9 * 64 * 1024, "all but the piece it shares with the subtitle");
+    assert_eq!(running[1].done, 0);
+    assert_eq!(std::fs::metadata(pack.join("e01.srt")).unwrap().len(), subtitle.len() as u64, "made full length");
+    let file = app.downloads.open_file(added.id, 1).unwrap();
+    assert!(matches!(file.source, FileSource::Engine(_, 1)), "but not read from disk: it holds nothing yet");
     assert_eq!(app.downloads.location(added.id).unwrap(), pack);
+
+    // Paused across a restart, what each file has comes from the pieces the engine saved.
+    app.downloads.pause(added.id).await.unwrap();
+    app.stop().await;
+    let app = start_app(&paths).await;
+    let paused = app.downloads.files(added.id).unwrap();
+    assert_eq!(paused.iter().map(|f| f.done).collect::<Vec<_>>(), running.iter().map(|f| f.done).collect::<Vec<_>>());
+    let refused = app.downloads.open_file(added.id, 1).err().map(|e| e.message);
+    assert_eq!(refused.as_deref(), Some("Resume the download to play what it has so far."));
 
     // The same torrent again is the same download.
     let again = app.downloads.add_torrent_file(torrent.as_bytes().unwrap().to_vec(), "Torrent file", None).unwrap();

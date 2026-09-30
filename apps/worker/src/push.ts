@@ -47,14 +47,16 @@ async function privateKey(env: Env): Promise<CryptoKey> {
 
 /** The VAPID JWT for one push service (its origin is the audience), cached while it stays valid. */
 export async function vapidJwt(env: Env, audience: string, now = Date.now()): Promise<string> {
-  const cached = signatures.get(audience)
+  // By key too: after the keys change, a signature made with the old one is refused.
+  const cacheKey = `${env.VAPID_PUBLIC_KEY} ${audience}`
+  const cached = signatures.get(cacheKey)
   if (cached && cached.expires - 60_000 > now) return cached.jwt
   const encode = (value: unknown) => toBase64Url(new TextEncoder().encode(JSON.stringify(value)))
   const exp = Math.floor(now / 1000) + JWT_LIFETIME_S
   const input = `${encode({ typ: 'JWT', alg: 'ES256' })}.${encode({ aud: audience, exp, sub: env.VAPID_SUBJECT || env.ORIGIN })}`
   const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, await privateKey(env), new TextEncoder().encode(input))
   const jwt = `${input}.${toBase64Url(new Uint8Array(signature))}`
-  signatures.set(audience, { jwt, expires: exp * 1000 })
+  signatures.set(cacheKey, { jwt, expires: exp * 1000 })
   return jwt
 }
 

@@ -3,17 +3,29 @@
 use std::sync::Arc;
 
 use magnetar::app::{App, AppOptions};
+use magnetar::downloads::engine::{Engine, NetworkOptions, SpeedLimits};
 use magnetar::downloads::manager::EngineSource;
 use magnetar::http::server;
 use magnetar::paths::Paths;
 use serde_json::{Value, json};
 
 async fn start() -> (Arc<App>, String, tempfile::TempDir) {
+    start_with(false).await
+}
+
+/// With `engine`, a real torrent engine, which downloads need to finish.
+async fn start_with(engine: bool) -> (Arc<App>, String, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path().join("data")).unwrap();
+    let engine = match engine {
+        true => EngineSource::Fixed(Arc::new(
+            Engine::start(&paths, &NetworkOptions::default(), SpeedLimits::default()).await.unwrap(),
+        )),
+        false => EngineSource::Off,
+    };
     let app = App::new(AppOptions {
         paths,
-        engine: EngineSource::Off,
+        engine,
         providers: magnetar::search::providers::all(),
         legacy_database: None,
         show_lookups: false,
@@ -156,7 +168,7 @@ async fn mcp_initializes_lists_and_calls_tools() {
 async fn a_stream_link_serves_byte_ranges_of_one_file_and_nothing_else() {
     use librqbit::spawn_utils::BlockingSpawner;
     use librqbit::{CreateTorrentOptions, create_torrent};
-    let (app, base, dir) = start().await;
+    let (app, base, dir) = start_with(true).await;
     let folder = dir.path().join("Downloads");
     std::fs::create_dir_all(&folder).unwrap();
     let content: Vec<u8> = (0..200_000u32).map(|i| (i % 253) as u8).collect();
@@ -167,6 +179,13 @@ async fn a_stream_link_serves_byte_ranges_of_one_file_and_nothing_else() {
         .downloads
         .add_torrent_file(torrent.as_bytes().unwrap().to_vec(), "Torrent file", Some(folder.display().to_string()))
         .unwrap();
+    // The engine checks the file on disk and finds it complete.
+    for _ in 0..300 {
+        if app.downloads.files(download.id).unwrap()[0].done == content.len() as u64 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
     let token = app.streams.grant(download.id, 0);
     let url = format!("{base}/stream/{token}");
     let http = client();
@@ -181,6 +200,10 @@ async fn a_stream_link_serves_byte_ranges_of_one_file_and_nothing_else() {
     assert_eq!(part.status(), 206);
     assert_eq!(part.headers()["content-range"], "bytes 1000-1999/200000");
     assert_eq!(part.bytes().await.unwrap().to_vec(), content[1000..2000]);
+
+    let other_unit = http.get(&url).header("range", "items=0-5").send().await.unwrap();
+    assert_eq!(other_unit.status(), 200, "not a byte range, so the whole file");
+    assert!(other_unit.headers().get("content-range").is_none());
 
     let tail = http.get(&url).header("range", "bytes=-10").send().await.unwrap();
     assert_eq!(tail.bytes().await.unwrap().to_vec(), content[199_990..]);

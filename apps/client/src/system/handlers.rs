@@ -246,10 +246,9 @@ mod platform {
 
     pub fn register() -> ApiResult<()> {
         let exe = installed_exe().expect("checked by status");
-        // Desktop entry quoting: a path with spaces is quoted, and `"` `` ` `` `$` `\` escaped inside.
-        let quoted = exe.display().to_string().replace('\\', "\\\\").replace('"', "\\\"").replace('`', "\\`").replace('$', "\\$");
         let entry = format!(
-            "[Desktop Entry]\nType=Application\nName=Magnetar\nExec=\"{quoted}\" %u\nTerminal=false\nNoDisplay=true\nMimeType={};\n",
+            "[Desktop Entry]\nType=Application\nName=Magnetar\nExec={} %u\nTerminal=false\nNoDisplay=true\nMimeType={};\n",
+            super::exec_argument(&exe.display().to_string()),
             TYPES.join(";")
         );
         let folder = applications();
@@ -264,6 +263,16 @@ mod platform {
         let _ = hidden_command("update-desktop-database").arg(&folder).status();
         Ok(())
     }
+}
+
+/// A path as one quoted argument of a desktop entry's Exec key. Inside the quotes `"` `` ` `` `$`
+/// and `\` are escaped; the string rule, applied before quoting, then doubles every backslash; and
+/// `%` is doubled so it isn't read as a field code.
+#[cfg(any(target_os = "linux", test))]
+fn exec_argument(path: &str) -> String {
+    let quoted: String =
+        path.chars().flat_map(|c| if matches!(c, '"' | '`' | '$' | '\\') { vec!['\\', c] } else { vec![c] }).collect();
+    format!("\"{}\"", quoted.replace('\\', "\\\\").replace('%', "%%"))
 }
 
 /// A .torrent file the dashboard on this computer asked to add, read with the size limit applied.
@@ -281,6 +290,13 @@ pub fn read_torrent_file(path: &Path) -> ApiResult<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_desktop_entry_launches_the_app_from_any_path() {
+        // The spec's own forms: a literal `$` is `\\$` and a literal backslash four of them.
+        assert_eq!(exec_argument("/usr/bin/magnetar"), r#""/usr/bin/magnetar""#);
+        assert_eq!(exec_argument(r#"/opt/My Apps/50%/a"b$c\d`e"#), r#""/opt/My Apps/50%%/a\\"b\\$c\\\\d\\`e""#);
+    }
 
     #[test]
     fn launch_arguments_become_what_to_open() {

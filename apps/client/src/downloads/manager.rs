@@ -8,7 +8,7 @@ use rusqlite::{Row, params};
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
-use super::engine::{Engine, Metadata, NetworkOptions, SpeedLimits, TorrentHandle, delete_files};
+use super::engine::{Engine, Metadata, NetworkOptions, SpeedLimits, TorrentHandle, bytes_in_pieces, delete_files};
 use super::transfer::{current_limits, free_space, interface_index, wanted_interface};
 use crate::db::{Db, KeyValue};
 use crate::error::{ApiError, ApiResult};
@@ -217,6 +217,8 @@ pub struct DownloadManager {
     notifications: Arc<NotificationDispatcher>,
     events: EventBus,
     torrent_cache: PathBuf,
+    /// The engine's saved state: which pieces each torrent has, also while it is out of the engine.
+    torrent_session: PathBuf,
     items: Mutex<BTreeMap<i64, Item>>,
     /// Parsed .torrent files, by info hash: the file list is read every few seconds while shown.
     metadata: Mutex<HashMap<String, Arc<Metadata>>>,
@@ -233,7 +235,7 @@ impl DownloadManager {
         settings: Arc<SettingsService>,
         notifications: Arc<NotificationDispatcher>,
         events: EventBus,
-        torrent_cache: PathBuf,
+        paths: &Paths,
     ) -> Arc<Self> {
         let engine = match &source {
             EngineSource::Fixed(engine) => Some(engine.clone()),
@@ -251,7 +253,8 @@ impl DownloadManager {
             settings,
             notifications,
             events,
-            torrent_cache,
+            torrent_cache: paths.torrent_files.clone(),
+            torrent_session: paths.torrent_session.clone(),
             items: Mutex::default(),
             metadata: Mutex::default(),
             transfer: Mutex::new(TransferStatusDto {
@@ -683,34 +686,28 @@ impl DownloadManager {
     /// The torrent's files with what each has so far. Needs the metadata, so not while it is
     /// still being fetched.
     pub fn files(&self, id: i64) -> ApiResult<Vec<DownloadFileDto>> {
-        let (hash, save_path, selected, handle) = {
+        let (metadata, done, selected) = {
             let items = self.items();
             let item = items.get(&id).ok_or_else(|| not_found(id))?;
-            (item.info_hash.clone(), PathBuf::from(&item.save_path), item.selected_files.clone(), item.handle.clone())
+            let metadata = self
+                .metadata(&item.info_hash)
+                .ok_or_else(|| ApiError::bad("The file list arrives with the torrent's details."))?;
+            let (done, _) = self.files_done(item, &metadata);
+            (metadata, done, item.selected_files.clone())
         };
-        let metadata = self.metadata(&hash).ok_or_else(|| ApiError::bad("The file list arrives with the torrent's details."))?;
-        let handle = handle.or_else(|| self.engine().and_then(|e| e.handle(&hash)));
-        let progress = handle.as_ref().map(Engine::file_progress).unwrap_or_default();
-        let folder = metadata.output_folder(&save_path);
         Ok(metadata
             .files
             .iter()
             .zip(&metadata.file_sizes)
+            .zip(done)
             .enumerate()
-            .map(|(index, (path, &size))| {
-                // Out of the engine (finished, or not started this run): what is on disk.
-                let done = progress
-                    .get(index)
-                    .copied()
-                    .unwrap_or_else(|| std::fs::metadata(folder.join(path)).map(|m| m.len().min(size)).unwrap_or(0));
-                DownloadFileDto {
-                    index,
-                    path: path.iter().map(|part| part.to_string_lossy()).collect::<Vec<_>>().join("/"),
-                    size,
-                    done,
-                    selected: selected.as_ref().is_none_or(|s| s.contains(&index)),
-                    playable: is_playable(path),
-                }
+            .map(|(index, ((path, &size), done))| DownloadFileDto {
+                index,
+                path: path.iter().map(|part| part.to_string_lossy()).collect::<Vec<_>>().join("/"),
+                size,
+                done,
+                selected: selected.as_ref().is_none_or(|s| s.contains(&index)),
+                playable: is_playable(path),
             })
             .collect())
     }
@@ -733,17 +730,18 @@ impl DownloadManager {
         let handle = {
             let mut items = self.items();
             let item = items.get_mut(&id).ok_or_else(|| not_found(id))?;
-            let folder = metadata.output_folder(Path::new(&item.save_path));
+            let (done, _) = self.files_done(item, &metadata);
             let chosen = |index: &usize| selection.as_ref().is_none_or(|s| s.contains(index));
             let was_chosen = |index: &usize| item.selected_files.as_ref().is_none_or(|s| s.contains(index));
-            // A finished download only goes back to work for a newly chosen file that isn't on disk.
-            let missing = (0..count)
-                .filter(|i| chosen(i) && !was_chosen(i))
-                .any(|i| std::fs::metadata(folder.join(&metadata.files[i])).map_or(true, |m| m.len() != metadata.file_sizes[i]));
+            // A finished download only goes back to work for a newly chosen file it doesn't have.
+            let missing = (0..count).any(|i| chosen(&i) && !was_chosen(&i) && done[i] < metadata.file_sizes[i]);
             item.total_bytes = (0..count).filter(chosen).map(|i| metadata.file_sizes[i]).sum();
             item.selected_files = selection.clone();
             item.file_count = Some(count);
             if item.status == DownloadStatus::Completed && missing {
+                let have: u64 = (0..count).filter(chosen).map(|i| done[i]).sum();
+                item.progress = (have as f64 * 10_000.0 / item.total_bytes.max(1) as f64).floor() / 100.0;
+                item.completed_at = None;
                 item.status = DownloadStatus::Queued;
                 self.attach(item);
             }
@@ -760,21 +758,24 @@ impl DownloadManager {
 
     /// One file of a download, to stream: from the engine while it has the torrent, else from disk.
     pub fn open_file(&self, id: i64, index: usize) -> ApiResult<DownloadFile> {
-        let (hash, save_path, handle) = {
+        let (metadata, save_path, handle, settled, done) = {
             let items = self.items();
             let item = items.get(&id).ok_or_else(|| not_found(id))?;
-            (item.info_hash.clone(), PathBuf::from(&item.save_path), item.handle.clone())
+            let metadata = self
+                .metadata(&item.info_hash)
+                .ok_or_else(|| ApiError::bad("The file list arrives with the torrent's details."))?;
+            let (done, settled) = self.files_done(item, &metadata);
+            (metadata, PathBuf::from(&item.save_path), item.handle.clone(), settled, done)
         };
-        let metadata = self.metadata(&hash).ok_or_else(|| ApiError::bad("The file list arrives with the torrent's details."))?;
         let path = metadata.files.get(index).ok_or_else(|| ApiError::not_found(format!("No file {index} in download {id}.")))?;
         let size = metadata.file_sizes[index];
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let on_disk = metadata.output_folder(&save_path).join(path);
-        let complete = std::fs::metadata(&on_disk).is_ok_and(|m| m.len() == size);
         // Unfinished, only a running torrent fetches what the player reaches; a paused one would
         // leave it waiting forever.
         let source = match handle {
-            _ if complete => FileSource::Disk(on_disk),
+            _ if !settled => return Err(ApiError::bad("The download is starting. Try again in a moment.")),
+            _ if done[index] == size => FileSource::Disk(on_disk),
             Some(handle) => FileSource::Engine(handle, index),
             None => return Err(ApiError::bad("Resume the download to play what it has so far.")),
         };
@@ -793,6 +794,33 @@ impl DownloadManager {
             Some(metadata) => metadata.output_folder(&save_path),
             None => save_path,
         })
+    }
+
+    /// How much of each file is really there, and whether that is settled. The engine sets every
+    /// chosen file to its full length when a torrent starts, so the length on disk says nothing: the
+    /// engine's count does, or the pieces it saved, or else the download's own state. While the
+    /// engine takes a torrent up and checks it, its saved pieces may be out of date.
+    fn files_done(&self, item: &Item, metadata: &Metadata) -> (Vec<u64>, bool) {
+        let handle = item.handle.clone().or_else(|| self.engine().and_then(|e| e.handle(&item.info_hash)));
+        let progress = handle.as_ref().map(Engine::file_progress).unwrap_or_default();
+        if progress.len() == metadata.file_sizes.len() {
+            return (progress, true);
+        }
+        if item.status == DownloadStatus::Completed {
+            // Every chosen file is there. One left out may be too, if it was fetched before; the
+            // engine no longer keeps pieces for a finished download, so its length has to do.
+            let chosen = |index: usize| item.selected_files.as_ref().is_none_or(|s| s.contains(&index));
+            let folder = metadata.output_folder(Path::new(&item.save_path));
+            let done = (metadata.files.iter().zip(&metadata.file_sizes).enumerate())
+                .map(|(i, (path, &size))| match chosen(i) {
+                    true => size,
+                    false => std::fs::metadata(folder.join(path)).map_or(0, |m| m.len().min(size)),
+                })
+                .collect();
+            return (done, true);
+        }
+        let saved = std::fs::read(self.torrent_session.join(format!("{}.bitv", item.info_hash.to_lowercase())));
+        (bytes_in_pieces(&saved.unwrap_or_default(), metadata.piece_length, &metadata.file_sizes), !item.is_engaged())
     }
 
     fn cached_torrent_path(&self, hash: &str) -> PathBuf {
@@ -1219,6 +1247,7 @@ mod tests {
             total_bytes: 0,
             files: files.iter().map(PathBuf::from).collect(),
             file_sizes: vec![1; files.len()],
+            piece_length: 1,
             seen_peers: Vec::new(),
         }
     }
