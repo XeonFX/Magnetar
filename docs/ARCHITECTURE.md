@@ -145,7 +145,9 @@ builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the ser
 - **Server**: `axum` on localhost (IPv4 and IPv6) serves the dashboard, its WebSocket, the agent REST API
   (`http/rest.rs`) and a stateless MCP endpoint (`http/mcp.rs`, JSON-RPC over Streamable HTTP).
 - **Tray**: `tray-icon` on a `tao` event loop on the main thread (macOS menu bar, Windows notification area). Linux
-  has no tray; the dashboard opens in the browser.
+  has no tray; the dashboard opens in the browser. `tray.rs` describes the menu as rows built from a snapshot of the app
+  each second; while their shape (kinds, commands, nesting) stays the same the native items are updated in place, so an
+  open menu keeps ticking instead of closing on a rebuild.
 - **Updates**: GitHub Releases every 6 hours. Installs require `SHA256SUMS.txt.sig`, an Ed25519 signature checked
   against the public key compiled into the app. macOS swaps the `.app` bundle after exit with rollback
   (`updates/mac-install.sh`); Windows and Linux rename the running executable aside. The new version is downloaded

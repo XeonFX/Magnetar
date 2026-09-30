@@ -61,4 +61,5 @@ tray-icon = { version = "0.25", default-features = false }
 winresource = "0.1"
 
 [dev-dependencies]
+proptest = "1"
 tempfile = "3"
