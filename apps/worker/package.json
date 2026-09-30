@@ -3,15 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run --cwd ../web build && wrangler dev --env dev --port 8790",
-    "deploy": "bun run --cwd ../web build && wrangler deploy",
+    "dev": "npm run build -w @magnetar/web && wrangler dev --env dev --port 8790",
+    "deploy": "npm run build -w @magnetar/web && wrangler deploy",
     "migrate:local": "wrangler d1 migrations apply magnetar --local --env dev",
     "migrate:remote": "wrangler d1 migrations apply magnetar --remote",
     "typecheck": "tsc -p . && tsc -p test"
   },
   "dependencies": {
     "@codefusion-cc/web-push": "^1.1.0",
-    "@magnetar/protocol": "workspace:*"
+    "@magnetar/protocol": "*"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260928.1",

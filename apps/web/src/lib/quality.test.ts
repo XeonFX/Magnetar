@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { parseQuality, qualityForm } from './quality.ts'
 
 const form = (overrides: Partial<ReturnType<typeof qualityForm>>) => ({ ...qualityForm(null), ...overrides })

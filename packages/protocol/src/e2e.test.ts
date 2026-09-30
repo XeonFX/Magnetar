@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import {
   acceptBrowserHandshake, decodeHandshake, deriveKeys, E2ESession, encodeHandshake, importBrowserKey, linkFragment,
   newBrowserKey, parseLinkFragment, startBrowserHandshake,

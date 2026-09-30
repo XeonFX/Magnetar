@@ -22,19 +22,20 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v6
         with:
-          bun-version: 1.4.2
+          node-version: 24
+          cache: npm
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
-      - run: bun install --frozen-lockfile
-      - run: bun run lint
-      - run: bun run typecheck
-      - run: bun run test
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
       - name: Build the executable for this runner
-        run: bun run --cwd apps/client build --version 0.0.0-ci
+        run: npm run build -w @magnetar/client -- --version 0.0.0-ci
       - name: Smoke-test the executable
         shell: bash
         run: |
@@ -63,15 +64,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v6
         with:
-          bun-version: 1.4.2
+          node-version: 24
+          cache: npm
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: bun install --frozen-lockfile
-      - run: bunx playwright install --with-deps chromium
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
         working-directory: apps/e2e
-      - run: bun run e2e
+      - run: npm run e2e
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

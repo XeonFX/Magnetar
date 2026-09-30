@@ -29,16 +29,17 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v6
         with:
-          bun-version: 1.4.2
+          node-version: 24
+          cache: npm
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-      - run: bun install --frozen-lockfile
+      - run: npm ci
       # Only when the Developer ID certificate is a secret; without it the build is ad-hoc signed.
       - name: Import the Developer ID certificate
         if: runner.os == 'macOS' && env.HAS_MACOS_CERTIFICATE == 'true'
@@ -68,7 +69,7 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: bun run --cwd apps/client build --target ${{ matrix.target }} --version ${GITHUB_REF_NAME#v}
+        run: npm run build -w @magnetar/client -- --target ${{ matrix.target }} --version ${GITHUB_REF_NAME#v}
       - name: Collect the release asset
         shell: bash
         run: |
@@ -85,9 +86,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v6
         with:
-          bun-version: 1.4.2
+          node-version: 24
       - uses: actions/download-artifact@v4
         with:
           path: assets
@@ -97,7 +98,7 @@ jobs:
           RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
         run: |
           cd assets && sha256sum Magnetar-* > SHA256SUMS.txt && cd ..
-          bun scripts/sign-release.ts assets
+          node scripts/sign-release.ts assets
       - uses: softprops/action-gh-release@v2
         with:
           files: assets/*
