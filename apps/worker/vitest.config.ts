@@ -17,5 +17,7 @@ export default defineConfig(async () => ({
     root: import.meta.dirname,
     include: ['test/**/*.test.ts'],
     setupFiles: ['./test/setup.ts'],
+    // Each test starts workerd sockets and D1 writes; Windows runners take seconds for the heavier ones.
+    testTimeout: 30_000,
   },
 }))
