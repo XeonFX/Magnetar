@@ -1,9 +1,9 @@
 import { DurableObject } from 'cloudflare:workers'
-import { randomId } from '@md/protocol/base64'
+import { randomId } from '@magnetar/protocol/base64'
 import {
   MAX_RELAY_FRAME, RELAY_CLOSE, RELAY_PING, RELAY_PONG, unwrapFromDevice, wrapForDevice, type DeviceToRelay, type RelayToBrowser,
   type RelayToDevice,
-} from '@md/protocol/relay'
+} from '@magnetar/protocol/relay'
 import type { Env } from './env.ts'
 
 const MAX_BROWSERS = 16

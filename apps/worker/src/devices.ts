@@ -1,6 +1,6 @@
-import type { CloudDeviceDto, PairApproveResponse, PairingInfoDto, PairPollResponse, PairStartRequest, PairStartResponse } from '@md/protocol/cloud'
-import { randomId } from '@md/protocol/base64'
-import { RELAY_CLOSE } from '@md/protocol/relay'
+import type { CloudDeviceDto, PairApproveResponse, PairingInfoDto, PairPollResponse, PairStartRequest, PairStartResponse } from '@magnetar/protocol/cloud'
+import { randomId } from '@magnetar/protocol/base64'
+import { RELAY_CLOSE } from '@magnetar/protocol/relay'
 import { requireUser } from './auth.ts'
 import type { Env } from './env.ts'
 import { clientIp, error, json, limit, readJson, requireSameOrigin, sha256 } from './http.ts'
@@ -53,7 +53,7 @@ export async function handleDevices(request: Request, env: Env, path: string): P
   if (path === '/api/pair/start' && method === 'POST') {
     await limit(env.PAIR_LIMITER, clientIp(request))
     const body = await readJson<Partial<PairStartRequest>>(request)
-    const name = clean(body.name, 60) || 'MediaDownloader'
+    const name = clean(body.name, 60) || 'Magnetar'
     const platform = clean(body.platform, 20) || 'unknown'
     const version = clean(body.version, 40) || 'unknown'
     const pairingId = randomId(16)

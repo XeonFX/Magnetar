@@ -14,8 +14,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.2
-      - run: bun install --frozen-lockfile
-      - run: MD_LIVE_TESTS=1 bun test apps/client/test/live.test.ts
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: MAGNETAR_LIVE_TESTS=1 cargo test --locked --test providers live_providers

@@ -1,5 +1,5 @@
-import { randomId, toBase64Url } from '@md/protocol/base64'
-import { GOOGLE_CALLBACK_PATH } from '@md/protocol/cloud'
+import { randomId, toBase64Url } from '@magnetar/protocol/base64'
+import { GOOGLE_CALLBACK_PATH } from '@magnetar/protocol/cloud'
 
 /**
  * "Sign in with Google" by full-page redirect (OpenID Connect, `id_token` in the fragment). The
@@ -8,7 +8,7 @@ import { GOOGLE_CALLBACK_PATH } from '@md/protocol/cloud'
  * Worker then verifies it, including the nonce it bound to this browser with a cookie.
  */
 const AUTHORIZATION_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth'
-const PENDING_KEY = 'md-google-sign-in'
+const PENDING_KEY = 'magnetar-google-sign-in'
 const MAX_AGE_MS = 10 * 60_000
 
 export function startGoogleSignIn(clientId: string, nonce: string, returnPath: string, locale?: string): void {

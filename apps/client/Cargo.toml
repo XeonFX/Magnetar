@@ -1,0 +1,64 @@
+[package]
+name = "magnetar"
+version = "1.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "Magnetar: torrent search and download manager in a single executable"
+
+[[bin]]
+name = "magnetar"
+path = "src/main.rs"
+
+[dependencies]
+aes-gcm = "0.10"
+anyhow = "1"
+async-trait = "0.1"
+axum = { version = "0.8", features = ["ws"] }
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+ed25519-dalek = "2"
+futures = "0.3"
+gethostname = "1"
+hkdf = "0.12"
+hmac = "0.12"
+html-escape = "0.2"
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls", "aws-lc-rs", "rustls-platform-verifier"] }
+librqbit = { version = "9", default-features = false, features = ["rust-tls"] }
+mime_guess = "2"
+network-interface = "2"
+p256 = { version = "0.13", features = ["ecdh"] }
+rand = "0.8"
+regex = "1"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
+rust-embed = { version = "8", features = ["include-exclude"] }
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
+scraper = { version = "0.27", default-features = false, features = ["errors"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+subtle = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
+tokio-util = { version = "0.7", features = ["io"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
+url = "2"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Threading"] }
+
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
+png = "0.18"
+tao = "0.37"
+tray-icon = { version = "0.25", default-features = false }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+[dev-dependencies]
+tempfile = "3"

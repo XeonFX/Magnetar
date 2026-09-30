@@ -1,12 +1,44 @@
 import { useEffect, useState, type InputHTMLAttributes, type ReactNode } from 'react'
+import { Copy } from 'lucide-react'
 
-/** A labelled field with optional help text below it. */
-export function Field({ label, help, className = '', children }: { label: string; help?: string; className?: string; children: ReactNode }) {
+/** A read-only value with a button that copies it. */
+export function CopyInput({ label, value, copyLabel, onCopy, small = false }: {
+  label: string
+  value: string
+  copyLabel: string
+  onCopy: (value: string) => void
+  small?: boolean
+}) {
   return (
-    <div className={className}>
-      <label className="floating-label block"><span>{label}</span>{children}</label>
-      {help && <p className="mt-1 text-xs text-base-content/60">{help}</p>}
+    <div className="join w-full">
+      <input readOnly aria-label={label} className={`input join-item w-full min-w-0 font-mono ${small ? 'text-xs' : 'text-sm'}`} value={value} />
+      <button type="button" className="btn join-item" aria-label={`${copyLabel}: ${label}`} onClick={() => onCopy(value)}><Copy size={16} /></button>
     </div>
+  )
+}
+
+/** A field with its label above and optional help below; the label stays visible while typing. */
+export function Field({ label, help, className = '', children }: { label: string; help?: ReactNode; className?: string; children: ReactNode }) {
+  return (
+    <label className={`flex flex-col gap-1.5 ${className}`}>
+      <span className="text-sm font-medium">{label}</span>
+      {children}
+      {help && <span className="muted text-xs">{help}</span>}
+    </label>
+  )
+}
+
+/** A labelled text input bound to a value. */
+export function TextField({ label, help, value, onChange, className, ...rest }: {
+  label: string
+  help?: ReactNode
+  value: string
+  onChange: (value: string) => void
+} & Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'>) {
+  return (
+    <Field label={label} help={help} className={className}>
+      <input className="input w-full" value={value} onChange={e => onChange(e.target.value)} {...rest} />
+    </Field>
   )
 }
 

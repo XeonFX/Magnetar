@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # aws-lc (rustls' crypto) ships assembled objects for Windows; no NASM install needed.
+  AWS_LC_SYS_PREBUILT_NASM: '1'
+
 jobs:
   check:
     name: Lint, types and tests (${{ matrix.os }})
@@ -21,18 +25,22 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
       - run: bun install --frozen-lockfile
       - run: bun run lint
       - run: bun run typecheck
-      - run: bun test
+      - run: bun run test
       - name: Build the executable for this runner
         run: bun run --cwd apps/client build --version 0.0.0-ci
       - name: Smoke-test the executable
         shell: bash
         run: |
           set -euo pipefail
-          exe=$(ls apps/client/dist/MediaDownloader-0.0.0-ci-* | grep -v '\.zip$' | head -1)
-          export MD_DATA_DIRECTORY="$RUNNER_TEMP/md-smoke" MD_PORT=47899 MD_NO_TRAY=1 MD_NO_BROWSER=1
+          exe=$(ls apps/client/dist/Magnetar-0.0.0-ci-* | grep -v '\.zip$' | head -1)
+          export MAGNETAR_DATA_DIRECTORY="$RUNNER_TEMP/magnetar-smoke" MAGNETAR_PORT=47899 MAGNETAR_NO_TRAY=1 MAGNETAR_NO_BROWSER=1
           "$exe" > "$RUNNER_TEMP/smoke.log" 2>&1 &
           for i in $(seq 1 30); do curl -sf http://localhost:47899/health && break; sleep 1; done
           curl -sf http://localhost:47899/ | grep -q '<div id="root">'
@@ -43,9 +51,29 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          exe=$(ls apps/client/dist/MediaDownloader-0.0.0-ci-*.exe | head -1)
-          export MD_DATA_DIRECTORY="$RUNNER_TEMP/md-tray" MD_PORT=47898
+          exe=$(ls apps/client/dist/Magnetar-0.0.0-ci-*.exe | head -1)
+          export MAGNETAR_DATA_DIRECTORY="$RUNNER_TEMP/magnetar-tray" MAGNETAR_PORT=47898
           "$exe" > "$RUNNER_TEMP/tray.log" 2>&1 &
           sleep 8
-          cat "$RUNNER_TEMP/md-tray"/logs/*.log
-          grep -q "Notification-area icon ready" "$RUNNER_TEMP/md-tray"/logs/*.log
+          cat "$RUNNER_TEMP/magnetar-tray"/logs/*.log
+          grep -q "Notification-area icon ready" "$RUNNER_TEMP/magnetar-tray"/logs/*.log
+
+  e2e:
+    name: Dashboard end to end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+        working-directory: apps/e2e
+      - run: bun run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-traces
+          path: apps/e2e/test-results

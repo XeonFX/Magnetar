@@ -1,9 +1,13 @@
-import type { AccountDto } from '@md/protocol/cloud'
+import type { AccountDto } from '@magnetar/protocol/cloud'
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router'
 import type { AppConfig } from '../lib/cloudApi.ts'
 import { cloud } from '../lib/cloudApi.ts'
+import { errorMessage } from '../lib/errors.ts'
 import { browserLanguage, I18nProvider } from '../lib/i18n.tsx'
+import { Loading } from '../ui/Loading.tsx'
+import { useToast } from '../ui/toast.tsx'
+import { AddRedirect } from './AddRedirect.tsx'
 import { DevicesPage } from './DevicesPage.tsx'
 import { LinkPage } from './LinkPage.tsx'
 import { LoginPage } from './LoginPage.tsx'
@@ -36,13 +40,20 @@ function RequireAccount({ children }: { children: ReactNode }) {
 export default function CloudApp({ config }: { config: AppConfig }) {
   const [account, setAccount] = useState<AccountDto | null | undefined>(undefined)
   const refresh = useCallback(async () => setAccount(await cloud.me().catch(() => null)), [])
+  const toast = useToast()
+  // Only look signed out once the server has ended the session: on a shared computer a silent
+  // failure would leave the account open behind a signed-out page.
   const signOut = useCallback(async () => {
-    await cloud.signOut().catch(() => {})
-    setAccount(null)
-  }, [])
+    try {
+      await cloud.signOut()
+      setAccount(null)
+    } catch (e) {
+      toast(errorMessage(e), 'error')
+    }
+  }, [toast])
   useEffect(() => void refresh(), [refresh])
 
-  if (account === undefined) return <div className="grid min-h-screen place-items-center"><span className="loading loading-spinner loading-lg text-primary" /></div>
+  if (account === undefined) return <Loading screen />
 
   return (
     <AccountContext.Provider value={{ account, config, refresh, signOut }}>
@@ -52,6 +63,7 @@ export default function CloudApp({ config }: { config: AppConfig }) {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/pair/:pairingId" element={<PairPage />} />
             <Route path="/link" element={<LinkPage />} />
+            <Route path="/add" element={<RequireAccount><AddRedirect /></RequireAccount>} />
             <Route path="/d/:deviceId/*" element={<RequireAccount><RemoteDevice /></RequireAccount>} />
             <Route path="*" element={<RequireAccount><DevicesPage /></RequireAccount>} />
           </Routes>

@@ -1,5 +1,5 @@
-import type { FailureReport } from '@md/protocol/cloud'
-import { scrub } from '@md/protocol/scrub'
+import type { FailureReport } from '@magnetar/protocol/cloud'
+import { scrub } from '@magnetar/protocol/scrub'
 
 const MAX_PER_PAGE_LOAD = 5
 let sent = 0

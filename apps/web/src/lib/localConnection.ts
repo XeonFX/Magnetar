@@ -1,4 +1,4 @@
-import type { ClientMessage, ServerMessage } from '@md/protocol'
+import type { ClientMessage, ServerMessage } from '@magnetar/protocol'
 import { backoff, RpcClient } from './rpcClient.ts'
 
 /** The dashboard served by the device itself: a plain same-origin socket, loopback only. */

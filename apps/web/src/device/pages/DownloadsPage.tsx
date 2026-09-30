@@ -1,142 +1,127 @@
-import type { DownloadDto } from '@md/protocol'
-import { formatRate } from '@md/protocol/bytes'
-import { ArrowDown, ArrowUp, CloudDownload, Info, Loader, Search, Tv, User } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
-import { Link } from 'react-router'
+import type { DownloadDto } from '@magnetar/protocol'
+import { formatRate } from '@magnetar/protocol/bytes'
+import { ArrowDown, ArrowUp, CloudDownload, Plus, Search, Tv } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router'
 import { useT } from '../../lib/i18n.tsx'
+import { magnetsIn } from '../../lib/magnets.ts'
+import { PageHeader, Segmented } from '../../ui/controls.tsx'
 import { Empty } from '../../ui/Empty.tsx'
-import { useSort } from '../../ui/useSort.tsx'
+import { PAGE_SIZE, ShowMore } from '../../ui/ShowMore.tsx'
 import { useDevice, useDownloads } from '../DeviceContext.tsx'
-import { PageHeader } from '../Shell.tsx'
-import { DownloadActions, DownloadName, ProgressBar, Size, Speed, StatusBadge } from '../components/downloads.tsx'
+import { AddDownloadDialog, DropOverlay, useAddShortcuts, type PendingAdd } from '../components/addDownload.tsx'
+import { DownloadDetailsDialog } from '../components/downloadDetails.tsx'
+import { DownloadRow, isActive } from '../components/downloads.tsx'
+import { LegacyImportBanner } from '../components/legacyImport.tsx'
+import { AltSpeedToggle, FreeSpace, TransferNotice } from '../components/transfer.tsx'
+
+type Filter = 'all' | 'active' | 'paused' | 'finished' | 'failed'
+
+const MATCHES: Record<Filter, (d: DownloadDto) => boolean> = {
+  all: () => true,
+  active: isActive,
+  paused: d => d.status === 'Paused',
+  finished: d => d.status === 'Completed',
+  failed: d => d.status === 'Error',
+}
+const FILTERS = Object.keys(MATCHES) as Filter[]
 
 export function DownloadsPage() {
   const t = useT()
-  const { series, basePath } = useDevice()
+  const { basePath, settings, transfer, connection } = useDevice()
   const downloads = useDownloads()
-  const [tab, setTab] = useState<'manual' | 'series'>('manual')
-  const manual = downloads.filter(d => d.seriesTaskId === null)
-  const automatic = downloads.filter(d => d.seriesTaskId !== null)
-  const seriesName = (d: DownloadDto) => series.find(s => s.id === d.seriesTaskId)?.name || t('downloads.unknownSeries')
-  const active = downloads.filter(d => ['Downloading', 'FetchingMetadata', 'Queued'].includes(d.status)).length
-  const down = downloads.reduce((sum, d) => sum + d.downloadSpeed, 0)
-  const up = downloads.reduce((sum, d) => sum + d.uploadSpeed, 0)
+  const [filter, setFilter] = useState<Filter>('all')
+  const [adding, setAdding] = useState<PendingAdd | null>(null)
+  const [details, setDetails] = useState<number | null>(null)
+  const dragging = useAddShortcuts(setAdding)
+  // Opened for a magnet link or .torrent file (the system's handler, or a link to ?add=).
+  const [params, setParams] = useSearchParams()
+  useEffect(() => {
+    const magnet = params.get('add')
+    const path = connection.kind === 'local' ? params.get('torrent') : null
+    if (!magnet && !path) return
+    setAdding({ magnets: magnet ? magnetsIn(magnet) : [], files: [], paths: path ? [path] : [] })
+    setParams({}, { replace: true })
+  }, [params, setParams, connection])
+
+  // One pass for every count and total, rather than one filter per chip on each update.
+  const { counts, down, up } = useMemo(() => {
+    const counts = Object.fromEntries(FILTERS.map(f => [f, 0])) as Record<Filter, number>
+    let down = 0
+    let up = 0
+    for (const d of downloads) {
+      for (const f of FILTERS) if (MATCHES[f](d)) counts[f]++
+      down += d.downloadSpeed
+      up += d.uploadSpeed
+    }
+    return { counts, down, up }
+  }, [downloads])
+  const shown = useMemo(() => downloads.filter(MATCHES[filter]), [downloads, filter])
+  const add = <button type="button" className="btn btn-primary" onClick={() => setAdding({ magnets: [], files: [] })}><Plus size={16} />{t('add.button')}</button>
+
+  const summary = downloads.length > 0 && (
+    <span className="inline-flex flex-wrap items-center gap-x-4 gap-y-1">
+      <span>{t('downloads.activeCount', counts.active)}</span>
+      <span className="inline-flex items-center gap-1 tabular-nums"><ArrowDown size={14} className="text-info" />{formatRate(down)}</span>
+      <span className="inline-flex items-center gap-1 tabular-nums"><ArrowUp size={14} className="text-accent" />{formatRate(up)}</span>
+      <FreeSpace bytes={transfer?.freeBytes} />
+    </span>
+  )
 
   return (
     <>
-      <PageHeader title={t('downloads.title')} subtitle={t('downloads.subtitle')} />
+      <PageHeader title={t('downloads.title')} summary={summary}
+        action={<div className="flex flex-wrap items-center gap-2">
+          {settings && transfer && <AltSpeedToggle settings={settings} transfer={transfer} />}
+          {downloads.length > 0 && <Link to={`${basePath}/search`} className="btn btn-ghost hidden sm:inline-flex"><Search size={16} />{t('downloads.searchButton')}</Link>}
+          {add}
+        </div>} />
+      <TransferNotice transfer={transfer} />
+      <LegacyImportBanner />
       {downloads.length === 0 ? (
-        <Empty icon={<div className="grid size-18 place-items-center rounded-full border-2 border-primary text-primary"><CloudDownload size={32} /></div>}
-          title={t('downloads.emptyTitle')} text={t('downloads.emptyHint')}>
+        <Empty icon={<CloudDownload size={40} strokeWidth={1.5} className="text-primary" />} title={t('downloads.emptyTitle')} text={t('downloads.emptyHint')}>
           <div className="flex flex-wrap justify-center gap-2">
             <Link to={`${basePath}/search`} className="btn btn-primary"><Search size={16} />{t('downloads.searchButton')}</Link>
-            <Link to={`${basePath}/series`} className="btn btn-outline btn-primary"><Tv size={16} />{t('downloads.seriesButton')}</Link>
+            <Link to={`${basePath}/series`} className="btn btn-ghost"><Tv size={16} />{t('downloads.seriesButton')}</Link>
           </div>
+          <p className="muted mt-4 text-xs">{t('add.emptyHint')}</p>
         </Empty>
       ) : (
         <>
-          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <Stat className="col-span-2 sm:col-span-1" icon={<Loader size={20} />} tone="text-primary" value={String(active)} label={t('downloads.active')} />
-            <Stat icon={<ArrowDown size={20} />} tone="text-success" value={formatRate(down)} label={t('downloads.download')} />
-            <Stat icon={<ArrowUp size={20} />} tone="text-info" value={formatRate(up)} label={t('downloads.upload')} />
+          <div className="mb-4">
+            <Segmented label={t('downloads.filter')} value={filter} onChange={setFilter}
+              options={FILTERS.filter(f => f === 'all' || f === filter || counts[f] > 0)
+                .map(f => ({ value: f, label: t(`downloads.filter.${f}`), count: counts[f] }))} />
           </div>
-          <div role="tablist" className="tabs tabs-box mb-3 w-fit">
-            <button type="button" role="tab" className={`tab gap-2 ${tab === 'manual' ? 'tab-active' : ''}`} onClick={() => setTab('manual')}>
-              <User size={16} />{t('downloads.manualTab', manual.length)}
-            </button>
-            <button type="button" role="tab" className={`tab gap-2 ${tab === 'series' ? 'tab-active' : ''}`} onClick={() => setTab('series')}>
-              <Tv size={16} />{t('downloads.seriesTab', automatic.length)}
-            </button>
-          </div>
-          {tab === 'manual'
-            ? manual.length === 0
-              ? <p className="surface p-4 text-sm text-base-content/60">{t('downloads.noManual')}</p>
-              : <DownloadList downloads={manual} actions />
-            : automatic.length === 0
-              ? <p className="surface p-4 text-sm text-base-content/60">{t('downloads.noAuto')}</p>
-              : <>
-                  <div role="alert" className="alert alert-info alert-soft mb-3 text-sm"><Info size={18} /><span>{t('downloads.autoInfo')}</span></div>
-                  <DownloadList downloads={automatic} seriesName={seriesName} />
-                </>}
+          {shown.length === 0
+            ? <p className="surface muted p-6 text-center text-sm">{t('downloads.noneInFilter')}</p>
+            : <DownloadList key={filter} downloads={shown} onOpen={setDetails} />}
         </>
       )}
+      <AddDownloadDialog open={adding !== null} initial={adding} onClose={() => setAdding(null)} />
+      <DownloadDetailsDialog id={details} onClose={() => setDetails(null)} />
+      {dragging && <DropOverlay />}
     </>
   )
 }
 
-function Stat({ icon, tone, value, label, className = '' }: { icon: ReactNode; tone: string; value: string; label: string; className?: string }) {
-  return (
-    <div className={`surface flex items-center gap-4 p-4 ${className}`}>
-      <div className={`grid size-10 place-items-center rounded-full border border-current ${tone}`}>{icon}</div>
-      <div className="min-w-0">
-        <div className="truncate text-lg font-semibold tabular-nums">{value}</div>
-        <div className="text-xs text-base-content/60">{label}</div>
-      </div>
-    </div>
-  )
-}
-
-/** A sortable table on wide screens; stacked cards on phones. */
-export function DownloadList({ downloads, actions = false, seriesName }: {
-  downloads: DownloadDto[]
-  actions?: boolean
-  seriesName?: (d: DownloadDto) => string
-}) {
+/** Downloads as cards, a page at a time; each from a series names it. */
+export function DownloadList({ downloads, hideSeries = false, onOpen }: { downloads: DownloadDto[]; hideSeries?: boolean; onOpen?: (id: number) => void }) {
   const t = useT()
-  const { sorted, header } = useSort(downloads, {
-    name: d => d.name.toLowerCase(), progress: d => d.progress, status: d => d.status, speed: d => d.downloadSpeed,
-    size: d => d.totalBytes, peers: d => d.peers, series: d => seriesName?.(d) ?? '',
-  })
-
+  const { series } = useDevice()
+  const [limit, setLimit] = useState(PAGE_SIZE)
+  const [opened, setOpened] = useState<number | null>(null)
+  const names = useMemo(() => new Map(series.map(s => [s.id, s.name])), [series])
+  const unknown = t('downloads.unknownSeries')
+  const seriesName = (d: DownloadDto) => (d.seriesTaskId === null || hideSeries ? undefined : names.get(d.seriesTaskId) || unknown)
+  const open = useCallback((id: number) => (onOpen ?? setOpened)(id), [onOpen])
   return (
     <>
-      <div className="surface hidden overflow-x-auto md:block">
-        <table className="table table-sm">
-          <thead>
-            <tr>
-              {header('name', t('downloads.colName'))}
-              {seriesName && header('series', t('downloads.colSeries'))}
-              {header('progress', t('downloads.colProgress'), 'w-52')}
-              {header('status', t('downloads.colStatus'))}
-              {header('speed', t('downloads.colSpeed'))}
-              {header('size', t('downloads.colSize'), 'hidden xl:table-cell')}
-              {header('peers', t('downloads.colPeers'), 'hidden xl:table-cell')}
-              {actions && <th className="w-32" />}
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map(d => (
-              <tr key={d.id} className="hover:bg-base-200/60">
-                <td className="min-w-64"><DownloadName download={d} /></td>
-                {seriesName && <td><span className="badge badge-soft badge-secondary badge-sm">{seriesName(d)}</span></td>}
-                <td><ProgressBar download={d} /></td>
-                <td><StatusBadge status={d.status} /></td>
-                <td><Speed download={d} /></td>
-                <td className="hidden xl:table-cell"><Size bytes={d.totalBytes} /></td>
-                <td className="hidden text-xs tabular-nums xl:table-cell">{d.peers}</td>
-                {actions && <td><DownloadActions download={d} /></td>}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <ul className="flex flex-col gap-2 md:hidden">
-        {sorted.map(d => (
-          <li key={d.id} className="surface p-3">
-            <div className="flex items-start gap-2">
-              <div className="min-w-0 flex-1"><DownloadName download={d} /></div>
-              {actions && <DownloadActions download={d} />}
-            </div>
-            <div className="mt-2"><ProgressBar download={d} /></div>
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-              <StatusBadge status={d.status} />
-              {seriesName && <span className="badge badge-soft badge-secondary badge-sm">{seriesName(d)}</span>}
-              <Size bytes={d.totalBytes} />
-              <Speed download={d} />
-            </div>
-          </li>
-        ))}
+      <ul className="flex flex-col gap-2">
+        {downloads.slice(0, limit).map(d => <DownloadRow key={d.id} download={d} seriesName={seriesName(d)} onOpen={open} />)}
       </ul>
+      {downloads.length > limit && <ShowMore remaining={downloads.length - limit} onMore={() => setLimit(n => n + PAGE_SIZE)} />}
+      {!onOpen && <DownloadDetailsDialog id={opened} onClose={() => setOpened(null)} />}
     </>
   )
 }

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { toBase64Url } from '@md/protocol/base64'
+import { toBase64Url } from '@magnetar/protocol/base64'
 import type { Env } from '../src/env.ts'
 import { signInReturnUrl } from '../src/googleCallback.ts'
 import { resetJwksCache, verifyGoogleIdToken } from '../src/oidc.ts'
@@ -59,12 +59,12 @@ describe('Google ID tokens', () => {
 })
 
 describe('sign-in return URLs', () => {
-  const env = { ORIGIN: 'https://mediadownloader.codefusion.cc', APP_ENV: 'production' } as Env
+  const env = { ORIGIN: 'https://magnetar.codefusion.cc', APP_ENV: 'production' } as Env
   const state = (origin: string, path: string) =>
     `${'a'.repeat(32)}.${toBase64Url(new TextEncoder().encode(JSON.stringify([origin, path])))}`
 
   test('only our own login page', () => {
-    expect(signInReturnUrl(state(env.ORIGIN, '/login?next=%2Fd%2Fx'), env)?.href).toBe('https://mediadownloader.codefusion.cc/login?next=%2Fd%2Fx')
+    expect(signInReturnUrl(state(env.ORIGIN, '/login?next=%2Fd%2Fx'), env)?.href).toBe('https://magnetar.codefusion.cc/login?next=%2Fd%2Fx')
     expect(signInReturnUrl(state('https://evil.example', '/login'), env)).toBeNull()
     expect(signInReturnUrl(state(env.ORIGIN, '/pair/x'), env)).toBeNull()
     expect(signInReturnUrl(state(env.ORIGIN, '//evil.example/login'), env)).toBeNull()

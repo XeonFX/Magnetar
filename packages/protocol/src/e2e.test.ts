@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  acceptBrowserHandshake, decodeHandshake, encodeHandshake, importBrowserKey, linkFragment, newBrowserKey,
-  parseLinkFragment, startBrowserHandshake, type E2ESession,
+  acceptBrowserHandshake, decodeHandshake, deriveKeys, E2ESession, encodeHandshake, importBrowserKey, linkFragment,
+  newBrowserKey, parseLinkFragment, startBrowserHandshake,
 } from './e2e.ts'
-import { toBase64Url } from './base64.ts'
+import { fromBase64Url, toBase64Url } from './base64.ts'
+import vector from './e2e-vector.json'
 
 async function pair(): Promise<{ browser: E2ESession; device: E2ESession }> {
   const raw = newBrowserKey()
@@ -88,5 +89,30 @@ describe('link fragments', () => {
 
   test('reject a key of the wrong length', () => {
     expect(parseLinkFragment('d=a&i=b&k=AAAA')).toBeNull()
+  })
+})
+
+/** The Rust device (apps/client/src/protocol/e2e.rs) checks the same vector. */
+describe('shared test vector', () => {
+  const b = (value: string) => fromBase64Url(value)
+  const curve = { name: 'ECDH', namedCurve: 'P-256' } as const
+  const privateKey = (d: string, epk: string) => {
+    const point = b(epk)
+    const jwk = { kty: 'EC', crv: 'P-256', d, x: toBase64Url(point.slice(1, 33)), y: toBase64Url(point.slice(33)), ext: true }
+    return crypto.subtle.importKey('jwk', jwk, curve, false, ['deriveBits'])
+  }
+  const publicKey = (epk: string) => crypto.subtle.importKey('raw', b(epk), curve, false, [])
+  const transcript = [vector.kid, b(vector.browserEpk), b(vector.browserNonce), b(vector.deviceEpk), b(vector.deviceNonce)] as const
+
+  test('both ends derive the vector keys and seal the vector frames', async () => {
+    const browserKeys = await deriveKeys('browser', await importBrowserKey(b(vector.browserKey)),
+      await privateKey(vector.browserPrivate, vector.browserEpk), await publicKey(vector.deviceEpk), ...transcript)
+    const deviceKeys = await deriveKeys('device', await importBrowserKey(b(vector.browserKey)),
+      await privateKey(vector.devicePrivate, vector.deviceEpk), await publicKey(vector.browserEpk), ...transcript)
+    expect(toBase64Url(deviceKeys.transcriptHash)).toBe(vector.transcriptHash)
+    const confirmed = new Uint8Array([...new TextEncoder().encode('device'), ...deviceKeys.transcriptHash])
+    expect(toBase64Url(new Uint8Array(await crypto.subtle.sign('HMAC', deviceKeys.confirm, confirmed)))).toBe(vector.confirm)
+    expect(toBase64Url(await new E2ESession('browser', browserKeys).seal(vector.browserMessage))).toBe(vector.browserFrame)
+    expect(toBase64Url(await new E2ESession('device', deviceKeys).seal(JSON.parse(vector.deviceMessageJson)))).toBe(vector.deviceFrame)
   })
 })

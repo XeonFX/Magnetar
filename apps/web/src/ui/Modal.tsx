@@ -2,7 +2,11 @@ import { X } from 'lucide-react'
 import { useEffect, useRef, type ReactNode } from 'react'
 import { useT } from '../lib/i18n.tsx'
 
-/** A native <dialog>: focus trapping, Escape and the backdrop come from the browser. */
+/**
+ * A native <dialog>: focus trapping, Escape and the backdrop come from the browser. The browser
+ * focuses the first focusable element (the close button); mark a field `data-autofocus` to start
+ * there instead.
+ */
 export function Modal({ open, title, icon, onClose, children, actions, wide = false }: {
   open: boolean
   title: ReactNode
@@ -14,15 +18,28 @@ export function Modal({ open, title, icon, onClose, children, actions, wide = fa
 }) {
   const t = useT()
   const ref = useRef<HTMLDialogElement>(null)
+  // The browser fires "close" later, as a task: one this component caused must not close a dialog
+  // that has opened again in the meantime.
+  const closingItself = useRef(false)
   useEffect(() => {
     const dialog = ref.current
     if (!dialog) return
-    if (open && !dialog.open) dialog.showModal()
-    if (!open && dialog.open) dialog.close()
+    if (open && !dialog.open) {
+      dialog.showModal()
+      dialog.querySelector<HTMLElement>('[data-autofocus]')?.focus()
+    }
+    if (!open && dialog.open) {
+      closingItself.current = true
+      dialog.close()
+    }
   }, [open])
+  const closed = () => {
+    if (closingItself.current) closingItself.current = false
+    else onClose()
+  }
 
   return (
-    <dialog ref={ref} className="modal modal-bottom sm:modal-middle" onClose={onClose} onCancel={onClose}>
+    <dialog ref={ref} className="modal modal-bottom sm:modal-middle" onClose={closed}>
       {open && (
         <div className={`modal-box ${wide ? 'sm:max-w-2xl' : 'sm:max-w-lg'} p-0`}>
           <div className="flex items-center gap-2 border-b border-base-300 px-5 py-4">
@@ -34,7 +51,8 @@ export function Modal({ open, title, icon, onClose, children, actions, wide = fa
           {actions && <div className="modal-action mt-0 flex-wrap border-t border-base-300 px-5 py-3">{actions}</div>}
         </div>
       )}
-      <form method="dialog" className="modal-backdrop"><button type="submit">{t('common.close')}</button></form>
+      {/* A button rather than <form method="dialog">, so a dialog rendered inside a form never nests forms. */}
+      <div className="modal-backdrop"><button type="button" onClick={onClose}>{t('common.close')}</button></div>
     </dialog>
   )
 }

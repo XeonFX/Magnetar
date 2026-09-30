@@ -1,23 +1,26 @@
-import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import english from '../i18n/en.json'
+import { Loading } from '../ui/Loading.tsx'
+import { LANGUAGES } from './languages.ts'
 
 interface Catalog {
   name: string
   strings: Record<string, string>
 }
 
-const catalogs = Object.fromEntries(
-  Object.entries(import.meta.glob<Catalog>('../i18n/*.json', { eager: true, import: 'default' }))
-    .map(([path, catalog]) => [path.match(/([a-z]{2})\.json$/)![1]!, catalog]),
-) as Record<string, Catalog>
+export { LANGUAGES }
 
-export const LANGUAGES = Object.entries(catalogs).map(([code, catalog]) => ({ code, name: catalog.name }))
-  .sort((a, b) => (a.code === 'en' ? -1 : b.code === 'en' ? 1 : a.name.localeCompare(b.name)))
+const loaders = Object.fromEntries(
+  Object.entries(import.meta.glob<Catalog>(['../i18n/*.json', '!../i18n/en.json'], { import: 'default' }))
+    .map(([path, load]) => [path.match(/([a-z]{2})\.json$/)![1]!, load]),
+) as Record<string, () => Promise<Catalog>>
+
+const loaded: Record<string, Record<string, string>> = { en: english.strings }
 
 export type Translate = (key: string, ...args: (string | number)[]) => string
 
-function translator(language: string): Translate {
-  const strings = catalogs[language]?.strings ?? {}
-  const fallback = catalogs.en!.strings
+function translator(strings: Record<string, string>): Translate {
+  const fallback = english.strings as Record<string, string>
   return (key, ...args) => {
     const template = strings[key] ?? fallback[key] ?? key
     return args.length ? template.replace(/\{(\d+)\}/g, (match, i: string) => String(args[Number(i)] ?? match)) : template
@@ -28,15 +31,31 @@ function translator(language: string): Translate {
 export function browserLanguage(): string {
   for (const tag of navigator.languages ?? [navigator.language]) {
     const code = tag.slice(0, 2).toLowerCase()
-    if (catalogs[code]) return code
+    if (LANGUAGES.some(l => l.code === code)) return code
   }
   return 'en'
 }
 
-const I18nContext = createContext<{ language: string; t: Translate }>({ language: 'en', t: translator('en') })
+const I18nContext = createContext<{ language: string; t: Translate }>({ language: 'en', t: translator(english.strings) })
 
+/**
+ * Translations for `language`. A language not loaded yet is fetched first; the page waits for it
+ * rather than flashing English, and shows English if it can't be loaded.
+ */
 export function I18nProvider({ language, children }: { language: string; children: ReactNode }) {
-  const value = useMemo(() => ({ language, t: translator(catalogs[language] ? language : 'en') }), [language])
+  const code = loaders[language] || language === 'en' ? language : 'en'
+  const [strings, setStrings] = useState(() => loaded[code] ?? null)
+  useEffect(() => {
+    if (loaded[code]) return setStrings(loaded[code])
+    let cancelled = false
+    loaders[code]!().then(catalog => { loaded[code] = catalog.strings }, () => { loaded[code] = english.strings })
+      .finally(() => { if (!cancelled) setStrings(loaded[code]!) })
+    return () => { cancelled = true }
+  }, [code])
+  const value = useMemo(() => ({ language: code, t: translator(strings ?? english.strings) }), [code, strings])
+  if (!strings) {
+    return <Loading screen />
+  }
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
 }
 
@@ -57,5 +76,35 @@ export function useFormatDate(): (iso: string | null, withTime?: boolean) => str
     return withTime
       ? date.toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' })
       : date.toLocaleDateString(language, { year: 'numeric', month: '2-digit', day: '2-digit' })
+  }, [language])
+}
+
+const STEPS: [Intl.RelativeTimeFormatUnit, number][] = [['second', 60], ['minute', 60], ['hour', 24], ['day', 30], ['month', 12], ['year', Infinity]]
+
+function relative(format: Intl.RelativeTimeFormat, seconds: number): string {
+  let value = seconds
+  for (const [unit, size] of STEPS) {
+    if (Math.abs(value) < size) return format.format(Math.round(value), unit)
+    value /= size
+  }
+  return ''
+}
+
+/** "3 yr. ago", "in 5 min." — in the dashboard language. */
+export function useFormatRelative(): (iso: string | null) => string {
+  const language = useLanguage()
+  return useCallback((iso: string | null) => {
+    if (!iso) return '—'
+    const format = new Intl.RelativeTimeFormat(language, { numeric: 'auto', style: 'short' })
+    return relative(format, (new Date(iso).getTime() - Date.now()) / 1000)
+  }, [language])
+}
+
+/** Time left, as "in 4 min." — from now plus `seconds`. */
+export function useFormatEta(): (seconds: number) => string {
+  const language = useLanguage()
+  return useCallback((seconds: number) => {
+    const format = new Intl.RelativeTimeFormat(language, { numeric: 'always', style: 'short' })
+    return relative(format, Math.max(1, seconds))
   }, [language])
 }

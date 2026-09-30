@@ -1,9 +1,10 @@
 import type {
   AppInfoDto, DownloadDto, RemoteStatusDto, SearchResultDto, SeriesTaskDto, SettingsDto, SourceDto, SourceOutcomeDto,
-  UpdateStatusDto,
-} from '@md/protocol'
-import { mergeByInfoHash } from '@md/protocol/merge'
+  TransferStatusDto, UpdateStatusDto, WatchDto,
+} from '@magnetar/protocol'
+import { mergeByInfoHash } from '@magnetar/protocol/merge'
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { pushEnabledFor } from '../lib/push.ts'
 import type { ConnectionState, RpcClient } from '../lib/rpcClient.ts'
 
 /** What the Search page keeps while you browse other pages, like the legacy app did. */
@@ -24,20 +25,41 @@ interface DeviceState {
   connectionState: ConnectionState
   info: AppInfoDto | null
   series: SeriesTaskDto[]
+  watches: WatchDto[]
   settings: SettingsDto | null
   sources: SourceDto[]
   updates: UpdateStatusDto | null
   remote: RemoteStatusDto | null
-  search: SearchState
-  setSearch: (update: (state: SearchState) => SearchState) => void
+  transfer: TransferStatusDto | null
   /** Base path of this device's pages: '' locally, '/d/<id>' through the relay. */
   basePath: string
   deviceName: string
 }
 
+/**
+ * Applies a progress update: changed rows are replaced, every other row keeps its object, so views
+ * memoized per row skip the ones that did not change.
+ */
+export function mergeRows(list: DownloadDto[], rows: DownloadDto[]): DownloadDto[] {
+  if (rows.length === 0) return list
+  const updates = new Map(rows.map(r => [r.id, r]))
+  let changed = false
+  const next = list.map(d => {
+    const update = updates.get(d.id)
+    if (!update) return d
+    changed = true
+    return update
+  })
+  return changed ? next : list
+}
+
 const DeviceContext = createContext<DeviceState | null>(null)
 /** Separate so the once-a-second progress updates re-render only the views that show downloads. */
 const DownloadsContext = createContext<DownloadDto[]>([])
+/** The search in progress, apart so typing and streamed results re-render only the search page. */
+const SearchContext = createContext<{ search: SearchState; setSearch: (update: (state: SearchState) => SearchState) => void } | null>(null)
+/** Just the connection, which never changes for a device: for per-row views that only make calls. */
+const ConnectionContext = createContext<RpcClient | null>(null)
 
 export function DeviceProvider({ connection, basePath, deviceName, children }: {
   connection: RpcClient
@@ -49,20 +71,25 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
   const [info, setInfo] = useState<AppInfoDto | null>(null)
   const [downloads, setDownloads] = useState<DownloadDto[]>([])
   const [series, setSeries] = useState<SeriesTaskDto[]>([])
+  const [watches, setWatches] = useState<WatchDto[]>([])
   const [settings, setSettings] = useState<SettingsDto | null>(null)
   const [sources, setSources] = useState<SourceDto[]>([])
   const [updates, setUpdates] = useState<UpdateStatusDto | null>(null)
   const [remote, setRemote] = useState<RemoteStatusDto | null>(null)
+  const [transfer, setTransfer] = useState<TransferStatusDto | null>(null)
   const [search, setSearch] = useState<SearchState>(EMPTY_SEARCH)
 
   useEffect(() => {
     const refresh = async () => {
       try {
-        const [i, d, s, st, src, u, r] = await Promise.all([
+        // The website can be newer than the device's app: what an older app lacks is left out.
+        const optional = <T,>(call: Promise<T>) => call.catch(() => null)
+        const [i, d, s, st, src, u, r, tr] = await Promise.all([
           connection.call('app.info'), connection.call('downloads.list'), connection.call('series.list'),
           connection.call('settings.get'), connection.call('sources.list'), connection.call('updates.status'),
-          connection.call('remote.status'),
+          connection.call('remote.status'), optional(connection.call('transfer.status')),
         ])
+        void optional(connection.call('watches.list')).then(w => setWatches(w ?? []))
         setInfo(i)
         setDownloads(d)
         setSeries(s)
@@ -70,6 +97,7 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
         setSources(src)
         setUpdates(u)
         setRemote(r)
+        setTransfer(tr)
       } catch {
         // The state listener retries on the next successful (re)connect.
       }
@@ -84,7 +112,10 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
     const off = [
       offState,
       connection.on('downloads.changed', setDownloads),
+      connection.on('downloads.updated', rows => setDownloads(list => mergeRows(list, rows))),
+      connection.on('transfer.changed', setTransfer),
       connection.on('series.changed', setSeries),
+      connection.on('watches.changed', setWatches),
       connection.on('settings.changed', next => {
         setSettings(next)
         void connection.call('sources.list').then(setSources).catch(() => {})
@@ -98,7 +129,8 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
       connection.on('search.done', ({ searchId }) =>
         setSearch(s => (s.searchId === searchId ? { ...s, searching: false } : s))),
       connection.on('notification', event => {
-        if (!('Notification' in window) || Notification.permission !== 'granted') return
+        // Pushed notifications arrive through the service worker; don't show them twice.
+        if (!('Notification' in window) || Notification.permission !== 'granted' || pushEnabledFor(connection)) return
         try {
           new Notification(event.title, { body: event.message, icon: '/favicon.png' })
         } catch {
@@ -110,13 +142,18 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
   }, [connection])
 
   const value = useMemo<DeviceState>(() => ({
-    connection, connectionState, info, series, settings, sources, updates, remote, search, setSearch, basePath, deviceName,
-  }), [connection, connectionState, info, series, settings, sources, updates, remote, search, basePath, deviceName])
+    connection, connectionState, info, series, watches, settings, sources, updates, remote, transfer, basePath, deviceName,
+  }), [connection, connectionState, info, series, watches, settings, sources, updates, remote, transfer, basePath, deviceName])
+  const searchValue = useMemo(() => ({ search, setSearch }), [search])
 
   return (
-    <DeviceContext.Provider value={value}>
-      <DownloadsContext.Provider value={downloads}>{children}</DownloadsContext.Provider>
-    </DeviceContext.Provider>
+    <ConnectionContext.Provider value={connection}>
+      <DeviceContext.Provider value={value}>
+        <SearchContext.Provider value={searchValue}>
+          <DownloadsContext.Provider value={downloads}>{children}</DownloadsContext.Provider>
+        </SearchContext.Provider>
+      </DeviceContext.Provider>
+    </ConnectionContext.Provider>
   )
 }
 
@@ -126,6 +163,18 @@ export function useDevice(): DeviceState {
   return value
 }
 
+
+export function useConnection(): RpcClient {
+  const value = useContext(ConnectionContext)
+  if (!value) throw new Error('useConnection outside DeviceProvider')
+  return value
+}
+
+export function useSearch(): { search: SearchState; setSearch: (update: (state: SearchState) => SearchState) => void } {
+  const value = useContext(SearchContext)
+  if (!value) throw new Error('useSearch outside DeviceProvider')
+  return value
+}
 
 export function useDownloads(): DownloadDto[] {
   return useContext(DownloadsContext)

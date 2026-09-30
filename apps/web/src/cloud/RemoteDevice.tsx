@@ -7,6 +7,7 @@ import { cloud } from '../lib/cloudApi.ts'
 import { browserLanguage, useT } from '../lib/i18n.tsx'
 import { getDeviceKey, type StoredDeviceKey } from '../lib/keyStore.ts'
 import { RelayConnection } from '../lib/relayConnection.ts'
+import { Loading } from '../ui/Loading.tsx'
 import { AccountMenu } from './CloudFrame.tsx'
 import { CloudFrame } from './CloudFrame.tsx'
 
@@ -32,7 +33,7 @@ export function RemoteDevice() {
     return () => relay.close()
   }, [deviceId, key])
 
-  if (key === undefined) return <div className="grid min-h-screen place-items-center"><span className="loading loading-spinner loading-lg text-primary" /></div>
+  if (key === undefined) return <Loading screen />
   if (key === null) {
     return (
       <CloudFrame>

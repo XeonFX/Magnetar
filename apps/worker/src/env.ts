@@ -1,4 +1,4 @@
-import type { FailureReport } from '@md/protocol/cloud'
+import type { FailureReport } from '@magnetar/protocol/cloud'
 import type { DeviceRelay } from './relay.ts'
 
 export interface ConsoleTelemetry {
@@ -12,11 +12,18 @@ export interface Env {
   PAIR_LIMITER: RateLimit
   AUTH_LIMITER: RateLimit
   TELEMETRY_LIMITER: RateLimit
+  PUSH_LIMITER: RateLimit
   CONSOLE_TELEMETRY?: ConsoleTelemetry
   APP_ID: string
   APP_ENV: string
   ORIGIN: string
   GOOGLE_CLIENT_ID: string
+  /** GitHub owner/name whose releases the website offers for download. */
+  RELEASES_REPO?: string
+  /** Web Push (VAPID) key, a secret made by `codefusion-vapid` (@codefusion-cc/web-push). Unset: no browser push. */
+  VAPID_PRIVATE_KEY?: string
+  /** Contact for push services; the site's origin by default. */
+  VAPID_SUBJECT?: string
   /** "enabled" only in the dev environment: passwordless sign-in for local testing. */
   DEV_LOGIN?: string
 }

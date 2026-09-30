@@ -1,9 +1,11 @@
-import type { AppConfig, FailureReport } from '@md/protocol/cloud'
+import type { AppConfig, FailureReport } from '@magnetar/protocol/cloud'
 import { handleAuth } from './auth.ts'
 import { handleDevices } from './devices.ts'
 import { devLoginEnabled, type Env } from './env.ts'
 import { handleGoogleCallback } from './googleCallback.ts'
 import { clientIp, error, HttpError, json, limit, readJson } from './http.ts'
+import { handlePush } from './push.ts'
+import { handleReleases } from './releases.ts'
 
 export { DeviceRelay } from './relay.ts'
 
@@ -41,6 +43,8 @@ async function route(request: Request, env: Env): Promise<Response> {
   return (await handleGoogleCallback(request, env, path))
     ?? (await handleAuth(request, env, path))
     ?? (await handleDevices(request, env, path))
+    ?? (await handlePush(request, env, path))
+    ?? (await handleReleases(request, env, path))
     ?? error(404, 'Not found')
 }
 

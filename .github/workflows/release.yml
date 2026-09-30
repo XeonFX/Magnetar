@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+env:
+  AWS_LC_SYS_PREBUILT_NASM: '1'
+  HAS_MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE != '' }}
+
 jobs:
   build:
     name: Build ${{ matrix.target }}
@@ -15,28 +19,62 @@ jobs:
       matrix:
         include:
           # macOS bundles are signed with codesign, so they build on macOS.
-          - { runner: macos-14, target: bun-darwin-arm64 }
-          - { runner: macos-14, target: bun-darwin-x64 }
-          - { runner: ubuntu-latest, target: bun-windows-x64 }
-          - { runner: ubuntu-latest, target: bun-windows-arm64 }
-          - { runner: ubuntu-latest, target: bun-linux-x64 }
-          - { runner: ubuntu-latest, target: bun-linux-arm64 }
+          - { runner: macos-14, target: aarch64-apple-darwin }
+          - { runner: macos-14, target: x86_64-apple-darwin }
+          - { runner: windows-latest, target: x86_64-pc-windows-msvc }
+          - { runner: windows-11-arm, target: aarch64-pc-windows-msvc }
+          # The oldest supported Ubuntu, so the executable runs on older glibc too.
+          - { runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+          - { runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
       - run: bun install --frozen-lockfile
-      - run: bun test
+      # Only when the Developer ID certificate is a secret; without it the build is ad-hoc signed.
+      - name: Import the Developer ID certificate
+        if: runner.os == 'macOS' && env.HAS_MACOS_CERTIFICATE == 'true'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password="$(uuidgen)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+      # The x64 macOS build is cross-compiled on an arm64 runner, so its tests can't run there.
+      - run: cargo test --locked
+        if: matrix.target != 'x86_64-apple-darwin'
       - name: Build
+        shell: bash
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: bun run --cwd apps/client build --target ${{ matrix.target }} --version ${GITHUB_REF_NAME#v}
       - name: Collect the release asset
         shell: bash
         run: |
           mkdir -p out
           cd apps/client/dist
-          if ls *.zip >/dev/null 2>&1; then cp *.zip ../../../out/; else cp MediaDownloader-* ../../../out/; fi
+          if ls *.zip >/dev/null 2>&1; then cp *.zip ../../../out/; else cp Magnetar-* ../../../out/; fi
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
@@ -58,7 +96,7 @@ jobs:
         env:
           RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
         run: |
-          cd assets && sha256sum MediaDownloader-* > SHA256SUMS.txt && cd ..
+          cd assets && sha256sum Magnetar-* > SHA256SUMS.txt && cd ..
           bun scripts/sign-release.ts assets
       - uses: softprops/action-gh-release@v2
         with:
