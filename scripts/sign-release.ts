@@ -1,5 +1,5 @@
 /**
- * Signs a release manifest: bun scripts/sign-release.ts <dir-with-SHA256SUMS.txt>
+ * Signs a release manifest: node scripts/sign-release.ts <dir-with-SHA256SUMS.txt>
  * Reads the private key from RELEASE_SIGNING_KEY and writes SHA256SUMS.txt.sig next to it.
  */
 import { readFileSync, writeFileSync } from 'node:fs'

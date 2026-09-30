@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { readFileSync } from 'node:fs'
 
 /** public/sw.js is a plain script; run it against a stand-in `self` and take what it defines. */

@@ -1,6 +1,6 @@
 # Deploying magnetar.codefusion.cc
 
-The Worker in `apps/worker` serves the website, sign-in, pairing and the relay. One-time setup, then `bun run deploy`.
+The Worker in `apps/worker` serves the website, sign-in, pairing and the relay. One-time setup, then `npm run deploy -w @magnetar/worker`.
 
 ## 1. Google OAuth client
 
@@ -17,13 +17,13 @@ The consent screen needs only the `openid`, `email` and `profile` scopes. Put th
 
 ```bash
 cd apps/worker
-bunx wrangler d1 create magnetar
+npx wrangler d1 create magnetar
 ```
 
 Paste the printed `database_id` into both `d1_databases` entries of `wrangler.jsonc`, then apply the schema:
 
 ```bash
-bun run migrate:remote
+npm run migrate:remote
 ```
 
 ## 3. CodeFusion Console
@@ -45,7 +45,7 @@ Deploy the console before this Worker: the `tail_consumers` entry and the `CONSO
 ## 4. Deploy
 
 ```bash
-bun run --cwd apps/worker deploy
+npm run deploy -w @magnetar/worker
 ```
 
 This builds the dashboard and deploys the Worker, its assets and the `DeviceRelay` Durable Object. The custom domain
@@ -56,7 +56,7 @@ route creates the DNS record in the `codefusion.cc` zone.
 Once, from the repo root:
 
 ```bash
-bun scripts/release-key.ts
+node scripts/release-key.ts
 ```
 
 Commit `apps/client/release-public-key.txt` and save the printed private key as the repository secret
@@ -83,7 +83,7 @@ and Gatekeeper only once the installed app is itself certificate-signed.
 
 ## Browser notifications (Web Push)
 
-Once, from `apps/worker`: `bunx -p @codefusion-cc/web-push codefusion-vapid | bunx wrangler secret put VAPID_PRIVATE_KEY`.
+Once, from `apps/worker`: `npx -p @codefusion-cc/web-push codefusion-vapid | npx wrangler secret put VAPID_PRIVATE_KEY`.
 The Worker derives the public key browsers subscribe with. For `wrangler dev`, put the printed key in
 `apps/worker/.dev.vars` as `VAPID_PRIVATE_KEY='…'`. Without it the website doesn't offer browser notifications. A new
 key makes every browser subscribe again.

@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "cargo run -p magnetar",
-    "build": "bun run package.ts",
+    "build": "node package.ts",
     "typecheck": "tsc -p ."
   }
 }

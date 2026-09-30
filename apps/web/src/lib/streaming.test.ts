@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { fromBase64, srtToVtt } from './streaming.ts'
 
 describe('subtitles', () => {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from 'bun:test'
+import { beforeEach, describe, expect, test } from 'vitest'
 import { toBase64Url } from '@magnetar/protocol/base64'
 import type { Env } from '../src/env.ts'
 import { signInReturnUrl } from '../src/googleCallback.ts'
