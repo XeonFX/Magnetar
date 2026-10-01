@@ -1,7 +1,8 @@
+import { randomId } from '@codefusion-cc/base58'
 import { verifyGoogleIdToken } from '@codefusion-cc/google-sign-in'
 import { clientNetwork, getCookie, HttpError, json, jsonError, rateLimit, readJson, requireSameOrigin, serializeCookie, sha256 } from '@codefusion-cc/workers-http'
 import type { AccountDto } from '@magnetar/protocol/cloud'
-import { randomId } from '@magnetar/protocol/base64'
+import { randomToken } from '@magnetar/protocol/base64'
 import { allowedOrigins, devLoginEnabled, MAX_BODY, type Env } from './env.ts'
 
 export const SESSION_COOKIE = '__Host-md_session'
@@ -43,7 +44,7 @@ async function signIn(env: Env, subject: string, email: string, name: string | n
   const user = await env.DB.prepare(`INSERT INTO users (id, subject, email, name, picture, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(subject) DO UPDATE SET email = excluded.email, name = excluded.name, picture = excluded.picture, last_login_at = excluded.last_login_at
     RETURNING id, email, name, picture`).bind(`u_${randomId(12)}`, subject, email, name, picture, now, now).first<UserRow>()
-  const token = randomId(32)
+  const token = randomToken(32)
   await env.DB.prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
     .bind(await sha256(token, 'base64url'), user!.id, now, now + SESSION_DAYS * 86_400_000).run()
   // Opportunistic cleanup, bounded so a sign-in never does much work.
@@ -68,7 +69,7 @@ export async function handleAuth(request: Request, env: Env, path: string): Prom
     const clientId = googleClientId(env)
     // The nonce binds the ID token Google returns to this browser: a token obtained anywhere
     // else carries a different nonce and is refused.
-    const nonce = randomId(24)
+    const nonce = randomToken(24)
     return json({ nonce, clientId }, { headers: { 'set-cookie': serializeCookie(NONCE_COOKIE, nonce, { maxAge: NONCE_SECONDS }) } })
   }
 

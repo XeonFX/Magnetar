@@ -7,12 +7,12 @@ use serde::{Deserialize, Serialize};
 use crate::db::{SecretName, SecretStore, replace_file};
 use crate::paths::Paths;
 use crate::protocol::AgentStatusDto;
-use crate::protocol::encoding::random_id;
+use crate::protocol::encoding::random_token;
 use crate::settings::SettingsService;
 
 /// 256 bits, base64url so it survives a shell or a JSON config.
 pub fn generate_token() -> String {
-    random_id(32)
+    random_token(32)
 }
 
 /// Constant-time comparison, so timing doesn't reveal how much of a guess was right.

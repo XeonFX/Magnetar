@@ -1,7 +1,12 @@
+import { base58ToBytes } from '@codefusion-cc/base58'
 import { env } from 'cloudflare:workers'
 import { describe, expect, test } from 'vitest'
 import { handleDevices } from '../src/devices.ts'
 import { approve, call, deviceAuth, freshIp, listDevices, ORIGIN, pairDevice, poll, signIn, startPairing, type User } from './client.ts'
+
+/** Whether `id` is `prefix` and then `bytes` random bytes in base58, as ids people see are. */
+const isBase58Id = (id: string, prefix: string, bytes: number) => id.startsWith(prefix) && base58ToBytes(id.slice(prefix.length), bytes) !== null
+const userId = async (user: User) => (await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(user.email).first<{ id: string }>())!.id
 
 /**
  * D1 whose pairing claims wait until `count` of them are ready, so racing approvals really race.
@@ -27,7 +32,8 @@ describe('pairing', () => {
   test('the app starts, the signed-in user approves, and the app collects its token once', async () => {
     const user = await signIn()
     const pairing = await startPairing({ name: 'Studio Mac', platform: 'macos', version: '2.1.0' })
-    expect(pairing.pairingId).toMatch(/^[A-Za-z0-9_-]{10,40}$/)
+    expect(isBase58Id(pairing.pairingId, '', 16)).toBe(true)
+    expect(isBase58Id(await userId(user), 'u_', 12)).toBe(true)
     expect(await (await poll(pairing)).json()).toEqual({ state: 'pending' })
 
     const info = await call(`/api/pair/${pairing.pairingId}`, { headers: user.headers })
@@ -36,6 +42,7 @@ describe('pairing', () => {
     const approved = await approve(user, pairing.pairingId)
     expect(approved.status).toBe(200)
     const { deviceId } = await approved.json<{ deviceId: string }>()
+    expect(isBase58Id(deviceId, 'd_', 12)).toBe(true)
 
     const collected = await (await poll(pairing)).json<Record<string, string>>()
     expect(collected).toMatchObject({ state: 'approved', deviceId, accountEmail: user.email })
@@ -50,6 +57,20 @@ describe('pairing', () => {
     const renamed = await call('/api/device', { method: 'PATCH', headers: deviceAuth({ deviceToken: collected.deviceToken! }), json: { name: 'Office' } })
     expect(renamed.status).toBe(200)
     expect(await listDevices(user)).toEqual([expect.objectContaining({ id: deviceId, name: 'Office', platform: 'macos', online: false })])
+  })
+
+  test('a device paired while ids were base64url keeps working', async () => {
+    const user = await signIn()
+    const legacyId = 'd_ZIZ0-ac6m_g2TvpD'
+    await env.DB.prepare('INSERT INTO devices (id, user_id, name, platform, version, token_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(legacyId, await userId(user), 'Old Mac', 'macos', '1.0.0', 'x', Date.now()).run()
+    expect(await listDevices(user)).toEqual([expect.objectContaining({ id: legacyId, name: 'Old Mac' })])
+    const connect = await call(`/api/devices/${legacyId}/connect`, { headers: { ...user.headers, upgrade: 'websocket' } })
+    expect(connect.status).toBe(101)
+    connect.webSocket!.accept()
+    connect.webSocket!.close()
+    expect((await call(`/api/devices/${legacyId}`, { method: 'DELETE', headers: user.headers })).status).toBe(200)
+    expect(await listDevices(user)).toEqual([])
   })
 
   test('polling needs the secret that started the pairing', async () => {
