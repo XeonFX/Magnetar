@@ -31,6 +31,9 @@ See docs/ARCHITECTURE.md before touching the relay, pairing or either `e2e` impl
   than re-sending the list.
 - Relayed streaming and push go through the encrypted channel only: the Worker forwards opaque bytes (`stream.read`
   replies, sealed push payloads) and must never see a key or plaintext.
+- Ids people see (devices, accounts, pairings, searches, streams) are base58: `randomId` from
+  `@codefusion-cc/base58` in TypeScript, `encoding::random_id` in Rust. Secrets and values decoded back to bytes stay
+  base64url (`randomToken`, `random_token`). Route patterns keep accepting `A-Za-z0-9_-` for older ids.
 - On the website a device's pages are `/<device name>/…`. A new top-level route there needs its word in
   `packages/protocol/src/device-names.json` (`reserved`), and a D1 migration renaming any device that has it. Pages
   are served by the Worker (`page()` in `apps/worker/src/index.ts`) so the assets never respell an address.
