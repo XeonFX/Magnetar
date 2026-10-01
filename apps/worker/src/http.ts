@@ -12,7 +12,7 @@ export const json = (body: unknown, init: ResponseInit = {}) =>
 
 export const error = (status: number, message: string) => json({ error: message }, { status })
 
-export const MAX_BODY = 16 * 1024
+const MAX_BODY = 16 * 1024
 
 export async function readJson<T>(request: Request): Promise<T> {
   if (!request.headers.get('content-type')?.startsWith('application/json')) throw new HttpError(415, 'Expected JSON')

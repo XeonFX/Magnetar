@@ -1,11 +1,11 @@
+import { verifyGoogleIdToken } from '@codefusion-cc/google-sign-in'
 import type { AccountDto } from '@magnetar/protocol/cloud'
 import { randomId } from '@magnetar/protocol/base64'
 import { devLoginEnabled, type Env } from './env.ts'
 import { clientIp, cookie, error, HttpError, json, limit, readJson, requireSameOrigin, setCookie, sha256 } from './http.ts'
-import { verifyGoogleIdToken } from './oidc.ts'
 
 export const SESSION_COOKIE = '__Host-md_session'
-const NONCE_COOKIE = '__Host-md_nonce'
+export const NONCE_COOKIE = '__Host-md_nonce'
 const SESSION_DAYS = 30
 const NONCE_SECONDS = 10 * 60
 
@@ -51,6 +51,12 @@ async function signIn(env: Env, subject: string, email: string, name: string | n
   return { user: user!, cookie: setCookie(SESSION_COOKIE, token, SESSION_DAYS * 86_400) }
 }
 
+/** The app's Google client id; 503 while sign-in is not set up. */
+function googleClientId(env: Env): string {
+  if (!env.GOOGLE_CLIENT_ID) throw new HttpError(503, 'Google sign-in is not configured yet')
+  return env.GOOGLE_CLIENT_ID
+}
+
 export async function handleAuth(request: Request, env: Env, path: string): Promise<Response | null> {
   if (path === '/api/me' && request.method === 'GET') {
     const user = await currentUser(request, env)
@@ -59,27 +65,26 @@ export async function handleAuth(request: Request, env: Env, path: string): Prom
 
   if (path === '/api/auth/start' && request.method === 'POST') {
     requireSameOrigin(request, env)
-    if (!env.GOOGLE_CLIENT_ID) return error(503, 'Google sign-in is not configured yet')
+    const clientId = googleClientId(env)
     // The nonce binds the ID token Google returns to this browser: a token obtained anywhere
     // else carries a different nonce and is refused.
     const nonce = randomId(24)
-    return json({ nonce, clientId: env.GOOGLE_CLIENT_ID }, { headers: { 'set-cookie': setCookie(NONCE_COOKIE, nonce, NONCE_SECONDS) } })
+    return json({ nonce, clientId }, { headers: { 'set-cookie': setCookie(NONCE_COOKIE, nonce, NONCE_SECONDS) } })
   }
 
   if (path === '/api/auth/google' && request.method === 'POST') {
     requireSameOrigin(request, env)
+    const clientId = googleClientId(env)
     await limit(env.AUTH_LIMITER, clientIp(request))
     const { credential } = await readJson<{ credential?: string }>(request)
-    let claims
-    try {
-      claims = await verifyGoogleIdToken(String(credential ?? ''), env.GOOGLE_CLIENT_ID, cookie(request, NONCE_COOKIE) ?? '')
-    } catch (e) {
-      return error(401, e instanceof Error ? e.message : 'Sign-in failed')
-    }
+    const check = await verifyGoogleIdToken(String(credential ?? ''), { clientId, nonce: cookie(request, NONCE_COOKIE) ?? '' })
+    // A nonce serves one attempt, whatever its outcome: the next sign-in starts with a new one.
+    const headers = new Headers({ 'cache-control': 'no-store', 'set-cookie': setCookie(NONCE_COOKIE, '', 0) })
+    // The page words the outcome from the status: 503 when Google's keys could not be read, else 401.
+    if (!check.ok) return Response.json({ error: check.problem }, { status: check.problem === 'keys-unavailable' ? 503 : 401, headers })
+    const { claims } = check
     const { user, cookie: session } = await signIn(env, `google:${claims.sub}`, claims.email, claims.name ?? null, claims.picture ?? null)
-    const headers = new Headers({ 'cache-control': 'no-store' })
     headers.append('set-cookie', session)
-    headers.append('set-cookie', setCookie(NONCE_COOKIE, '', 0))
     return Response.json(toAccount(user), { headers })
   }
 

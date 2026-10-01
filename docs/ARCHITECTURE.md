@@ -91,10 +91,12 @@ the object. Removing a device closes the device socket with 4001 and browsers wi
 
 ## Accounts and sessions
 
-Google sign-in is an OpenID Connect redirect (`response_type=id_token`, `response_mode=fragment`), adapted from
-HeyHubs: the page draws its own button (no Google script on our pages), the Worker's callback page bounces the token
-back to `/login` in the fragment, and the Worker verifies it: RS256 against Google's keys, issuer, audience (our client
-id), expiry, verified e-mail, and a nonce bound to the browser with a short-lived `__Host-` cookie. Sessions are random
+Google sign-in is an OpenID Connect redirect (`response_type=id_token`, `response_mode=fragment`) from
+`@codefusion-cc/google-sign-in`, shared with HeyHubs: the page draws its own button (no Google script on our pages),
+the Worker's callback page bounces the token back to `/login` in the fragment, and the Worker verifies it: RS256
+against Google's keys, issuer, audience (our client id), expiry and time of issue, verified e-mail, and a nonce bound
+to the browser with a short-lived `__Host-` cookie that each attempt spends. When Google's keys cannot be read the
+Worker answers 503 and the page asks the person to try again in a minute. Sessions are random
 tokens in an `HttpOnly; Secure; SameSite=Lax` `__Host-` cookie, stored in D1 as SHA-256 hashes with a 30-day sliding
 expiry. Cookie-authenticated calls and WebSocket upgrades must carry our own `Origin`.
 
