@@ -10,7 +10,8 @@ import { defineConfig } from 'vite'
  */
 const repo = join(import.meta.dirname, '../..')
 // The packaging script names the version it builds; a plain build (the Worker's deploy) takes the repo's.
-process.env.VITE_APP_VERSION ??= buildIdentity(repo).version
+const build = buildIdentity(repo)
+process.env.VITE_APP_VERSION ??= build.version
 
 const target = process.env.MAGNETAR_WEB_TARGET === 'cloud' ? 'http://localhost:8790' : `http://localhost:${process.env.MAGNETAR_CLIENT_PORT ?? 47820}`
 
@@ -18,6 +19,8 @@ export default defineConfig({
   // version.json for CodeFusion Console's Deployments page; source maps only the Worker reads (dist/_console/),
   // to show website failures with their own files and lines. The desktop app leaves the maps out (assets.rs).
   plugins: [react(), tailwindcss(), versionFile({ root: repo }), privateSourceMaps()],
+  // The page compares it with /version.json to move onto a newer deploy (src/lib/updates.ts).
+  define: { __APP_COMMIT__: JSON.stringify(build.commit) },
   server: {
     port: 5173,
     strictPort: true,

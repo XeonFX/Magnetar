@@ -5,6 +5,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import type { AppConfig } from '../lib/cloudApi.ts'
 import { cloud } from '../lib/cloudApi.ts'
 import { reporting } from '../lib/console.ts'
+import { UpdatesOnNavigation } from '../lib/updates.ts'
 import { errorMessage } from '../lib/errors.ts'
 import { browserLanguage, I18nProvider } from '../lib/i18n.tsx'
 import { Loading } from '../ui/Loading.tsx'
@@ -82,6 +83,7 @@ export default function CloudApp({ config }: { config: AppConfig }) {
       <I18nProvider language={browserLanguage()}>
         <BrowserRouter>
           <ConsolePageTracker signedIn={account !== null} />
+          <UpdatesOnNavigation />
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/pair/:pairingId" element={<PairPage />} />
