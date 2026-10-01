@@ -98,6 +98,22 @@ id), expiry, verified e-mail, and a nonce bound to the browser with a short-live
 tokens in an `HttpOnly; Secure; SameSite=Lax` `__Host-` cookie, stored in D1 as SHA-256 hashes with a 30-day sliding
 expiry. Cookie-authenticated calls and WebSocket upgrades must carry our own `Origin`.
 
+## CodeFusion Console
+
+magnetar.codefusion.cc is one of CodeFusion Console's apps (`@codefusion-cc/console`):
+
+- **Accounts and devices**: the console reads them through the Worker's `ConsoleAdmin` entrypoint, over its service
+  binding only (`apps/worker/src/console/`). Members who may moderate sign an account out everywhere or remove
+  devices, the same way their owners would; deleting an account needs `records:manage` and a reason. Emails, names
+  and device names are personal: the console shows them only to members with `pii:read`, and the Worker refuses to
+  search by them for anyone else.
+- **Failures**: the Worker's own (the console tails it), the website's (`/api/browser-failures`, masked first with the
+  same `scrub` as the app's, then by the package) and the desktop app's (`/api/telemetry/failure`, below).
+- **Visits**: page views by screen name (`packages/protocol/src/consolePages.ts`), without a visitor id: nobody is
+  asked for statistics consent, so nothing is stored in the browser.
+- **Deployments**: the build's `version.json`. Open pages move onto a newer deploy through `@codefusion-cc/app-update`
+  (on a device's own dashboard, after the app updates), without cutting short anything being typed or saved.
+
 ## The app
 
 A Rust program built into one executable (`apps/client`), with the dashboard embedded by `rust-embed` in release
