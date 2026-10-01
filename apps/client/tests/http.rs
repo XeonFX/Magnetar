@@ -264,7 +264,7 @@ mod stdio_bridge {
     async fn passes_requests_to_the_running_app_line_by_line() {
         let (app, base, _dir) = start().await;
         app.agent.set(Some(true), None);
-        let endpoint = Endpoint { mcp_url: format!("{base}/mcp"), token: app.agent.token() };
+        let endpoint = Endpoint { mcp_url: format!("{base}/mcp") };
         let input = [
             json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18" } })
                 .to_string(),
@@ -286,8 +286,8 @@ mod stdio_bridge {
 
     #[tokio::test]
     async fn says_why_when_agent_access_is_off() {
-        let (app, base, _dir) = start().await;
-        let endpoint = Endpoint { mcp_url: format!("{base}/mcp"), token: app.agent.token() };
+        let (_app, base, _dir) = start().await;
+        let endpoint = Endpoint { mcp_url: format!("{base}/mcp") };
         let answers =
             bridge(&json!({ "jsonrpc": "2.0", "id": 7, "method": "tools/list" }).to_string(), Some(endpoint), || false).await;
         assert_eq!(answers.len(), 1);
@@ -300,7 +300,7 @@ mod stdio_bridge {
         let starts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let counted = starts.clone();
         // Nothing listens on port 9; the start "fails" so no wait happens.
-        let endpoint = Endpoint { mcp_url: "http://127.0.0.1:9/mcp".into(), token: String::new() };
+        let endpoint = Endpoint { mcp_url: "http://127.0.0.1:9/mcp".into() };
         let input = [
             json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" }).to_string(),
             json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }).to_string(),
@@ -337,9 +337,7 @@ mod stdio_bridge {
         serve(
             tokio::io::BufReader::new(std::io::Cursor::new(input.into_bytes())),
             reader,
-            move || {
-                flag.load(std::sync::atomic::Ordering::SeqCst).then(|| Endpoint { mcp_url: url.clone(), token: String::new() })
-            },
+            move || flag.load(std::sync::atomic::Ordering::SeqCst).then(|| Endpoint { mcp_url: url.clone() }),
             move || {
                 ready.store(true, std::sync::atomic::Ordering::SeqCst);
                 true

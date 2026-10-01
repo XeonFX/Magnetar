@@ -12,17 +12,17 @@ use tokio::sync::Mutex;
 
 use crate::paths::Paths;
 
-/// Where the running app answers, from the endpoint file it keeps current.
+/// Where the running app answers, from the endpoint file it keeps current. The bridge talks to it
+/// on this computer, which needs no token, so none is sent: a stopped app's port can't collect it.
 #[derive(Clone, Debug)]
 pub struct Endpoint {
     pub mcp_url: String,
-    pub token: String,
 }
 
 impl Endpoint {
     pub fn read(paths: &Paths) -> Option<Self> {
         let file: Value = serde_json::from_str(&std::fs::read_to_string(&paths.endpoint).ok()?).ok()?;
-        Some(Self { mcp_url: file["mcpUrl"].as_str()?.to_owned(), token: file["token"].as_str().unwrap_or_default().to_owned() })
+        Some(Self { mcp_url: file["mcpUrl"].as_str()?.to_owned() })
     }
 }
 
@@ -89,11 +89,11 @@ async fn relay(
     let fail = |text: &str| id.clone().map(|id| error(id, -32000, text));
 
     let post = |target: &Endpoint| {
-        let mut request = http.post(&target.mcp_url).header("accept", "application/json, text/event-stream").json(&message);
-        if !target.token.is_empty() {
-            request = request.bearer_auth(&target.token);
-        }
-        request.timeout(Duration::from_secs(300)).send()
+        http.post(&target.mcp_url)
+            .header("accept", "application/json, text/event-stream")
+            .json(&message)
+            .timeout(Duration::from_secs(300))
+            .send()
     };
     let mut response = match endpoint() {
         Some(target) => post(&target).await.ok(),
