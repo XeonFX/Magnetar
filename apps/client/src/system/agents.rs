@@ -62,7 +62,12 @@ impl Environment {
         // An app started from Finder or the Start menu gets a minimal PATH, so the installers' usual
         // folders are searched too.
         let mut path: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
-        path.extend([home.join(".local/bin"), home.join(".claude/local"), home.join(".npm-global/bin"), home.join(".bun/bin")]);
+        path.extend([
+            nested(&home, ".local/bin"),
+            nested(&home, ".claude/local"),
+            nested(&home, ".npm-global/bin"),
+            nested(&home, ".bun/bin"),
+        ]);
         if cfg!(windows) {
             path.push(app_config.join("npm"));
         } else {
@@ -86,6 +91,12 @@ impl Environment {
             if cfg!(windows) { vec![format!("{name}.exe"), format!("{name}.cmd")] } else { vec![name.to_owned()] };
         self.path.iter().flat_map(|folder| names.iter().map(move |n| folder.join(n))).find(|p| p.is_file())
     }
+}
+
+/// `base` joined with a `/`-separated relative path, one component at a time, so Windows paths
+/// come out with backslashes only.
+fn nested(base: &Path, relative: &str) -> PathBuf {
+    relative.split('/').fold(base.to_path_buf(), |path, part| path.join(part))
 }
 
 /// An agent registered through its own command line.
@@ -131,7 +142,7 @@ impl Command {
 
 impl SettingsFile {
     fn path(&self, env: &Environment) -> PathBuf {
-        (self.folder)(env).join(self.file)
+        nested(&(self.folder)(env), self.file)
     }
 
     fn installed(&self, env: &Environment) -> bool {
@@ -196,7 +207,7 @@ impl AgentClient {
                 program: "gemini",
                 add: ADD_HTTP_USER,
                 remove: REMOVE_USER,
-                settings: |env| env.home.join(".gemini/settings.json"),
+                settings: |env| nested(&env.home, ".gemini/settings.json"),
                 connected: |text, url| json_entry(text, "mcpServers").is_some_and(|e| e["httpUrl"] == url || e["url"] == url),
             }),
             Self::Cursor => How::File(SettingsFile {
@@ -214,7 +225,7 @@ impl AgentClient {
                 entry: |url, _| json!({ "type": "http", "url": url }),
             }),
             Self::Windsurf => How::File(SettingsFile {
-                folder: |env| env.home.join(".codeium/windsurf"),
+                folder: |env| nested(&env.home, ".codeium/windsurf"),
                 file: "mcp_config.json",
                 program: Some("windsurf"),
                 section: "mcpServers",
@@ -399,7 +410,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("home");
         let env = Environment {
-            app_config: home.join("Library/Application Support"),
+            app_config: nested(&home, "Library/Application Support"),
             xdg_config: home.join(".config"),
             codex_home: home.join(".codex"),
             path: vec![dir.path().join("bin")],
@@ -430,13 +441,25 @@ mod tests {
         assert_eq!(
             cursor.manual,
             ManualSetup::Json {
-                file: env.home.join(".cursor/mcp.json").to_string_lossy().into_owned(),
+                file: nested(&env.home, ".cursor/mcp.json").to_string_lossy().into_owned(),
                 text: "{\n  \"mcpServers\": {\n    \"magnetar\": {\n      \"url\": \"http://localhost:47820/mcp\"\n    }\n  }\n}"
                     .into(),
             }
         );
         let codex = describe(AgentClient::Codex, URL, &env);
         assert_eq!(codex.manual, ManualSetup::Command { text: "codex mcp add magnetar --url http://localhost:47820/mcp".into() });
+    }
+
+    #[test]
+    fn paths_use_one_kind_of_separator() {
+        let (_dir, env) = scratch();
+        for client in describe_all(URL, &env) {
+            if let ManualSetup::Json { file, .. } = client.manual {
+                let other = if std::path::MAIN_SEPARATOR == '/' { '\\' } else { '/' };
+                assert!(!file.contains(other), "{}: {file}", client.name);
+            }
+        }
+        assert_eq!(nested(Path::new("base"), "a/b/c"), Path::new("base").join("a").join("b").join("c"));
     }
 
     #[tokio::test]
@@ -452,7 +475,7 @@ mod tests {
     #[tokio::test]
     async fn a_settings_file_keeps_everything_else_in_order_and_a_backup() {
         let (_dir, env) = scratch();
-        let file = env.home.join(".cursor/mcp.json");
+        let file = nested(&env.home, ".cursor/mcp.json");
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();
         let original = r#"{"zeta": 1, "mcpServers": {"github": {"url": "https://api.githubcopilot.com/mcp/"}, "magnetar": {"url": "http://localhost:1/mcp"}}, "alpha": [true]}"#;
         std::fs::write(&file, original).unwrap();
@@ -483,28 +506,28 @@ mod tests {
             (
                 AgentClient::Vscode,
                 env.app_config.join("Code"),
-                env.app_config.join("Code/User/mcp.json"),
+                nested(&env.app_config, "Code/User/mcp.json"),
                 "servers",
                 json!({ "type": "http", "url": URL }),
             ),
             (
                 AgentClient::Windsurf,
-                env.home.join(".codeium/windsurf"),
-                env.home.join(".codeium/windsurf/mcp_config.json"),
+                nested(&env.home, ".codeium/windsurf"),
+                nested(&env.home, ".codeium/windsurf/mcp_config.json"),
                 "mcpServers",
                 json!({ "serverUrl": URL }),
             ),
             (
                 AgentClient::Opencode,
                 env.xdg_config.join("opencode"),
-                env.xdg_config.join("opencode/opencode.json"),
+                nested(&env.xdg_config, "opencode/opencode.json"),
                 "mcp",
                 json!({ "type": "remote", "url": URL, "enabled": true }),
             ),
             (
                 AgentClient::ClaudeDesktop,
                 env.app_config.join("Claude"),
-                env.app_config.join("Claude/claude_desktop_config.json"),
+                nested(&env.app_config, "Claude/claude_desktop_config.json"),
                 "mcpServers",
                 json!({ "command": "/Applications/Magnetar.app/Contents/MacOS/Magnetar", "args": ["mcp"] }),
             ),
@@ -525,7 +548,7 @@ mod tests {
     #[tokio::test]
     async fn a_file_that_is_not_plain_json_is_left_alone() {
         let (_dir, env) = scratch();
-        let file = env.xdg_config.join("opencode/opencode.json");
+        let file = nested(&env.xdg_config, "opencode/opencode.json");
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();
         for text in ["{\n  // my servers\n  \"mcp\": {}\n}", "[1, 2]", "{\"mcp\": \"none\"}", "{\"mcp\": {},}"] {
             std::fs::write(&file, text).unwrap();
@@ -545,7 +568,10 @@ mod tests {
         assert!(describe(AgentClient::ClaudeCode, URL, &env).connected);
         assert!(!describe(AgentClient::ClaudeCode, "http://localhost:1/mcp", &env).connected);
 
-        write(&env.home.join(".gemini/settings.json"), &json!({ "mcpServers": { "magnetar": { "httpUrl": URL } } }).to_string());
+        write(
+            &nested(&env.home, ".gemini/settings.json"),
+            &json!({ "mcpServers": { "magnetar": { "httpUrl": URL } } }).to_string(),
+        );
         assert!(describe(AgentClient::GeminiCli, URL, &env).connected);
 
         let config = env.codex_home.join("config.toml");
