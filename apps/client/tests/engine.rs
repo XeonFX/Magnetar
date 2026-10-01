@@ -109,7 +109,11 @@ async fn a_torrent_file_starts_at_once_and_its_files_can_be_chosen() {
     wait_for(&app, added.id, DownloadStatus::Seeding).await;
 
     let files = app.downloads.files(added.id).unwrap();
-    let names: Vec<(&str, Option<&str>, bool)> = files.iter().map(|f| (f.path.as_str(), f.media, f.done == f.size)).collect();
+    // The torrent lists the folder in the order the file system gave it, so find each file by name.
+    let episode = files.iter().position(|f| f.path == "e01.mkv").expect("the episode is in the torrent");
+    let sub = 1 - episode;
+    let mut names: Vec<(&str, Option<&str>, bool)> = files.iter().map(|f| (f.path.as_str(), f.media, f.done == f.size)).collect();
+    names.sort();
     assert_eq!(names, [("e01.mkv", Some("video"), true), ("e01.srt", None, true)]);
     assert!(files.iter().all(|f| f.selected));
 
@@ -118,25 +122,25 @@ async fn a_torrent_file_starts_at_once_and_its_files_can_be_chosen() {
     bounded!(app.stop());
     let app = bounded!(start_app(&paths));
     wait_for(&app, added.id, DownloadStatus::Completed).await;
-    let partial = bounded!(app.downloads.select_files(added.id, vec![0, 0])).unwrap();
+    let partial = bounded!(app.downloads.select_files(added.id, vec![episode, episode])).unwrap();
     assert_eq!(partial.partial_files.map(|p| (p.selected, p.total)), Some((1, 2)));
     assert_eq!((partial.status, partial.total_bytes), (DownloadStatus::Completed, 600_000), "nothing new to fetch");
-    assert!(!app.downloads.files(added.id).unwrap()[1].selected);
+    assert!(!app.downloads.files(added.id).unwrap()[sub].selected);
     assert!(bounded!(app.downloads.select_files(added.id, vec![])).is_err(), "at least one file");
     assert!(bounded!(app.downloads.select_files(added.id, vec![2])).is_err(), "no such file");
-    let all = bounded!(app.downloads.select_files(added.id, vec![1, 0])).unwrap();
+    let all = bounded!(app.downloads.select_files(added.id, vec![sub, episode])).unwrap();
     assert_eq!(all.partial_files, None, "every file chosen is not partial");
     assert_eq!(all.status, DownloadStatus::Completed, "the subtitle is already on disk");
     // Straight after a start, while the engine may still hold the torrent it restored (see `Engine::handle`).
     std::fs::remove_file(pack.join("e01.srt")).unwrap();
-    bounded!(app.downloads.select_files(added.id, vec![0])).unwrap();
-    assert_eq!(app.downloads.files(added.id).unwrap()[1].done, 0, "a left-out file that is gone has nothing");
-    let widened = bounded!(app.downloads.select_files(added.id, vec![0, 1])).unwrap();
+    bounded!(app.downloads.select_files(added.id, vec![episode])).unwrap();
+    assert_eq!(app.downloads.files(added.id).unwrap()[sub].done, 0, "a left-out file that is gone has nothing");
+    let widened = bounded!(app.downloads.select_files(added.id, vec![episode, sub])).unwrap();
     assert_ne!(widened.status, DownloadStatus::Completed, "a newly chosen missing file is fetched");
     // Nobody seeds the subtitle, so it waits for peers, in the engine.
     let subtitle_file = async {
         for _ in 0..300 {
-            if let Ok(file) = app.downloads.open_file(added.id, 1) {
+            if let Ok(file) = app.downloads.open_file(added.id, sub) {
                 return file;
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -145,21 +149,24 @@ async fn a_torrent_file_starts_at_once_and_its_files_can_be_chosen() {
     };
     let file = subtitle_file.await;
     assert_eq!((file.name.as_str(), file.size), ("e01.srt", subtitle.len() as u64));
-    assert!(matches!(file.source, FileSource::Engine(_, 1)));
+    assert!(matches!(file.source, FileSource::Engine(_, index) if index == sub));
     // Once the engine has checked what is on disk, the episode counts and the subtitle doesn't.
     let mut running = app.downloads.files(added.id).unwrap();
     for _ in 0..300 {
-        if running[0].done > 0 {
+        if running[episode].done > 0 {
             break;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
         running = app.downloads.files(added.id).unwrap();
     }
-    assert_eq!(running[0].done, 9 * 64 * 1024, "all but the piece it shares with the subtitle");
-    assert_eq!(running[1].done, 0);
+    // All but the piece it shares with the subtitle: its last piece when it comes first, its first
+    // piece (64 KiB less the subtitle) when the subtitle comes first.
+    let shared = if episode == 0 { 600_000 - 9 * 64 * 1024 } else { 64 * 1024 - subtitle.len() as u64 };
+    assert_eq!(running[episode].done, 600_000 - shared, "all but the piece it shares with the subtitle");
+    assert_eq!(running[sub].done, 0);
     assert_eq!(std::fs::metadata(pack.join("e01.srt")).unwrap().len(), subtitle.len() as u64, "made full length");
-    let file = app.downloads.open_file(added.id, 1).unwrap();
-    assert!(matches!(file.source, FileSource::Engine(_, 1)), "but not read from disk: it holds nothing yet");
+    let file = app.downloads.open_file(added.id, sub).unwrap();
+    assert!(matches!(file.source, FileSource::Engine(_, index) if index == sub), "but not read from disk: it holds nothing yet");
     assert_eq!(app.downloads.location(added.id).unwrap(), pack);
 
     // Paused across a restart, what each file has comes from the pieces the engine saved.
@@ -168,7 +175,7 @@ async fn a_torrent_file_starts_at_once_and_its_files_can_be_chosen() {
     let app = bounded!(start_app(&paths));
     let paused = app.downloads.files(added.id).unwrap();
     assert_eq!(paused.iter().map(|f| f.done).collect::<Vec<_>>(), running.iter().map(|f| f.done).collect::<Vec<_>>());
-    let refused = app.downloads.open_file(added.id, 1).err().map(|e| e.message);
+    let refused = app.downloads.open_file(added.id, sub).err().map(|e| e.message);
     assert_eq!(refused.as_deref(), Some("Resume the download to play what it has so far."));
 
     // The same torrent again is the same download.
