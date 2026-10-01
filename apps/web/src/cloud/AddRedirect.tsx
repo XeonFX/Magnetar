@@ -8,6 +8,7 @@ import { listDeviceKeys } from '../lib/keyStore.ts'
 import { magnetsIn } from '../lib/magnets.ts'
 import { Loading } from '../ui/Loading.tsx'
 import { CloudFrame } from './CloudFrame.tsx'
+import { devicePath } from './devicePaths.ts'
 
 /**
  * Where this browser sends magnet links once it handles them (see the Devices page): straight to
@@ -24,7 +25,7 @@ export function AddRedirect() {
       .catch(() => setDevices([]))
   }, [])
 
-  const target = (id: string) => `/d/${encodeURIComponent(id)}?add=${encodeURIComponent(magnet)}`
+  const target = (id: string) => `${devicePath(id)}?add=${encodeURIComponent(magnet)}`
   if (!magnet) return <Navigate to="/" replace />
   if (devices === null) return <Loading screen />
   if (devices.length === 1) return <Navigate to={target(devices[0]!.id)} replace />

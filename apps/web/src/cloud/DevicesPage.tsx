@@ -13,6 +13,7 @@ import { PageHeader } from '../ui/controls.tsx'
 import { useToast } from '../ui/toast.tsx'
 import { canHandleMagnets, handleMagnetsHere } from './AddRedirect.tsx'
 import { CloudFrame } from './CloudFrame.tsx'
+import { devicePath } from './devicePaths.ts'
 import { DownloadApp } from './DownloadApp.tsx'
 
 export function DevicesPage() {
@@ -79,7 +80,7 @@ export function DevicesPage() {
               return (
                 <li key={device.id} className="surface flex items-center gap-1 p-2 transition-colors hover:border-base-content/20">
                   {/* Not linked yet: the device page explains how to link this browser. */}
-                  <Link to={`/d/${encodeURIComponent(device.id)}`} className="flex min-w-0 flex-1 items-center gap-3 rounded-field p-2">{body}<ChevronRight size={18} className="muted" /></Link>
+                  <Link to={devicePath(device.id)} className="flex min-w-0 flex-1 items-center gap-3 rounded-field p-2">{body}<ChevronRight size={18} className="muted" /></Link>
                   <button type="button" className="btn btn-ghost btn-sm btn-square muted hover:text-error" aria-label={t('devices.remove')} title={t('devices.remove')} onClick={() => setRemoving(device)}><Trash2 size={16} /></button>
                 </li>
               )

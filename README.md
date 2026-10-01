@@ -44,6 +44,7 @@ Rust, the dashboard and website TypeScript. It can import everything from a Medi
   or browser gets them with the website closed, encrypted on the computer for that browser.
 - **Installable website** (a Progressive Web App) with a download button for your system.
 - **Remote access** from any browser: sign in with Google, connect the computer once, link your phone with a QR code.
+  Several computers on one account, with a switcher that keeps your page.
 - **Agent access** (MCP and REST) for AI agents and scripts, off by default and loopback-only unless you add a TLS
   proxy and a bearer token.
 - **Menu-bar (macOS) and notification-area (Windows) icon** with live download speed, active downloads and updates.
@@ -80,6 +81,10 @@ The dashboard is at <http://localhost:47820> (the next free port if that one is 
 2. A tab opens on magnetar.codefusion.cc. Sign in with Google and approve the device.
 3. That browser is now linked. To add your phone, choose **Link a phone or another browser** (from the local
    dashboard or any linked browser) and scan the QR code while signed in to the same account.
+
+One account holds up to 20 computers. On the website, the device's name at the bottom of the sidebar (at the top on
+a phone) switches to another one and keeps the page you are on; each shows whether it is online and whether this
+browser is linked to it. A computer's own dashboard links to the others once it is on an account.
 
 Revoke a browser, rename the device or disconnect it from the same Settings section, or remove a device from the
 website's device list. How the encryption works is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#end-to-end-encryption).
