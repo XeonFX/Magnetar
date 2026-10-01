@@ -52,8 +52,10 @@ const GOOGLE_CALLBACK_PAGE = { background: { light: '#f6f7fb', dark: '#0f1117' }
  * become `…/house%2Bof%2Bthe%2Bdragon`, a search for pluses. Files (`/sw.js`, the icons) are the assets' own;
  * `/assets/*` never reaches the Worker (wrangler.jsonc).
  */
-function page(request: Request, env: Env, path: string): Promise<Response> {
-  if (/\.[A-Za-z0-9]+$/.test(path)) return env.ASSETS.fetch(request)
+async function page(request: Request, env: Env, path: string): Promise<Response> {
+  if (request.method !== 'GET' && request.method !== 'HEAD') return jsonError(405, 'Method not allowed')
+  // The public files all sit at the root; a dot deeper in is search text (`/Mac/search/house.of.the.dragon`).
+  if (/^\/[^/]+\.[A-Za-z0-9]+$/.test(path)) return env.ASSETS.fetch(request)
   return env.ASSETS.fetch(new Request(new URL('/', request.url), request))
 }
 

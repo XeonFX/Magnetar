@@ -119,7 +119,9 @@ enum PairPollResponse {
     Approved {
         device_id: String,
         device_token: String,
-        device_name: String,
+        /// Absent from a Worker older than device names as addresses; the app's own name stands then.
+        #[serde(default)]
+        device_name: Option<String>,
         account_email: String,
     },
 }
@@ -304,7 +306,9 @@ impl RemoteService {
                 Ok(Ok(PairPollResponse::Approved { device_id, device_token, device_name, account_email })) => {
                     self.kv.set("remote.deviceId", Some(&device_id));
                     // The name the account gave it, made unique there.
-                    self.kv.set("remote.deviceName", Some(&device_name));
+                    if let Some(name) = &device_name {
+                        self.kv.set("remote.deviceName", Some(name));
+                    }
                     self.kv.set("remote.accountEmail", Some(&account_email));
                     self.secrets.set(SecretName::DeviceToken, &device_token);
                     self.keys.activate(&key_id);
@@ -673,4 +677,23 @@ fn default_device_name() -> String {
         }
         .into()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_approval_names_the_device_when_the_worker_does() {
+        let approved = |body: Value| match serde_json::from_value::<PairPollResponse>(body).unwrap() {
+            PairPollResponse::Approved { device_name, .. } => device_name,
+            _ => panic!("not approved"),
+        };
+        let base = json!({ "state": "approved", "deviceId": "d_1", "deviceToken": "t", "accountEmail": "a@example.com" });
+        let mut named = base.clone();
+        named["deviceName"] = json!("MacBook-Pro-2");
+        assert_eq!(approved(named), Some("MacBook-Pro-2".to_owned()));
+        // A Worker from before names were addresses still pairs.
+        assert_eq!(approved(base), None);
+    }
 }

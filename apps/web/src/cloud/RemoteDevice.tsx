@@ -1,7 +1,7 @@
 import type { CloudDeviceDto } from '@magnetar/protocol/cloud'
-import { isDeviceName, sameDeviceName } from '@magnetar/protocol/device-name'
+import { sameDeviceName } from '@magnetar/protocol/device-name'
 import { ArrowLeft, Laptop, QrCode, SearchX } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router'
 import { DeviceProvider, useDevice } from '../device/DeviceContext.tsx'
 import { DeviceRoutes } from '../device/DeviceRoutes.tsx'
@@ -138,17 +138,29 @@ function DeviceView({ device, onRenamed }: { device: CloudDeviceDto; onRenamed: 
   )
 }
 
-/** Moves the address to the device's new name when the app says it was renamed, keeping the page and its connection. */
+/**
+ * Moves the address to the device's new name when the app says it was renamed, keeping the page and its connection.
+ * The account's list has the last word: an app from before names were addresses may still call itself by a name the
+ * account gave another device.
+ */
 function FollowRename({ device, onRenamed }: { device: CloudDeviceDto; onRenamed: (id: string, name: string) => void }) {
   const { remote } = useDevice()
   const navigate = useNavigate()
-  const { pathname, search, hash } = useLocation()
-  const name = remote?.deviceName
+  const location = useLocation()
+  const here = useRef(location)
+  here.current = location
+  const reported = remote?.deviceName
   useEffect(() => {
-    // An app from before names were addresses may hold one that isn't; the account's name stands then.
-    if (!name || name === device.name || !isDeviceName(name)) return
-    onRenamed(device.id, name)
-    navigate(samePageOn(pathname, search, devicePath(device.name), devicePath(name)) + hash, { replace: true })
-  }, [name])
+    if (!reported || reported === device.name) return
+    let cancelled = false
+    void cloud.devices().then(list => {
+      const name = list.find(d => d.id === device.id)?.name
+      if (cancelled || !name || name === device.name) return
+      const { pathname, search, hash } = here.current
+      onRenamed(device.id, name)
+      navigate(samePageOn(pathname, search, devicePath(device.name), devicePath(name)) + hash, { replace: true })
+    }, () => {})
+    return () => { cancelled = true }
+  }, [reported])
   return null
 }

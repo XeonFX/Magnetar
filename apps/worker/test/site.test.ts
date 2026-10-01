@@ -31,11 +31,15 @@ describe('the website API', () => {
       const response = await fetchWith({ ...env, ASSETS: assets } as Env, new Request(`http://localhost:8790${path}`))
       return { response, asked: [...asked] }
     }
-    for (const path of ['/', '/MacBook-Pro', '/MacBook-Pro/search/house+of+the+dragon?res=720p', '/MacBook-Pro/search/AC%2FDC+%2B:1', '/d/d_x/settings']) {
+    for (const path of ['/', '/MacBook-Pro', '/MacBook-Pro/search/house+of+the+dragon?res=720p', '/MacBook-Pro/search/AC%2FDC+%2B:1', '/MacBook-Pro/search/s01e01+1080p.mkv', '/d/d_x/settings']) {
       const { response, asked } = await get(path)
       expect([response.status, await response.text(), asked], path).toEqual([200, 'asset', ['/']])
       expect(response.headers.get('x-content-type-options')).toBe('nosniff')
     }
+    // Only reading a page is a page; nothing goes to the assets for anything else.
+    asked.length = 0
+    const posted = await fetchWith({ ...env, ASSETS: assets } as Env, new Request('http://localhost:8790/MacBook-Pro', { method: 'POST' }))
+    expect([posted.status, await posted.json(), asked]).toEqual([405, { error: 'Method not allowed' }, []])
     // Files are the assets' own; the API's and the console's unknown paths stay JSON 404s.
     expect((await get('/sw.js')).asked).toEqual(['/sw.js'])
     expect((await get('/icon-192.png')).asked).toEqual(['/icon-192.png'])
