@@ -9,6 +9,7 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
+    "@codefusion-cc/console": "^0.9.0",
     "@codefusion-cc/web-push": "^1.1.0",
     "@magnetar/protocol": "*",
     "lucide-react": "^1.48.0",

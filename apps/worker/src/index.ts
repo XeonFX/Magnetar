@@ -1,7 +1,11 @@
+import { consoleAdmin, createConsoleRoutes } from '@codefusion-cc/console/worker'
 import type { AppConfig, FailureReport } from '@magnetar/protocol/cloud'
+import { CONSOLE_PAGES } from '@magnetar/protocol/console-pages'
 import { handleAuth } from './auth.ts'
+import { consoleResources } from './console/admin.ts'
+import { manifest } from './console/manifest.ts'
 import { handleDevices } from './devices.ts'
-import { devLoginEnabled, type Env } from './env.ts'
+import { allowedOrigins, devLoginEnabled, type Env } from './env.ts'
 import { handleGoogleCallback } from './googleCallback.ts'
 import { clientIp, error, HttpError, json, limit, readJson } from './http.ts'
 import { handlePush } from './push.ts'
@@ -9,12 +13,18 @@ import { handleReleases } from './releases.ts'
 
 export { DeviceRelay } from './relay.ts'
 
+/** CodeFusion Console reads accounts and devices through this, over its service binding only (console/admin.ts). */
+export const ConsoleAdmin = consoleAdmin<Env>({ manifest, resources: consoleResources })
+
+/** The website's failures (POST /api/browser-failures) and page views (POST /api/visits), from its own pages only. */
+const consoleRoutes = createConsoleRoutes({ appId: 'magnetar', pages: CONSOLE_PAGES })
+
 const SOURCES = new Set(['error', 'rejection', 'render'])
 const text = (value: unknown, max: number) => (typeof value === 'string' ? value.slice(0, max) : '')
 
 /**
- * Error reports from the website and from desktop clients, forwarded to CodeFusion Console.
- * Senders scrub them first; this only bounds their size and rate.
+ * Error reports from desktop clients, forwarded to CodeFusion Console. Clients scrub them first; this only
+ * bounds their size and rate. The website reports through createConsoleRoutes instead.
  */
 async function reportFailure(request: Request, env: Env): Promise<Response> {
   await limit(env.TELEMETRY_LIMITER, clientIp(request))
@@ -34,8 +44,10 @@ async function reportFailure(request: Request, env: Env): Promise<Response> {
   return new Response(null, { status: 204 })
 }
 
-async function route(request: Request, env: Env): Promise<Response> {
+async function route(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const path = new URL(request.url).pathname
+  const consoleAnswer = await consoleRoutes.fetch(request, env, ctx, origin => allowedOrigins(env).includes(origin))
+  if (consoleAnswer) return consoleAnswer
   if (path === '/app-config.json') {
     return json({ mode: 'cloud', googleClientId: env.GOOGLE_CLIENT_ID || undefined, devLogin: devLoginEnabled(env) || undefined } satisfies AppConfig)
   }
@@ -49,9 +61,9 @@ async function route(request: Request, env: Env): Promise<Response> {
 }
 
 export default {
-  async fetch(request, env): Promise<Response> {
+  async fetch(request, env, ctx): Promise<Response> {
     try {
-      const response = await route(request, env)
+      const response = await route(request, env, ctx)
       if (response.status === 101) return response
       const headers = new Headers(response.headers)
       headers.set('x-content-type-options', 'nosniff')
