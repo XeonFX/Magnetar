@@ -131,19 +131,18 @@ describe('pairing', () => {
 
   test('starting pairings is rate limited per address', async () => {
     // The dev environment allows 100 a minute: all of them at once pass, the next one doesn't.
-    // Local rate limits count in one-minute windows on the wall clock, and a burst that runs into
-    // the next window is split between two counts, so one that did is sent again from a new address.
+    // Local rate limits count per wall-clock minute, so a burst that runs into the next minute is
+    // sent again from a new address; starting just after the turnover, the retry has the minute to itself.
     const minute = () => Math.floor(Date.now() / 60_000)
     async function burst() {
       const ip = freshIp()
       const start = async () => (await call('/api/pair/start', { method: 'POST', headers: { 'cf-connecting-ip': ip }, json: {} })).status
-      const window = minute()
+      const started = minute()
       const statuses = await Promise.all(Array.from({ length: 100 }, start))
       const extra = await start()
-      return minute() === window ? { statuses, extra } : null
+      return minute() === started ? { statuses, extra } : null
     }
-    // A retry starts just after a window turned over, so it has the whole minute to fit in.
-    const { statuses, extra } = await burst() ?? await burst() ?? expect.unreachable('Both bursts ran into the next window')
+    const { statuses, extra } = await burst() ?? await burst() ?? expect.unreachable('Both bursts ran into the next minute')
     expect(statuses.filter(s => s === 200)).toHaveLength(100)
     expect(extra).toBe(429)
     // Another address still gets through.

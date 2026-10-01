@@ -86,7 +86,7 @@ type Message = string | Uint8Array
 /** One end of a relay connection, as the app or a dashboard holds it. */
 export interface Socket {
   ws: WebSocket
-  /** The next message, in arrival order; fails after ten seconds without one. */
+  /** The next message, in arrival order; fails after `PATIENCE_MS` without one. */
   next(): Promise<Message>
   /** The next text message, parsed. */
   nextJson<T = Record<string, unknown>>(): Promise<T>
@@ -154,7 +154,7 @@ export const connectBrowser = (user: User, deviceId: string, headers: Record<str
 /** Lets messages already sent through the relay arrive, before checking that nothing else did. */
 export const settle = () => new Promise(resolve => setTimeout(resolve, 50))
 
-/** Retries `check` until it passes or ten seconds are up, for effects the relay applies after a socket event. */
+/** Retries `check` until it passes or `PATIENCE_MS` is up, for effects the relay applies after a socket event. */
 export async function eventually(check: () => Promise<void>): Promise<void> {
   const deadline = Date.now() + PATIENCE_MS
   for (;;) {
