@@ -47,7 +47,9 @@ Rust, the dashboard and website TypeScript. It can import everything from a Medi
   Several computers on one account, with a switcher that keeps your page.
 - **Agent access** (MCP and REST) for AI agents and scripts, off by default and loopback-only unless you add a TLS
   proxy and a bearer token.
-- **Menu-bar (macOS) and notification-area (Windows) icon** with live download speed, active downloads and updates.
+- **Menu-bar (macOS) and notification-area (Windows) icon** with live download and upload totals, every unfinished download
+  (pause or resume it, show it in Finder or Explorer), pause and resume all, slow mode and speed-limit presets, notification
+  and Open at Login switches, remote access and updates. The open menu updates in place.
 - **Start at login** on macOS and Windows.
 - **Self-updating** from GitHub Releases, verified with a signature whose key is built into the app.
 - **Eight languages**: English, Polish, German, French, Spanish, Italian, Portuguese and Russian.

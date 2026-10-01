@@ -166,9 +166,8 @@ impl Item {
         self.handle.is_some() || self.attaching.is_some()
     }
 
-    /// Should be in the engine: not finished, failed or paused.
     fn wants_engine(&self) -> bool {
-        !matches!(self.status, DownloadStatus::Completed | DownloadStatus::Error | DownloadStatus::Paused)
+        self.status.wants_engine()
     }
 
     fn ratio(&self) -> f64 {
@@ -525,18 +524,12 @@ impl DownloadManager {
         self.items().get(&id).map(Item::to_dto).ok_or_else(|| not_found(id))
     }
 
-    /// Rows the tray lists: downloading, seeding or fetching metadata.
-    pub fn active(&self) -> Vec<DownloadDto> {
-        let mut active: Vec<DownloadDto> = self
-            .items()
-            .values()
-            .filter(|i| {
-                matches!(i.status, DownloadStatus::Downloading | DownloadStatus::Seeding | DownloadStatus::FetchingMetadata)
-            })
-            .map(Item::to_dto)
-            .collect();
-        active.sort_by(|a, b| b.added_at.cmp(&a.added_at));
-        active
+    /// Downloads not yet done with: running, seeding, queued, paused or failed; newest first.
+    pub fn unfinished(&self) -> Vec<DownloadDto> {
+        let mut unfinished: Vec<DownloadDto> =
+            self.items().values().filter(|i| i.status != DownloadStatus::Completed).map(Item::to_dto).collect();
+        unfinished.sort_by(|a, b| b.added_at.cmp(&a.added_at).then(b.id.cmp(&a.id)));
+        unfinished
     }
 
     /// Series downloads that died for want of peers: (download id, episode, info hash).

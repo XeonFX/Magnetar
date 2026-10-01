@@ -24,6 +24,11 @@ impl DownloadStatus {
         DOWNLOAD_STATUSES[self as usize]
     }
 
+    /// Belongs in the engine: not finished, failed or paused.
+    pub fn wants_engine(self) -> bool {
+        !matches!(self, Self::Completed | Self::Error | Self::Paused)
+    }
+
     pub fn parse(value: &str) -> Option<Self> {
         use DownloadStatus::*;
         [Queued, FetchingMetadata, Downloading, Seeding, Paused, Completed, Error]
