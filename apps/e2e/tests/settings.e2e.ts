@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 test('speed limits are checked as typed, saved on leaving the field, and kept', async ({ page }) => {
-  await page.goto('/settings?section=downloads')
+  await page.goto('/settings/downloads')
   // The usual limits come before the alternative ones.
   const download = () => page.getByRole('spinbutton', { name: 'Download' }).first()
   const unit = () => page.getByRole('combobox', { name: 'Unit' }).first()
@@ -37,7 +37,7 @@ test('a series and a watch are set up from the Watchlist page', async ({ page })
   await expect(card).toContainText('E01')
 
   await page.getByRole('radio', { name: /Films & more/ }).click()
-  await expect(page).toHaveURL(/tab=releases/)
+  await expect(page).toHaveURL(/\/series\/releases$/)
   await page.getByRole('button', { name: 'Watch for a release' }).first().click()
   const watch = page.locator('dialog[open]')
   await watch.getByLabel('What to look for').fill('x')

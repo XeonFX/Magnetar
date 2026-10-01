@@ -2,6 +2,9 @@ import type { SeriesResolution } from '@magnetar/protocol'
 
 export const resolutionLabel = (r: SeriesResolution | null) => (r === '2160p' ? '4K' : r)
 
+/** Every resolution to choose from, "any" first. */
+export const RESOLUTIONS = ['', '720p', '1080p', '2160p'] as const satisfies readonly (SeriesResolution | '')[]
+
 /** The release rules series tasks and watches share, as a form edits them. */
 export interface QualityForm {
   resolution: SeriesResolution | ''

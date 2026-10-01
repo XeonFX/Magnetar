@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Outlet } from 'react-router'
 import { useT } from '../lib/i18n.tsx'
 import { Loading } from '../ui/Loading.tsx'
-import { useDevice, useDownloads } from './DeviceContext.tsx'
+import { useDevice, useDownloads, useSearchLink } from './DeviceContext.tsx'
 import { isActive } from './components/downloads.tsx'
 import { BrandMark } from '../ui/BrandMark.tsx'
 
@@ -15,10 +15,11 @@ export function Shell({ headerStart, headerEnd }: { headerStart?: ReactNode; hea
   const t = useT()
   const { basePath, info, connectionState } = useDevice()
   const active = useDownloads().filter(isActive).length
+  const searchLink = useSearchLink()
 
   const nav = [
     { to: basePath || '/', end: true, icon: Download, label: t('nav.downloads'), badge: active },
-    { to: `${basePath}/search`, end: false, icon: Search, label: t('nav.search') },
+    { to: searchLink, end: false, icon: Search, label: t('nav.search') },
     { to: `${basePath}/series`, end: false, icon: Tv, label: t('nav.series') },
     { to: `${basePath}/settings`, end: false, icon: Settings, label: t('nav.settings') },
   ]

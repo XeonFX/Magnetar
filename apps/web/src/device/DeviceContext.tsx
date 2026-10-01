@@ -9,16 +9,17 @@ import type { ConnectionState, RpcClient } from '../lib/rpcClient.ts'
 
 /** What the Search page keeps while you browse other pages, like the legacy app did. */
 export interface SearchState {
+  /** What is typed in the search box. */
   query: string
-  source: string
-  resolution: string
+  /** The search whose results are on screen (`searchKey`), so it isn't run twice. */
+  ran: string | null
   searchId: string | null
   searching: boolean
   results: SearchResultDto[] | null
   outcomes: SourceOutcomeDto[]
 }
 
-const EMPTY_SEARCH: SearchState = { query: '', source: '', resolution: '', searchId: null, searching: false, results: null, outcomes: [] }
+const EMPTY_SEARCH: SearchState = { query: '', ran: null, searchId: null, searching: false, results: null, outcomes: [] }
 
 interface DeviceState {
   connection: RpcClient
@@ -57,7 +58,15 @@ const DeviceContext = createContext<DeviceState | null>(null)
 /** Separate so the once-a-second progress updates re-render only the views that show downloads. */
 const DownloadsContext = createContext<DownloadDto[]>([])
 /** The search in progress, apart so typing and streamed results re-render only the search page. */
-const SearchContext = createContext<{ search: SearchState; setSearch: (update: (state: SearchState) => SearchState) => void } | null>(null)
+const SearchContext = createContext<SearchContextValue | null>(null)
+interface SearchContextValue {
+  search: SearchState
+  setSearch: (update: (state: SearchState) => SearchState) => void
+  /** Remembers the search page's query string, for the links back to it. */
+  setSearchAddress: (query: string) => void
+}
+/** The last search's query string, apart so only the links back to Search re-render when it changes. */
+const SearchAddressContext = createContext('')
 /** Just the connection, which never changes for a device: for per-row views that only make calls. */
 const ConnectionContext = createContext<RpcClient | null>(null)
 
@@ -78,6 +87,7 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
   const [remote, setRemote] = useState<RemoteStatusDto | null>(null)
   const [transfer, setTransfer] = useState<TransferStatusDto | null>(null)
   const [search, setSearch] = useState<SearchState>(EMPTY_SEARCH)
+  const [searchAddress, setSearchAddress] = useState('')
 
   useEffect(() => {
     const refresh = async () => {
@@ -144,13 +154,15 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
   const value = useMemo<DeviceState>(() => ({
     connection, connectionState, info, series, watches, settings, sources, updates, remote, transfer, basePath, deviceName,
   }), [connection, connectionState, info, series, watches, settings, sources, updates, remote, transfer, basePath, deviceName])
-  const searchValue = useMemo(() => ({ search, setSearch }), [search])
+  const searchValue = useMemo(() => ({ search, setSearch, setSearchAddress }), [search])
 
   return (
     <ConnectionContext.Provider value={connection}>
       <DeviceContext.Provider value={value}>
         <SearchContext.Provider value={searchValue}>
-          <DownloadsContext.Provider value={downloads}>{children}</DownloadsContext.Provider>
+          <SearchAddressContext.Provider value={searchAddress}>
+            <DownloadsContext.Provider value={downloads}>{children}</DownloadsContext.Provider>
+          </SearchAddressContext.Provider>
         </SearchContext.Provider>
       </DeviceContext.Provider>
     </ConnectionContext.Provider>
@@ -170,7 +182,14 @@ export function useConnection(): RpcClient {
   return value
 }
 
-export function useSearch(): { search: SearchState; setSearch: (update: (state: SearchState) => SearchState) => void } {
+/** Where Search opens: the search left on screen, if any. */
+export function useSearchLink(): string {
+  const { basePath } = useDevice()
+  const address = useContext(SearchAddressContext)
+  return `${basePath}/search${address ? `?${address}` : ''}`
+}
+
+export function useSearch(): SearchContextValue {
   const value = useContext(SearchContext)
   if (!value) throw new Error('useSearch outside DeviceProvider')
   return value
