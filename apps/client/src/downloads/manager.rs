@@ -946,7 +946,6 @@ impl DownloadManager {
         let only_files = only_files.filter(|files| files.iter().all(|&f| f < metadata.files.len()));
         let handle = engine.add(&metadata, save_path, only_files).await?;
         let shutting_down = self.shutting_down.load(Ordering::SeqCst);
-        // Paused, failed or deleted while it was starting. On shutdown the engine keeps it as it is.
         let set_aside = {
             let mut items = self.items();
             match items.get_mut(&id) {
@@ -961,6 +960,7 @@ impl DownloadManager {
                     self.changed();
                     return Ok(());
                 }
+                // Paused, failed or deleted while it was starting. On shutdown the engine keeps it as it is.
                 Some(_) if shutting_down => return Ok(()),
                 Some(_) => engine.pause(handle),
                 None => engine.remove(handle),

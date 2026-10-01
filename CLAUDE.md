@@ -24,7 +24,8 @@ See docs/ARCHITECTURE.md before touching the relay, pairing or either `e2e` impl
 - Never let librqbit delete files (`Session::delete(.., true)` also removes an emptied output folder, which can be the
   user's download folder); `downloads::engine::delete_files` does it.
 - librqbit restores the torrents it had (`session/`) on start; the downloads table decides what runs
-  (`Engine::reconcile`). Pause with `Engine::pause` so fast-resume data survives; `Engine::remove` drops it.
+  (`Engine::reconcile`). Pause with `Engine::pause` so fast-resume data survives; `Engine::remove` drops it. Call
+  either while the downloads are still locked: the torrent then counts as leaving before an attach could take it up.
 - The engine is swapped under a supervisor (`DownloadManager::supervise_engine`): reach it with `self.engine()`, never
   keep an `Arc<Engine>` across an await that could outlive a restart, and add live rows to `downloads.updated` rather
   than re-sending the list.
