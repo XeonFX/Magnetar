@@ -143,7 +143,10 @@ builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the ser
 - **Storage**: SQLite (`rusqlite`, bundled) with numbered migrations (`db.rs`); settings as one JSON row, so a new
   setting needs no migration; secrets sealed with AES-256-GCM under a key file beside the database.
 - **Server**: `axum` on localhost (IPv4 and IPv6) serves the dashboard, its WebSocket, the agent REST API
-  (`http/rest.rs`) and a stateless MCP endpoint (`http/mcp.rs`, JSON-RPC over Streamable HTTP).
+  (`http/rest.rs`) and a stateless MCP endpoint (`http/mcp.rs`, JSON-RPC over Streamable HTTP). `magnetar mcp`
+  (`bridge.rs`) is the same server on stdio for agents that only start local servers: it reads the running app's
+  address from `endpoint.json` for every message and relays. `system/agents.rs` connects agents on this computer,
+  through their own command or by editing their settings file.
 - **Tray**: `tray-icon` on a `tao` event loop on the main thread (macOS menu bar, Windows notification area). Linux
   has no tray; the dashboard opens in the browser.
 - **Updates**: GitHub Releases every 6 hours. Installs require `SHA256SUMS.txt.sig`, an Ed25519 signature checked

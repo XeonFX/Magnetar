@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import {
   SeriesTaskInput, SeriesTaskPatch, SettingsPatch, StartDownloadInput, WatchInput,
-  type AgentStatusDto, type AppInfoDto, type ClaudeConnectResultDto, type DownloadDto, type DownloadFileDto, type FolderListing, type LegacyImportResultDto,
+  AGENT_CLIENTS, type AgentClientDto, type AgentConnectResultDto, type AgentStatusDto, type AppInfoDto, type DownloadDto, type DownloadFileDto, type FolderListing, type LegacyImportResultDto,
   type LegacyImportStatusDto, type LoginStartupStatus, type RemoteStatusDto, type SearchResultDto,
   type HandlerStatus, type NetworkInterfaceDto, type SeriesTaskDto, type SettingsDto, type SourceDto, type SourceOutcomeDto, type TorrentDetailsDto,
   type TransferStatusDto, type UpdateStatusDto, type WatchDto,
@@ -93,8 +93,10 @@ export const RPC_PARAMS = {
   'agent.status': none,
   'agent.set': z.strictObject({ enabled: z.boolean().optional(), allowRemote: z.boolean().optional() }),
   'agent.regenerateToken': none,
-  /** Turns agent access on and registers the MCP server with the Claude Code CLI on the device. */
-  'agent.connectClaude': none,
+  /** The AI agents on this computer, found or not, with how to connect each by hand. */
+  'agent.clients': none,
+  /** Adds the MCP server to one agent's settings on this computer and turns agent access on. */
+  'agent.connect': z.strictObject({ client: z.enum(AGENT_CLIENTS) }),
 
   'remote.status': none,
   'remote.pair': z.strictObject({ deviceName: z.string().trim().min(1).max(60).optional() }),
@@ -166,7 +168,8 @@ export interface RpcResults {
   'agent.status': AgentStatusDto
   'agent.set': AgentStatusDto
   'agent.regenerateToken': AgentStatusDto
-  'agent.connectClaude': ClaudeConnectResultDto
+  'agent.clients': AgentClientDto[]
+  'agent.connect': AgentConnectResultDto
   'remote.status': RemoteStatusDto
   'remote.pair': RemoteStatusDto
   'remote.cancelPairing': RemoteStatusDto

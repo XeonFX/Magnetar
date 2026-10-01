@@ -1,4 +1,4 @@
-pub mod claude;
+pub mod agents;
 pub mod folders;
 pub mod handlers;
 pub mod login_startup;

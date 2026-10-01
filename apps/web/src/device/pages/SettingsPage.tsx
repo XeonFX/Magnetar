@@ -1,6 +1,6 @@
 import type { AgentStatusDto, HandlerStatus, LoginStartupStatus, SettingsDto, SettingsPatch } from '@magnetar/protocol'
 import {
-  Bell, Bot, Cloud, Copy, Download, Eye, EyeOff, Info, Mail, RefreshCw, Send, Server, Smartphone, SlidersHorizontal, Sparkles, Upload,
+  Bell, Bot, Cloud, Copy, Download, Eye, EyeOff, Info, Mail, RefreshCw, Send, Server, Smartphone, SlidersHorizontal, Upload,
 } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
@@ -17,6 +17,7 @@ import { FolderField } from '../components/folders.tsx'
 import { useLegacyImport } from '../components/legacyImport.tsx'
 import { RemoteAccessSection } from '../components/remoteAccess.tsx'
 import { NetworkSettings, SeedingRow, SpeedSettings } from '../components/transferSettings.tsx'
+import { AgentClients } from '../components/agentClients.tsx'
 import { useRun } from '../useRun.ts'
 import { Loading } from '../../ui/Loading.tsx'
 
@@ -314,7 +315,6 @@ function AgentSection() {
   const [agent, setAgent] = useState<AgentStatusDto | null>(null)
   const [reveal, setReveal] = useState(false)
   const [confirming, setConfirming] = useState(false)
-  const [connectingClaude, setConnectingClaude] = useState(false)
   useEffect(() => {
     void connection.call('agent.status').then(setAgent).catch(() => {})
   }, [connection])
@@ -326,30 +326,15 @@ function AgentSection() {
     if (next && patch.allowRemote !== undefined) toast(t('settings.agentRestart'), 'info')
   }
 
-  /** Registers the MCP server with Claude Code on this computer (turning agent access on). */
-  const connectClaude = async () => {
-    setConnectingClaude(true)
-    const result = await run(() => connection.call('agent.connectClaude'), 'settings.claudeConnectFailed')
-    setConnectingClaude(false)
-    if (!result) return
-    setAgent(result.agent)
-    toast(t(result.status === 'connected' ? 'settings.claudeConnected' : 'settings.claudeNotFound'), result.status === 'connected' ? 'success' : 'info')
-  }
-
   return (
     <>
       <SettingGroup>
         <SettingRow title={t('settings.agentAccess')} description={t('settings.agentHint')}>
           <Switch label={t('settings.agentAccess')} checked={agent.enabled} onChange={enabled => void change({ enabled })} />
         </SettingRow>
-        {connection.kind === 'local' && (
-          <SettingRow layout="wide" title={t('settings.connectClaude')} description={t('settings.connectClaudeHint')}>
-            <button type="button" className="btn btn-primary btn-sm" disabled={connectingClaude} onClick={() => void connectClaude()}>
-              {connectingClaude ? <span className="loading loading-spinner loading-xs" /> : <Sparkles size={14} />}{t('settings.connectClaude')}
-            </button>
-          </SettingRow>
-        )}
       </SettingGroup>
+      {/* Agents run on the computer itself; a remote dashboard can't set them up. */}
+      {connection.kind === 'local' && <AgentClients onAgent={setAgent} />}
       {agent.enabled && (
         <SettingGroup title={t('settings.agentDetails')} description={t('settings.agentLoopbackHint')}>
           <SettingRow title={t('settings.agentRemote')} description={t('settings.agentRemoteHint')}>
@@ -365,7 +350,6 @@ function AgentSection() {
               </div>
             </Field>
             <CopyField label={t('settings.agentMcpUrl')} value={agent.mcpUrl} onCopy={copy} />
-            <CopyField label={t('settings.agentClaudeCommand')} value={agent.claudeCommand} onCopy={copy} />
             <p className="muted break-release text-xs">{t('settings.agentEndpointFile', agent.endpointFile)}</p>
           </div>
         </SettingGroup>

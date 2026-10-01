@@ -58,7 +58,6 @@ impl AgentAccess {
             enabled: self.enabled(),
             allow_remote: self.allow_remote(),
             token: self.token(),
-            claude_command: crate::system::claude::command(&mcp_url),
             mcp_url,
             endpoint_file: self.paths.endpoint.to_string_lossy().into_owned(),
         }

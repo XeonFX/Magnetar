@@ -18,16 +18,17 @@ use crate::downloads::media::{MediaReader, media_type, open_reader, read_at};
 use crate::error::{ApiError, ApiResult, ErrorCode};
 use crate::protocol::encoding::{random_id, to_base64};
 use crate::protocol::{
-    AppInfoDto, ClaudeConnectResultDto, NotificationEvent, SeriesTaskInput, SeriesTaskPatch, SettingsPatch, StartDownloadInput,
+    AgentConnectResultDto, AppInfoDto, NotificationEvent, SeriesTaskInput, SeriesTaskPatch, SettingsPatch, StartDownloadInput,
     WatchInput,
 };
 use crate::search::cache::to_result_dto;
 use crate::system;
 
 /// Methods that act on the device's own screen or programs, not offered through the relay.
-const LOCAL_ONLY_METHODS: [&str; 7] = [
+const LOCAL_ONLY_METHODS: [&str; 8] = [
     "fs.pickNative",
-    "agent.connectClaude",
+    "agent.clients",
+    "agent.connect",
     "downloads.reveal",
     "downloads.openFile",
     "downloads.streamUrl",
@@ -278,6 +279,17 @@ struct Enabled {
 struct AgentSet {
     enabled: Option<bool>,
     allow_remote: Option<bool>,
+}
+
+/// Every agent's state; reading their settings files is kept off the async workers.
+async fn describe_agents(url: String, env: system::agents::Environment) -> Vec<system::agents::AgentClientDto> {
+    tokio::task::spawn_blocking(move || system::agents::describe_all(&url, &env)).await.unwrap_or_default()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct AgentConnect {
+    client: system::agents::AgentClient,
 }
 
 #[derive(Deserialize)]
@@ -590,17 +602,20 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
             parse::<NoParams>(params)?;
             ok(app.agent.regenerate())
         }
-        "agent.connectClaude" => {
+        "agent.clients" => {
             parse::<NoParams>(params)?;
+            let url = app.agent.status().mcp_url;
+            ok(describe_agents(url, system::agents::Environment::current()).await)
+        }
+        "agent.connect" => {
+            let AgentConnect { client } = parse(params)?;
+            let env = system::agents::Environment::current();
+            let mcp_url = app.agent.status().mcp_url;
+            system::agents::connect(client, &mcp_url, &env).await?;
+            // An agent that can reach the server but not use it would only fail later.
             let agent = app.agent.set(Some(true), None);
-            let status = match system::claude::find_cli() {
-                Some(cli) => {
-                    system::claude::register(&cli, &agent.mcp_url).await?;
-                    "connected"
-                }
-                None => "cliNotFound",
-            };
-            ok(ClaudeConnectResultDto { status, agent })
+            let clients = describe_agents(mcp_url, env).await;
+            ok(AgentConnectResultDto { agent, clients })
         }
 
         "remote.status" => {

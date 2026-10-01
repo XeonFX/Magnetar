@@ -3,6 +3,7 @@
 
 pub mod api;
 pub mod app;
+pub mod bridge;
 pub mod config;
 pub mod db;
 pub mod downloads;

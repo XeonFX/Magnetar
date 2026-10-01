@@ -154,7 +154,10 @@ async fn validates_parameters_and_rejects_unknown_methods() {
     // Device-screen methods are refused through the relay.
     let mut relayed = Client::new(&h.app, false);
     assert!(relayed.call("fs.pickNative", json!({})).await.unwrap_err().starts_with("forbidden"));
-    assert!(relayed.call("agent.connectClaude", json!({})).await.unwrap_err().starts_with("forbidden"));
+    // Connecting agents changes files and runs programs on the device: never from afar.
+    assert!(relayed.call("agent.clients", json!({})).await.unwrap_err().starts_with("forbidden"));
+    assert!(relayed.call("agent.connect", json!({ "client": "cursor" })).await.unwrap_err().starts_with("forbidden"));
+    assert!(c.call("agent.connect", json!({ "client": "notepad" })).await.unwrap_err().starts_with("bad_request"));
     assert_eq!(relayed.ok("app.info", json!({})).await["nativeFolderPicker"], false);
 }
 
