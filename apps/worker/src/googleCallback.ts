@@ -1,7 +1,7 @@
+import { json, readBody } from '@codefusion-cc/workers-http'
 import { fromBase64Url } from '@magnetar/protocol/base64'
 import { GOOGLE_CALLBACK_PATH } from '@magnetar/protocol/cloud'
-import { allowedOrigins, type Env } from './env.ts'
-import { json, MAX_BODY } from './http.ts'
+import { allowedOrigins, MAX_BODY, type Env } from './env.ts'
 
 /**
  * Where a sign-in started, read from its state: `<random>.<base64url JSON [origin, path]>`. The
@@ -57,9 +57,7 @@ async function callbackPage(): Promise<Response> {
 /** Sends the browser back to the login page with the token in the fragment, which no server sees. */
 async function bounce(request: Request, env: Env): Promise<Response> {
   if (!request.headers.get('content-type')?.startsWith('application/x-www-form-urlencoded')) return new Response('Invalid sign-in response', { status: 400 })
-  const body = await request.text()
-  if (body.length > MAX_BODY) return new Response('Sign-in response too large', { status: 413 })
-  const form = new URLSearchParams(body)
+  const form = new URLSearchParams(new TextDecoder().decode(await readBody(request, { maxBytes: MAX_BODY })))
   const state = form.get('state')
   const target = signInReturnUrl(state, env)
   if (!target) return new Response('Invalid sign-in response', { status: 400 })

@@ -34,3 +34,6 @@ export const devLoginEnabled = (env: Env) => env.DEV_LOGIN === 'enabled' && env.
 export function allowedOrigins(env: Env): string[] {
   return devLoginEnabled(env) ? [env.ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173'] : [env.ORIGIN]
 }
+
+/** The largest JSON body an API call takes; the biggest, a failure report, stays well under it. */
+export const MAX_BODY = 16 * 1024

@@ -9,8 +9,11 @@ import { SESSION_COOKIE } from '../src/auth.ts'
 
 export const ORIGIN = 'http://localhost:8790'
 
-/** A client address of its own, so one test's requests never count against another's rate limit. */
-export const freshIp = () => `2001:db8::${crypto.randomUUID().slice(0, 4)}:${crypto.randomUUID().slice(0, 4)}`
+/**
+ * A client network of its own, so one test's requests never count against another's rate limit. Limits count
+ * an IPv6 address's whole /64, so the random part is in the first four groups.
+ */
+export const freshIp = () => `2001:db8:${crypto.randomUUID().slice(0, 4)}:${crypto.randomUUID().slice(0, 4)}::1`
 
 export function call(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {
   const headers = new Headers(init.headers)

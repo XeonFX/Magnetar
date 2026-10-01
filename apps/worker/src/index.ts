@@ -1,9 +1,9 @@
+import { clientNetwork, errorResponse, json, jsonError, rateLimit, readJson } from '@codefusion-cc/workers-http'
 import type { AppConfig, FailureReport } from '@magnetar/protocol/cloud'
 import { handleAuth } from './auth.ts'
 import { handleDevices } from './devices.ts'
-import { devLoginEnabled, type Env } from './env.ts'
+import { devLoginEnabled, MAX_BODY, type Env } from './env.ts'
 import { handleGoogleCallback } from './googleCallback.ts'
-import { clientIp, error, HttpError, json, limit, readJson } from './http.ts'
 import { handlePush } from './push.ts'
 import { handleReleases } from './releases.ts'
 
@@ -17,9 +17,9 @@ const text = (value: unknown, max: number) => (typeof value === 'string' ? value
  * Senders scrub them first; this only bounds their size and rate.
  */
 async function reportFailure(request: Request, env: Env): Promise<Response> {
-  await limit(env.TELEMETRY_LIMITER, clientIp(request))
-  const report = await readJson<Partial<FailureReport>>(request)
-  if (!SOURCES.has(String(report.source)) || !report.message) return error(400, 'Invalid report')
+  await rateLimit(env.TELEMETRY_LIMITER, clientNetwork(request))
+  const report = await readJson<Partial<FailureReport>>(request, { maxBytes: MAX_BODY })
+  if (!SOURCES.has(String(report.source)) || !report.message) return jsonError(400, 'Invalid report')
   await env.CONSOLE_TELEMETRY?.reportBrowserFailure({
     appId: env.APP_ID,
     env: env.APP_ENV,
@@ -45,22 +45,17 @@ async function route(request: Request, env: Env): Promise<Response> {
     ?? (await handleDevices(request, env, path))
     ?? (await handlePush(request, env, path))
     ?? (await handleReleases(request, env, path))
-    ?? error(404, 'Not found')
+    ?? jsonError(404, 'Not found')
 }
 
 export default {
   async fetch(request, env): Promise<Response> {
-    try {
-      const response = await route(request, env)
-      if (response.status === 101) return response
-      const headers = new Headers(response.headers)
-      headers.set('x-content-type-options', 'nosniff')
-      headers.set('referrer-policy', 'no-referrer')
-      return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
-    } catch (e) {
-      if (e instanceof HttpError) return error(e.status, e.message)
-      console.error('Unhandled error', e)
-      return error(500, 'Something went wrong')
-    }
+    // Refusals thrown on the way (403, 413, 429…) get the same headers as any other answer.
+    const response = await route(request, env).catch(e => errorResponse(e, { onError: error => console.error('Unhandled error', error) }))
+    if (response.status === 101) return response
+    const headers = new Headers(response.headers)
+    headers.set('x-content-type-options', 'nosniff')
+    headers.set('referrer-policy', 'no-referrer')
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
   },
 } satisfies ExportedHandler<Env>
