@@ -12,6 +12,10 @@ export interface Env {
   PAIR_LIMITER: RateLimit
   AUTH_LIMITER: RateLimit
   TELEMETRY_LIMITER: RateLimit
+  /** Website failure reports, per connection (createConsoleRoutes). */
+  BROWSER_FAILURE_RATE_LIMITER?: RateLimit
+  /** CodeFusion Console's shared visits dataset (createConsoleRoutes). */
+  VISITS?: AnalyticsEngineDataset
   PUSH_LIMITER: RateLimit
   CONSOLE_TELEMETRY?: ConsoleTelemetry
   APP_ID: string

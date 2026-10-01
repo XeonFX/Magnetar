@@ -31,15 +31,19 @@ export interface User {
   headers: Record<string, string>
 }
 
+/** The value `response` sets for cookie `name` ('' when it clears it), or undefined when it does not set it. */
+export const cookieValue = (response: Response, name: string) =>
+  response.headers.getSetCookie().find(line => line.startsWith(`${name}=`))?.split(';')[0]?.slice(name.length + 1)
+
 let users = 0
 /** Signs a new user in through the dev sign-in. */
 export async function signIn(): Promise<User> {
   const email = `user${++users}.${crypto.randomUUID().slice(0, 8)}@example.com`
   const response = await call('/api/auth/dev', { method: 'POST', headers: { origin: ORIGIN }, json: { email } })
   if (response.status !== 200) throw new Error(`Sign-in failed: ${response.status}`)
-  const session = response.headers.get('set-cookie')?.split(';')[0]
-  if (!session?.startsWith(`${SESSION_COOKIE}=`)) throw new Error('No session cookie')
-  return { email, headers: { cookie: session, origin: ORIGIN } }
+  const session = cookieValue(response, SESSION_COOKIE)
+  if (!session) throw new Error('No session cookie')
+  return { email, headers: { cookie: `${SESSION_COOKIE}=${session}`, origin: ORIGIN } }
 }
 
 interface Pairing {
@@ -78,12 +82,18 @@ export async function pairDevice(user: User, device?: Parameters<typeof startPai
   return { deviceId: collected.deviceId, deviceToken: collected.deviceToken }
 }
 
+/**
+ * How long a test waits for the relay to deliver or apply something. Slow CI runners take seconds
+ * where a laptop takes milliseconds; a passing test never waits it out.
+ */
+const PATIENCE_MS = 10_000
+
 type Message = string | Uint8Array
 
 /** One end of a relay connection, as the app or a dashboard holds it. */
 export interface Socket {
   ws: WebSocket
-  /** The next message, in arrival order; fails after a second without one. */
+  /** The next message, in arrival order; fails after `PATIENCE_MS` without one. */
   next(): Promise<Message>
   /** The next text message, parsed. */
   nextJson<T = Record<string, unknown>>(): Promise<T>
@@ -117,11 +127,16 @@ export async function openSocket(response: Response | Promise<Response>): Promis
     const queued = queue.shift()
     if (queued !== undefined) return Promise.resolve(queued)
     return new Promise<Message>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('No message within a second')), 1000)
-      waiters.push(message => {
+      const waiter = (message: Message) => {
         clearTimeout(timer)
         resolve(message)
-      })
+      }
+      // A wait that gave up leaves the queue, so the message it missed goes to the next taker.
+      const timer = setTimeout(() => {
+        waiters.splice(waiters.indexOf(waiter), 1)
+        reject(new Error(`No message within ${PATIENCE_MS / 1000} s`))
+      }, PATIENCE_MS)
+      waiters.push(waiter)
     })
   }
   return {
@@ -146,9 +161,9 @@ export const connectBrowser = (user: User, deviceId: string, headers: Record<str
 /** Lets messages already sent through the relay arrive, before checking that nothing else did. */
 export const settle = () => new Promise(resolve => setTimeout(resolve, 50))
 
-/** Retries `check` until it passes or two seconds are up, for effects the relay applies after a socket event. */
+/** Retries `check` until it passes or `PATIENCE_MS` is up, for effects the relay applies after a socket event. */
 export async function eventually(check: () => Promise<void>): Promise<void> {
-  const deadline = Date.now() + 2000
+  const deadline = Date.now() + PATIENCE_MS
   for (;;) {
     try {
       return await check()

@@ -1,20 +1,30 @@
+import { handleGoogleSignIn } from '@codefusion-cc/google-sign-in'
+import { consoleAdmin, createConsoleRoutes } from '@codefusion-cc/console/worker'
 import { clientNetwork, errorResponse, json, jsonError, rateLimit, readJson } from '@codefusion-cc/workers-http'
 import type { AppConfig, FailureReport } from '@magnetar/protocol/cloud'
+import { CONSOLE_PAGES } from '@magnetar/protocol/console-pages'
 import { handleAuth } from './auth.ts'
+import { consoleResources } from './console/admin.ts'
+import { manifest } from './console/manifest.ts'
 import { handleDevices } from './devices.ts'
-import { devLoginEnabled, MAX_BODY, type Env } from './env.ts'
-import { handleGoogleCallback } from './googleCallback.ts'
+import { allowedOrigins, devLoginEnabled, MAX_BODY, type Env } from './env.ts'
 import { handlePush } from './push.ts'
 import { handleReleases } from './releases.ts'
 
 export { DeviceRelay } from './relay.ts'
 
+/** CodeFusion Console reads accounts and devices through this, over its service binding only (console/admin.ts). */
+export const ConsoleAdmin = consoleAdmin<Env>({ manifest, resources: consoleResources })
+
+/** The website's failures (POST /api/browser-failures) and page views (POST /api/visits), from its own pages only. */
+const consoleRoutes = createConsoleRoutes({ appId: 'magnetar', pages: CONSOLE_PAGES })
+
 const SOURCES = new Set(['error', 'rejection', 'render'])
 const text = (value: unknown, max: number) => (typeof value === 'string' ? value.slice(0, max) : '')
 
 /**
- * Error reports from the website and from desktop clients, forwarded to CodeFusion Console.
- * Senders scrub them first; this only bounds their size and rate.
+ * Error reports from desktop clients, forwarded to CodeFusion Console. Clients scrub them first; this only
+ * bounds their size and rate. The website reports through createConsoleRoutes instead.
  */
 async function reportFailure(request: Request, env: Env): Promise<Response> {
   await rateLimit(env.TELEMETRY_LIMITER, clientNetwork(request))
@@ -34,13 +44,19 @@ async function reportFailure(request: Request, env: Env): Promise<Response> {
   return new Response(null, { status: 204 })
 }
 
-async function route(request: Request, env: Env): Promise<Response> {
+const GOOGLE_CALLBACK_PAGE = { background: { light: '#f6f7fb', dark: '#0f1117' } }
+
+async function route(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const path = new URL(request.url).pathname
+  const consoleAnswer = await consoleRoutes.fetch(request, env, ctx, origin => allowedOrigins(env).includes(origin))
+  if (consoleAnswer) return consoleAnswer
   if (path === '/app-config.json') {
     return json({ mode: 'cloud', googleClientId: env.GOOGLE_CLIENT_ID || undefined, devLogin: devLoginEnabled(env) || undefined } satisfies AppConfig)
   }
   if (path === '/api/telemetry/failure' && request.method === 'POST') return reportFailure(request, env)
-  return (await handleGoogleCallback(request, env, path))
+  // Google's redirect back: the page it lands on, in the dashboard's background so it never flashes white, and
+  // the hand-off that sends the token to /login on one of our origins.
+  return (await handleGoogleSignIn(request, { allowedOrigin: origin => allowedOrigins(env).includes(origin), page: GOOGLE_CALLBACK_PAGE }))
     ?? (await handleAuth(request, env, path))
     ?? (await handleDevices(request, env, path))
     ?? (await handlePush(request, env, path))
@@ -49,9 +65,9 @@ async function route(request: Request, env: Env): Promise<Response> {
 }
 
 export default {
-  async fetch(request, env): Promise<Response> {
+  async fetch(request, env, ctx): Promise<Response> {
     // Refusals thrown on the way (403, 413, 429…) get the same headers as any other answer.
-    const response = await route(request, env).catch(e => errorResponse(e, { onError: error => console.error('Unhandled error', error) }))
+    const response = await route(request, env, ctx).catch(e => errorResponse(e, { onError: error => console.error('Unhandled error', error) }))
     if (response.status === 101) return response
     const headers = new Headers(response.headers)
     headers.set('x-content-type-options', 'nosniff')

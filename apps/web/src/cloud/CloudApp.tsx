@@ -1,8 +1,12 @@
+import { cancelGoogleSignIn } from '@codefusion-cc/google-sign-in/browser'
 import type { AccountDto } from '@magnetar/protocol/cloud'
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import { consolePage } from '@magnetar/protocol/console-pages'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router'
 import type { AppConfig } from '../lib/cloudApi.ts'
 import { cloud } from '../lib/cloudApi.ts'
+import { reporting } from '../lib/console.ts'
+import { UpdatesOnNavigation } from '../lib/updates.ts'
 import { errorMessage } from '../lib/errors.ts'
 import { browserLanguage, I18nProvider } from '../lib/i18n.tsx'
 import { Loading } from '../ui/Loading.tsx'
@@ -29,6 +33,26 @@ export function useAccount(): AccountState {
   return value
 }
 
+const PUBLIC_PAGES = new Set(['login', 'pair', 'link'])
+
+/** Tells CodeFusion Console which screen is showing: failures are filed under it and its view is counted. */
+function ConsolePageTracker({ signedIn }: { signedIn: boolean }) {
+  const { pathname } = useLocation()
+  // Read when the page changes, so signing in on /login doesn't count that page twice.
+  const signedInNow = useRef(signedIn)
+  useEffect(() => {
+    signedInNow.current = signedIn
+  }, [signedIn])
+  useEffect(() => {
+    const page = consolePage(pathname)
+    // A signed-out visit to an account page is about to land on /login, which counts it.
+    if (!signedInNow.current && !PUBLIC_PAGES.has(page)) return
+    reporting.setErrorPage(page)
+    reporting.recordView(page, signedInNow.current)
+  }, [pathname])
+  return null
+}
+
 /** Signed-in pages; anyone else is sent to /login and brought back afterwards. */
 function RequireAccount({ children }: { children: ReactNode }) {
   const { account } = useAccount()
@@ -46,6 +70,8 @@ export default function CloudApp({ config }: { config: AppConfig }) {
   const signOut = useCallback(async () => {
     try {
       await cloud.signOut()
+      // A sign-in still at Google must not complete into the account just signed out of.
+      cancelGoogleSignIn()
       setAccount(null)
     } catch (e) {
       toast(errorMessage(e), 'error')
@@ -59,6 +85,8 @@ export default function CloudApp({ config }: { config: AppConfig }) {
     <AccountContext.Provider value={{ account, config, refresh, signOut }}>
       <I18nProvider language={browserLanguage()}>
         <BrowserRouter>
+          <ConsolePageTracker signedIn={account !== null} />
+          <UpdatesOnNavigation />
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/pair/:pairingId" element={<PairPage />} />

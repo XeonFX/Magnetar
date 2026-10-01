@@ -1,3 +1,5 @@
+import type { ThemeMode } from '@codefusion-cc/theme'
+import { useTheme } from '@codefusion-cc/theme/react'
 import type { AgentStatusDto, HandlerStatus, LoginStartupStatus, SettingsDto, SettingsPatch } from '@magnetar/protocol'
 import {
   Bell, Bot, Cloud, Copy, Download, Eye, EyeOff, Info, Mail, RefreshCw, Send, Server, Smartphone, SlidersHorizontal, Upload,
@@ -9,7 +11,7 @@ import { askNotificationPermission } from '../../lib/notifications.ts'
 import { PageHeader, Segmented, SettingGroup, SettingRow, Switch } from '../../ui/controls.tsx'
 import { CopyInput, Field, SaveOnBlurInput, blurOnEnter } from '../../ui/fields.tsx'
 import { ConfirmDialog } from '../../ui/Modal.tsx'
-import { useTheme, type ThemeMode } from '../../ui/theme.ts'
+import { theme } from '../../ui/theme.ts'
 import { useCopy, useToast } from '../../ui/toast.tsx'
 import { useDevice } from '../DeviceContext.tsx'
 import { usePathChoice } from '../../lib/urlState.ts'
@@ -86,7 +88,7 @@ function GeneralSection({ settings }: { settings: SettingsDto }) {
   const save = useSave()
   const run = useRun()
   const { connection } = useDevice()
-  const { mode, setMode } = useTheme()
+  const { mode } = useTheme(theme)
   const [startup, setStartup] = useState<LoginStartupStatus | null>(null)
   const [changing, setChanging] = useState(false)
   const refreshStartup = () => void connection.call('startup.status').then(r => setStartup(r.status)).catch(() => setStartup('unavailable'))
@@ -107,7 +109,7 @@ function GeneralSection({ settings }: { settings: SettingsDto }) {
         </select>
       </SettingRow>
       <SettingRow layout="wide" title={t('settings.appearance')} description={t('settings.appearanceHint')}>
-        <Segmented label={t('settings.appearance')} value={mode} onChange={(m: ThemeMode) => setMode(m)}
+        <Segmented label={t('settings.appearance')} value={mode} onChange={(m: ThemeMode) => theme.setMode(m)}
           options={(['system', 'light', 'dark'] as const).map(m => ({ value: m, label: t(`settings.theme.${m}`) }))} />
       </SettingRow>
       <SettingRow title={t('settings.startWithMac')}

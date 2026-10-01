@@ -45,6 +45,12 @@ function relay(env: Env, deviceId: string) {
   return env.RELAY.getByName(deviceId)
 }
 
+/** Unpairs a device: its token stops working and its open connections close with "device removed". */
+export async function removeDevice(env: Env, deviceId: string): Promise<void> {
+  await env.DB.prepare('DELETE FROM devices WHERE id = ?').bind(deviceId).run()
+  await relay(env, deviceId).revoke()
+}
+
 export async function handleDevices(request: Request, env: Env, path: string): Promise<Response | null> {
   const method = request.method
 
@@ -126,8 +132,7 @@ export async function handleDevices(request: Request, env: Env, path: string): P
     const device = await deviceFromToken(request, env)
     if (!device) return jsonError(401, 'Unknown device')
     if (method === 'DELETE') {
-      await env.DB.prepare('DELETE FROM devices WHERE id = ?').bind(device.id).run()
-      await relay(env, device.id).revoke()
+      await removeDevice(env, device.id)
       return json({ ok: true })
     }
     if (method === 'PATCH') {
@@ -161,8 +166,7 @@ export async function handleDevices(request: Request, env: Env, path: string): P
     }
     if (!device) return jsonError(404, 'No such device')
     if (method === 'DELETE') {
-      await env.DB.prepare('DELETE FROM devices WHERE id = ?').bind(device.id).run()
-      await relay(env, device.id).revoke()
+      await removeDevice(env, device.id)
       return json({ ok: true })
     }
     return jsonError(405, 'Method not allowed')

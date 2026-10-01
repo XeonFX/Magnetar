@@ -1,15 +1,18 @@
 import { StrictMode, Suspense, lazy, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+// The theme follows the system and the other tabs from the start, whatever page shows.
+import './ui/theme.ts'
 import { LocalApp } from './LocalApp.tsx'
 import { loadAppConfig, type AppConfig } from './lib/cloudApi.ts'
-import { installErrorReporting } from './lib/errorReport.ts'
+import { reporting } from './lib/console.ts'
+import { updates } from './lib/updates.ts'
 import { captureInstallOffer } from './lib/install.ts'
 import { ToastProvider } from './ui/toast.tsx'
 import { errorMessage } from './lib/errors.ts'
 import { Loading } from './ui/Loading.tsx'
 
-const CloudApp = lazy(() => import('./cloud/CloudApp.tsx'))
+const CloudApp = lazy(() => updates.importOrReload(() => import('./cloud/CloudApp.tsx')))
 
 captureInstallOffer()
 
@@ -20,7 +23,7 @@ function Root() {
   useEffect(() => {
     loadAppConfig().then(c => {
       if (c.mode === 'cloud') {
-        installErrorReporting()
+        reporting.installBrowserFailureReporting()
         // Push, playback through the relay and installing as an app all go through it.
         void navigator.serviceWorker?.register('/sw.js', { scope: '/' }).catch(() => {})
       }

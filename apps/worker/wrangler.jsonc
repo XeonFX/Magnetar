@@ -14,11 +14,10 @@
     "directory": "../web/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/app-config.json"]
+    "run_worker_first": ["/api/*", "/app-config.json", "/_console/*"]
   },
   "d1_databases": [
-    // Create with `wrangler d1 create magnetar` and paste its id here.
-    { "binding": "DB", "database_name": "magnetar", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
+    { "binding": "DB", "database_name": "magnetar", "database_id": "04dff4c8-e6b5-48e1-94b0-2769261e8a70", "migrations_dir": "migrations" }
   ],
   "durable_objects": {
     "bindings": [{ "name": "RELAY", "class_name": "DeviceRelay" }]
@@ -28,18 +27,22 @@
     { "name": "PAIR_LIMITER", "namespace_id": "3101", "simple": { "limit": 10, "period": 60 } },
     { "name": "AUTH_LIMITER", "namespace_id": "3102", "simple": { "limit": 20, "period": 60 } },
     { "name": "TELEMETRY_LIMITER", "namespace_id": "3103", "simple": { "limit": 10, "period": 60 } },
-    { "name": "PUSH_LIMITER", "namespace_id": "3104", "simple": { "limit": 120, "period": 60 } }
+    { "name": "PUSH_LIMITER", "namespace_id": "3104", "simple": { "limit": 120, "period": 60 } },
+    { "name": "BROWSER_FAILURE_RATE_LIMITER", "namespace_id": "3105", "simple": { "limit": 10, "period": 60 } }
   ],
+  // CodeFusion Console's page views (POST /api/visits): its shared dataset, no personal data.
+  "analytics_engine_datasets": [{ "binding": "VISITS", "dataset": "cfc_visits" }],
   "observability": { "enabled": true, "head_sampling_rate": 1, "logs": { "invocation_logs": false } },
-  // CodeFusion Console: one trace per invocation, and browser/desktop failures via AppTelemetry.
+  // CodeFusion Console: one trace per invocation, and website and desktop failures via AppTelemetry. The console
+  // reaches accounts and devices through the ConsoleAdmin entrypoint (src/console/).
   "tail_consumers": [{ "service": "codefusion-console" }],
   "services": [{ "binding": "CONSOLE_TELEMETRY", "service": "codefusion-console", "entrypoint": "AppTelemetry" }],
   "vars": {
     "APP_ID": "magnetar",
     "APP_ENV": "production",
     "ORIGIN": "https://magnetar.codefusion.cc",
-    // The OAuth client created for this app in Google Cloud Console.
-    "GOOGLE_CLIENT_ID": ""
+    // The OAuth client created for this app in Google Cloud Console (public; no client secret is used).
+    "GOOGLE_CLIENT_ID": "724645084534-gg1qlhb0htm981ogdl430hsd6qfa80nu.apps.googleusercontent.com"
     // Web Push: the VAPID key is a secret, made and stored with
     // `npx -p @codefusion-cc/web-push codefusion-vapid | npx wrangler secret put VAPID_PRIVATE_KEY`.
     // Without it browser notifications are off.
@@ -50,14 +53,15 @@
       "routes": [],
       "workers_dev": true,
       "d1_databases": [
-        { "binding": "DB", "database_name": "magnetar", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
+        { "binding": "DB", "database_name": "magnetar", "database_id": "04dff4c8-e6b5-48e1-94b0-2769261e8a70", "migrations_dir": "migrations" }
       ],
       "durable_objects": { "bindings": [{ "name": "RELAY", "class_name": "DeviceRelay" }] },
       "ratelimits": [
         { "name": "PAIR_LIMITER", "namespace_id": "3101", "simple": { "limit": 100, "period": 60 } },
         { "name": "AUTH_LIMITER", "namespace_id": "3102", "simple": { "limit": 100, "period": 60 } },
         { "name": "TELEMETRY_LIMITER", "namespace_id": "3103", "simple": { "limit": 100, "period": 60 } },
-        { "name": "PUSH_LIMITER", "namespace_id": "3104", "simple": { "limit": 600, "period": 60 } }
+        { "name": "PUSH_LIMITER", "namespace_id": "3104", "simple": { "limit": 600, "period": 60 } },
+        { "name": "BROWSER_FAILURE_RATE_LIMITER", "namespace_id": "3105", "simple": { "limit": 100, "period": 60 } }
       ],
       "tail_consumers": [],
       "services": [],

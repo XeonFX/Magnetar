@@ -15,32 +15,17 @@ The consent screen needs only the `openid`, `email` and `profile` scopes. Put th
 
 ## 2. D1 database
 
-```bash
-cd apps/worker
-npx wrangler d1 create magnetar
-```
-
-Paste the printed `database_id` into both `d1_databases` entries of `wrangler.jsonc`, then apply the schema:
+The production database `magnetar` exists and its id is in `wrangler.jsonc`. A new migration goes out with:
 
 ```bash
-npm run migrate:remote
+npm run migrate:remote -w @magnetar/worker
 ```
 
 ## 3. CodeFusion Console
 
-In the codefusion-console repo, add the app to `config/apps.json` so its failures are accepted:
-
-```json
-{
-  "id": "magnetar",
-  "name": "Magnetar",
-  "brand": "codefusion",
-  "url": "https://magnetar.codefusion.cc",
-  "telemetry": { "scripts": { "magnetar": "production" } }
-}
-```
-
-Deploy the console before this Worker: the `tail_consumers` entry and the `CONSOLE_TELEMETRY` service binding need it.
+The console (XeonFX/codefusion-console) lists Magnetar in `config/apps.json` and binds `MAGNETAR_ADMIN` to this
+Worker's `ConsoleAdmin` entrypoint. Deploy this Worker first, so the console's deploy binds a service that exists.
+Its Deployments page reads this repository with the console's GitHub token, which must include XeonFX/Magnetar.
 
 ## 4. Deploy
 

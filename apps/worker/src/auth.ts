@@ -1,11 +1,11 @@
+import { verifyGoogleIdToken } from '@codefusion-cc/google-sign-in'
 import { clientNetwork, getCookie, HttpError, json, jsonError, rateLimit, readJson, requireSameOrigin, serializeCookie, sha256 } from '@codefusion-cc/workers-http'
 import type { AccountDto } from '@magnetar/protocol/cloud'
 import { randomId } from '@magnetar/protocol/base64'
 import { allowedOrigins, devLoginEnabled, MAX_BODY, type Env } from './env.ts'
-import { verifyGoogleIdToken } from './oidc.ts'
 
 export const SESSION_COOKIE = '__Host-md_session'
-const NONCE_COOKIE = '__Host-md_nonce'
+export const NONCE_COOKIE = '__Host-md_nonce'
 const SESSION_DAYS = 30
 const NONCE_SECONDS = 10 * 60
 
@@ -51,6 +51,12 @@ async function signIn(env: Env, subject: string, email: string, name: string | n
   return { user: user!, cookie: serializeCookie(SESSION_COOKIE, token, { maxAge: SESSION_DAYS * 86_400 }) }
 }
 
+/** The app's Google client id; 503 while sign-in is not set up. */
+function googleClientId(env: Env): string {
+  if (!env.GOOGLE_CLIENT_ID) throw new HttpError(503, 'Google sign-in is not configured yet')
+  return env.GOOGLE_CLIENT_ID
+}
+
 export async function handleAuth(request: Request, env: Env, path: string): Promise<Response | null> {
   if (path === '/api/me' && request.method === 'GET') {
     const user = await currentUser(request, env)
@@ -59,27 +65,26 @@ export async function handleAuth(request: Request, env: Env, path: string): Prom
 
   if (path === '/api/auth/start' && request.method === 'POST') {
     requireSameOrigin(request, allowedOrigins(env))
-    if (!env.GOOGLE_CLIENT_ID) return jsonError(503, 'Google sign-in is not configured yet')
+    const clientId = googleClientId(env)
     // The nonce binds the ID token Google returns to this browser: a token obtained anywhere
     // else carries a different nonce and is refused.
     const nonce = randomId(24)
-    return json({ nonce, clientId: env.GOOGLE_CLIENT_ID }, { headers: { 'set-cookie': serializeCookie(NONCE_COOKIE, nonce, { maxAge: NONCE_SECONDS }) } })
+    return json({ nonce, clientId }, { headers: { 'set-cookie': serializeCookie(NONCE_COOKIE, nonce, { maxAge: NONCE_SECONDS }) } })
   }
 
   if (path === '/api/auth/google' && request.method === 'POST') {
     requireSameOrigin(request, allowedOrigins(env))
+    const clientId = googleClientId(env)
     await rateLimit(env.AUTH_LIMITER, clientNetwork(request))
     const { credential } = await readJson<{ credential?: string }>(request, { maxBytes: MAX_BODY })
-    let claims
-    try {
-      claims = await verifyGoogleIdToken(String(credential ?? ''), env.GOOGLE_CLIENT_ID, getCookie(request, NONCE_COOKIE) ?? '')
-    } catch (e) {
-      return jsonError(401, e instanceof Error ? e.message : 'Sign-in failed')
-    }
+    const check = await verifyGoogleIdToken(String(credential ?? ''), { clientId, nonce: getCookie(request, NONCE_COOKIE) ?? '' })
+    // A nonce serves one attempt, whatever its outcome: the next sign-in starts with a new one.
+    const headers = new Headers({ 'set-cookie': serializeCookie(NONCE_COOKIE, '', { maxAge: 0 }) })
+    // The page words the outcome from the status: 503 when Google's keys could not be read, else 401.
+    if (!check.ok) return jsonError(check.problem === 'keys-unavailable' ? 503 : 401, check.problem, { headers })
+    const { claims } = check
     const { user, cookie: session } = await signIn(env, `google:${claims.sub}`, claims.email, claims.name ?? null, claims.picture ?? null)
-    const headers = new Headers()
     headers.append('set-cookie', session)
-    headers.append('set-cookie', serializeCookie(NONCE_COOKIE, '', { maxAge: 0 }))
     return json(toAccount(user), { headers })
   }
 

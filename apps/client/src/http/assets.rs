@@ -6,6 +6,8 @@ use rust_embed::RustEmbed;
 #[derive(RustEmbed)]
 #[folder = "../web/dist"]
 #[exclude = "_headers"]
+// Source maps for CodeFusion Console, which only the Worker reads.
+#[exclude = "_console/*"]
 #[allow_missing = true]
 struct Dashboard;
 
