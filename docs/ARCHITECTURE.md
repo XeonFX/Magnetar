@@ -97,8 +97,13 @@ the Worker's callback page bounces the token back to `/login` in the fragment, a
 against Google's keys, issuer, audience (our client id), expiry and time of issue, verified e-mail, and a nonce bound
 to the browser with a short-lived `__Host-` cookie that each attempt spends. When Google's keys cannot be read the
 Worker answers 503 and the page asks the person to try again in a minute. Sessions are random
-tokens in an `HttpOnly; Secure; SameSite=Lax` `__Host-` cookie, stored in D1 as SHA-256 hashes with a 30-day sliding
-expiry. Cookie-authenticated calls and WebSocket upgrades must carry our own `Origin`.
+tokens in an `HttpOnly; Secure; SameSite=Lax` `__Host-` cookie, stored in D1 as SHA-256 hashes (base64url) with a
+30-day sliding expiry. Cookie-authenticated calls and WebSocket upgrades must carry our own `Origin` (or, without one,
+`Sec-Fetch-Site: same-origin`).
+
+The Worker's request plumbing comes from `@codefusion-cc/workers-http`: JSON bodies must be JSON objects of at most
+16 KiB, counted as they are read (`MAX_BODY` in `env.ts`); rate limits count a client's address, an IPv6 address by
+its whole /64; and anything a handler throws becomes a JSON answer with the same headers as any other.
 
 ## CodeFusion Console
 

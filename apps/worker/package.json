@@ -14,6 +14,7 @@
     "@codefusion-cc/console": "^0.10.0",
     "@codefusion-cc/google-sign-in": "^1.0.0",
     "@codefusion-cc/web-push": "^1.1.0",
+    "@codefusion-cc/workers-http": "^1.0.0",
     "@magnetar/protocol": "*"
   },
   "devDependencies": {
