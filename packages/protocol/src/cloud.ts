@@ -2,9 +2,6 @@
 
 export const DEFAULT_CLOUD_URL = 'https://magnetar.codefusion.cc'
 
-/** Registered with Google as the OAuth redirect URI. */
-export const GOOGLE_CALLBACK_PATH = '/api/auth/google/callback'
-
 /** `/app-config.json`: tells the one dashboard build whether the app or the website serves it. */
 export interface AppConfig {
   mode: 'local' | 'cloud'

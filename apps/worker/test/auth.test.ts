@@ -1,79 +1,166 @@
-import { beforeEach, describe, expect, test } from 'vitest'
-import { toBase64Url } from '@magnetar/protocol/base64'
-import type { Env } from '../src/env.ts'
-import { signInReturnUrl } from '../src/googleCallback.ts'
-import { resetJwksCache, verifyGoogleIdToken } from '../src/oidc.ts'
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest'
+import { env } from 'cloudflare:workers'
+import { testGoogleIssuer } from '@codefusion-cc/google-sign-in/testing'
+import { handleGoogleCallback } from '../src/googleCallback.ts'
+import { SESSION_COOKIE } from '../src/auth.ts'
+import { call, freshIp, ORIGIN } from './client.ts'
 
-const encoder = new TextEncoder()
-const CLIENT_ID = 'client.apps.googleusercontent.com'
-const NOW = Date.UTC(2026, 8, 28)
+// Google as the Worker meets it: its keys come through the global fetch, which this file points at a fake
+// Google. One for the whole file, since the Worker keeps Google's keys for every request of the isolate.
+const google = await testGoogleIssuer({ clientId: env.GOOGLE_CLIENT_ID })
+const realFetch = globalThis.fetch
+beforeAll(() => { globalThis.fetch = google.fetch })
+afterAll(() => { globalThis.fetch = realFetch })
+afterEach(() => {
+  google.answerKeys('ok')
+  vi.useRealTimers()
+})
 
-const pair = (await crypto.subtle.generateKey(
-  { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify'],
-)) as CryptoKeyPair
-const publicJwk = { ...(await crypto.subtle.exportKey('jwk', pair.publicKey)), kid: 'k1' }
-const fetcher = (async () => Response.json({ keys: [publicJwk] })) as unknown as typeof fetch
+const cookieValue = (response: Response, name: string) =>
+  response.headers.getSetCookie().find(line => line.startsWith(`${name}=`))?.split(';')[0]?.slice(name.length + 1)
 
-async function token(claims: Record<string, unknown>, header: Record<string, unknown> = { alg: 'RS256', kid: 'k1' }): Promise<string> {
-  const part = (value: unknown) => toBase64Url(encoder.encode(JSON.stringify(value)))
-  const input = `${part(header)}.${part(claims)}`
-  const signature = new Uint8Array(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', pair.privateKey, encoder.encode(input)))
-  return `${input}.${toBase64Url(signature)}`
+/** A browser that pressed "Continue with Google": its address, and the nonce cookie the Worker gave it. */
+async function startSignIn() {
+  const ip = freshIp()
+  const response = await call('/api/auth/start', { method: 'POST', headers: { origin: ORIGIN, 'cf-connecting-ip': ip }, json: {} })
+  expect(response.status).toBe(200)
+  const { nonce, clientId } = await response.json<{ nonce: string; clientId: string }>()
+  expect(clientId).toBe(google.clientId)
+  expect(cookieValue(response, '__Host-md_nonce')).toBe(nonce)
+  return { nonce, ip }
 }
 
-const valid = {
-  iss: 'https://accounts.google.com', aud: CLIENT_ID, sub: '123', email: 'a@example.com', email_verified: true,
-  exp: NOW / 1000 + 600, iat: NOW / 1000, nonce: 'n1',
+function complete(credential: string, { nonce, ip }: { nonce?: string; ip: string }) {
+  return call('/api/auth/google', {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'cf-connecting-ip': ip, ...(nonce ? { cookie: `__Host-md_nonce=${nonce}` } : {}) },
+    json: { credential },
+  })
 }
 
-describe('Google ID tokens', () => {
-  beforeEach(() => resetJwksCache())
+describe('signing in with Google', () => {
+  test('a token from Google for this browser signs the person in, once', async () => {
+    const browser = await startSignIn()
+    const response = await complete(await google.token({ nonce: browser.nonce, email: 'ada@example.com', name: 'Ada' }), browser)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ email: 'ada@example.com', name: 'Ada', picture: 'https://lh3.googleusercontent.com/a/test-person' })
+    expect(cookieValue(response, '__Host-md_nonce')).toBe('')
+    const session = cookieValue(response, SESSION_COOKIE)!
+    const me = await call('/api/me', { headers: { cookie: `${SESSION_COOKIE}=${session}` } })
+    expect(await me.json()).toMatchObject({ email: 'ada@example.com' })
+  })
 
-  test('a valid token for this app, browser and nonce is accepted', async () => {
-    expect((await verifyGoogleIdToken(await token(valid), CLIENT_ID, 'n1', fetcher, NOW)).email).toBe('a@example.com')
+  test('the same Google account comes back as the same account, with its new address', async () => {
+    const first = await startSignIn()
+    const one = await (await complete(await google.token({ nonce: first.nonce, sub: '4242', email: 'old@example.com' }), first)).json<{ id: string }>()
+    const second = await startSignIn()
+    const two = await (await complete(await google.token({ nonce: second.nonce, sub: '4242', email: 'new@example.com' }), second)).json<{ id: string; email: string }>()
+    expect(two).toMatchObject({ id: one.id, email: 'new@example.com' })
   })
 
   test.each([
-    ['another app', { aud: 'other' }, /another app/],
-    ['another issuer', { iss: 'https://evil.example' }, /issuer/],
-    ['an expired token', { exp: NOW / 1000 - 1 }, /expired/],
-    ['an unverified address', { email_verified: false }, /Unverified/],
-    ['a different nonce', { nonce: 'stolen' }, /not started in this browser/],
-  ])('refuses %s', async (_, change, message) => {
-    await expect(verifyGoogleIdToken(await token({ ...valid, ...change }), CLIENT_ID, 'n1', fetcher, NOW)).rejects.toThrow(message)
+    ['for another app', { aud: 'another-client.apps.googleusercontent.com' }, {}],
+    ['that expired', { exp: Math.floor(Date.now() / 1000) - 1 }, {}],
+    ['from another issuer', { iss: 'https://accounts.google.com.evil.test' }, {}],
+    ['with an address Google did not verify', { email_verified: false }, {}],
+    ['signed with alg none', {}, { signedWith: 'none' as const }],
+    ["signed with another key under Google's key id", {}, { signedWith: 'stranger' as const }],
+    ['signed as HMAC with the public key', {}, { signedWith: 'hmac-public-key' as const }],
+  ])('a token %s is refused, and the nonce is spent', async (_, claims, options) => {
+    const browser = await startSignIn()
+    const response = await complete(await google.token({ nonce: browser.nonce, ...claims }, options), browser)
+    expect(response.status).toBe(401)
+    expect(cookieValue(response, SESSION_COOKIE)).toBeUndefined()
+    expect(cookieValue(response, '__Host-md_nonce')).toBe('')
   })
 
-  test('refuses a token whose algorithm is not RS256', async () => {
-    await expect(verifyGoogleIdToken(await token(valid, { alg: 'HS256', kid: 'k1' }), CLIENT_ID, 'n1', fetcher, NOW)).rejects.toThrow(/algorithm/)
+  test("a token from another browser's sign-in is refused here", async () => {
+    const victim = await startSignIn()
+    const stolen = await google.token({ nonce: victim.nonce })
+    const attacker = await startSignIn()
+    expect((await complete(stolen, attacker)).status).toBe(401)
+    expect((await complete(stolen, { ip: attacker.ip })).status).toBe(401)
   })
 
-  test('refuses a tampered payload', async () => {
-    const [header, , signature] = (await token(valid)).split('.')
-    const forged = toBase64Url(encoder.encode(JSON.stringify({ ...valid, email: 'boss@example.com' })))
-    await expect(verifyGoogleIdToken(`${header}.${forged}.${signature}`, CLIENT_ID, 'n1', fetcher, NOW)).rejects.toThrow(/signature/)
+  test('a token is refused for a sign-in that already used its nonce', async () => {
+    const browser = await startSignIn()
+    const first = await complete(await google.token({ nonce: browser.nonce }), browser)
+    expect(first.status).toBe(200)
+    // The browser forgot the nonce: a replay has none, and a new sign-in has another.
+    const replayed = await google.token({ nonce: browser.nonce })
+    expect((await complete(replayed, { ip: browser.ip })).status).toBe(401)
+    expect((await complete(replayed, await startSignIn())).status).toBe(401)
   })
 
-  test('refuses when sign-in is not configured', async () => {
-    await expect(verifyGoogleIdToken(await token(valid), '', 'n1', fetcher, NOW)).rejects.toThrow(/not configured/)
+  test('a sign-in signed with the key Google just rotated to works at once', async () => {
+    await google.rotate()
+    const browser = await startSignIn()
+    expect((await complete(await google.token({ nonce: browser.nonce }), browser)).status).toBe(200)
+  })
+
+  test("while Google's keys cannot be read the Worker says try again, and the last good keys serve for a day", async () => {
+    google.answerKeys('network')
+    vi.useFakeTimers({ now: Date.now() + 6 * 60_000, toFake: ['Date'] })
+    const browser = await startSignIn()
+    expect((await complete(await google.token({ nonce: browser.nonce }), browser)).status).toBe(200)
+    vi.setSystemTime(Date.now() + 25 * 60 * 60_000)
+    const later = await startSignIn()
+    const response = await complete(await google.token({ nonce: later.nonce }), later)
+    expect(response.status).toBe(503)
+    expect(cookieValue(response, '__Host-md_nonce')).toBe('')
+    google.answerKeys('ok')
+    vi.setSystemTime(Date.now() + 60_000)
+    const recovered = await startSignIn()
+    expect((await complete(await google.token({ nonce: recovered.nonce }), recovered)).status).toBe(200)
+  })
+
+  test('a credential that is not a token, or none, is refused', async () => {
+    const browser = await startSignIn()
+    expect((await complete('not a token', browser)).status).toBe(401)
+    expect((await call('/api/auth/google', { method: 'POST', headers: { origin: ORIGIN, 'cf-connecting-ip': browser.ip }, json: {} })).status).toBe(401)
+  })
+
+  test('a sign-in from another site is refused before any token is read', async () => {
+    const browser = await startSignIn()
+    const response = await call('/api/auth/google', {
+      method: 'POST', headers: { origin: 'https://evil.example', 'cf-connecting-ip': browser.ip, cookie: `__Host-md_nonce=${browser.nonce}` },
+      json: { credential: await google.token({ nonce: browser.nonce }) },
+    })
+    expect(response.status).toBe(403)
   })
 })
 
-describe('sign-in return URLs', () => {
-  const env = { ORIGIN: 'https://magnetar.codefusion.cc', APP_ENV: 'production' } as Env
+describe("Google's way back to the site", () => {
   const state = (origin: string, path: string) =>
-    `${'a'.repeat(32)}.${toBase64Url(new TextEncoder().encode(JSON.stringify([origin, path])))}`
+    `${'a'.repeat(32)}.${btoa(JSON.stringify([origin, path])).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_')}`
+  const handOn = (fields: Record<string, string>, environment = env, origin = ORIGIN) =>
+    handleGoogleCallback(new Request(`${origin}/api/auth/google/callback`, {
+      method: 'POST', body: new URLSearchParams(fields), headers: { 'sec-fetch-site': 'same-origin' },
+    }), environment, '/api/auth/google/callback')
 
-  test('only our own login page', () => {
-    expect(signInReturnUrl(state(env.ORIGIN, '/login?next=%2Fd%2Fx'), env)?.href).toBe('https://magnetar.codefusion.cc/login?next=%2Fd%2Fx')
-    expect(signInReturnUrl(state('https://evil.example', '/login'), env)).toBeNull()
-    expect(signInReturnUrl(state(env.ORIGIN, '/pair/x'), env)).toBeNull()
-    expect(signInReturnUrl(state(env.ORIGIN, '//evil.example/login'), env)).toBeNull()
-    expect(signInReturnUrl('garbage', env)).toBeNull()
+  test("lands on a page in the dashboard's colours that hands the token to /login", async () => {
+    const page = await call('/api/auth/google/callback')
+    expect(page.status).toBe(200)
+    expect(page.headers.get('content-security-policy')).toMatch(/^default-src 'none'; script-src 'sha256-/)
+    expect(await page.text()).toContain('html{color-scheme:light dark;background:#f6f7fb}@media (prefers-color-scheme:dark){html{background:#0f1117}}')
+    const response = await call('/api/auth/google/callback', {
+      method: 'POST', body: new URLSearchParams({ state: state(ORIGIN, '/login?next=%2Fd%2Fx'), id_token: 'aaa.bbb.ccc' }),
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    })
+    const location = new URL((await response.json<{ location: string }>()).location)
+    expect(location.origin + location.pathname + location.search).toBe(`${ORIGIN}/login?next=%2Fd%2Fx`)
+    expect(new URLSearchParams(location.hash.slice(1)).get('google_id_token')).toBe('aaa.bbb.ccc')
   })
 
-  test('the Vite dev origin only in development with dev login', () => {
-    expect(signInReturnUrl(state('http://localhost:5173', '/login'), env)).toBeNull()
-    const dev = { ...env, APP_ENV: 'development', DEV_LOGIN: 'enabled' } as Env
-    expect(signInReturnUrl(state('http://localhost:5173', '/login'), dev)).not.toBeNull()
+  test('sends a token only to our own login page', async () => {
+    for (const bad of [state('https://evil.example', '/login'), state(ORIGIN, '/pair/x'), state(ORIGIN, '//evil.example/login'), 'garbage']) {
+      expect((await handOn({ state: bad, id_token: 'aaa.bbb.ccc' }))!.status, bad).toBe(400)
+    }
+  })
+
+  test('the Vite dev origin only in development with dev sign-in', async () => {
+    const production = { ...env, ORIGIN: 'https://magnetar.codefusion.cc', APP_ENV: 'production', DEV_LOGIN: undefined }
+    expect((await handOn({ state: state('http://localhost:5173', '/login'), id_token: 'aaa.bbb.ccc' }, production, production.ORIGIN))!.status).toBe(400)
+    expect((await handOn({ state: state('http://localhost:5173', '/login'), id_token: 'aaa.bbb.ccc' }))!.status).toBe(200)
   })
 })

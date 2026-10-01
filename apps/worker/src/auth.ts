@@ -1,8 +1,8 @@
+import { verifyGoogleIdToken } from '@codefusion-cc/google-sign-in'
 import type { AccountDto } from '@magnetar/protocol/cloud'
 import { randomId } from '@magnetar/protocol/base64'
 import { devLoginEnabled, type Env } from './env.ts'
 import { clientIp, cookie, error, HttpError, json, limit, readJson, requireSameOrigin, setCookie, sha256 } from './http.ts'
-import { verifyGoogleIdToken } from './oidc.ts'
 
 export const SESSION_COOKIE = '__Host-md_session'
 const NONCE_COOKIE = '__Host-md_nonce'
@@ -68,18 +68,22 @@ export async function handleAuth(request: Request, env: Env, path: string): Prom
 
   if (path === '/api/auth/google' && request.method === 'POST') {
     requireSameOrigin(request, env)
+    if (!env.GOOGLE_CLIENT_ID) return error(503, 'Google sign-in is not configured yet')
     await limit(env.AUTH_LIMITER, clientIp(request))
     const { credential } = await readJson<{ credential?: string }>(request)
-    let claims
-    try {
-      claims = await verifyGoogleIdToken(String(credential ?? ''), env.GOOGLE_CLIENT_ID, cookie(request, NONCE_COOKIE) ?? '')
-    } catch (e) {
-      return error(401, e instanceof Error ? e.message : 'Sign-in failed')
+    const check = await verifyGoogleIdToken(String(credential ?? ''), { clientId: env.GOOGLE_CLIENT_ID, nonce: cookie(request, NONCE_COOKIE) ?? '' })
+    // A nonce serves one attempt, whatever its outcome: the next sign-in starts with a new one.
+    const forgetNonce = setCookie(NONCE_COOKIE, '', 0)
+    if (!check.ok) {
+      const unreachable = check.problem === 'keys-unavailable'
+      return json({ error: unreachable ? 'Google could not be reached. Try again in a minute.' : `Sign-in failed (${check.problem})` },
+        { status: unreachable ? 503 : 401, headers: { 'set-cookie': forgetNonce } })
     }
+    const { claims } = check
     const { user, cookie: session } = await signIn(env, `google:${claims.sub}`, claims.email, claims.name ?? null, claims.picture ?? null)
     const headers = new Headers({ 'cache-control': 'no-store' })
     headers.append('set-cookie', session)
-    headers.append('set-cookie', setCookie(NONCE_COOKIE, '', 0))
+    headers.append('set-cookie', forgetNonce)
     return Response.json(toAccount(user), { headers })
   }
 

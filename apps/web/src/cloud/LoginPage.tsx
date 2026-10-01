@@ -1,9 +1,9 @@
 import { Download, KeyRound, MonitorSmartphone, ShieldCheck } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Navigate, useSearchParams } from 'react-router'
-import { cloud } from '../lib/cloudApi.ts'
+import { startGoogleSignIn, takeGoogleSignInResult } from '@codefusion-cc/google-sign-in/browser'
+import { cloud, CloudError } from '../lib/cloudApi.ts'
 import { errorMessage } from '../lib/errors.ts'
-import { startGoogleSignIn, takeGoogleSignInResult } from '../lib/googleSignIn.ts'
 import { useLanguage, useT } from '../lib/i18n.tsx'
 import { useAccount } from './CloudApp.tsx'
 import { CloudFrame } from './CloudFrame.tsx'
@@ -30,10 +30,17 @@ export function LoginPage() {
     handled.current = true
     const result = takeGoogleSignInResult()
     if (!result) return
-    if ('error' in result) return setError(result.error)
+    // Closing Google's account chooser is a choice, not an error to report.
+    if ('error' in result) {
+      if (result.error !== 'cancelled') setError(t(result.error === 'expired' ? 'cloud.signInExpired' : 'cloud.signInFailed'))
+      return
+    }
     setBusy(true)
-    cloud.completeSignIn(result.credential).then(refresh, e => setError(errorMessage(e))).finally(() => setBusy(false))
-  }, [refresh])
+    cloud.completeSignIn(result.credential).then(refresh, e => {
+      const status = e instanceof CloudError ? e.status : 0
+      setError(status === 401 ? t('cloud.signInFailed') : status === 503 ? t('cloud.signInUnavailable') : errorMessage(e))
+    }).finally(() => setBusy(false))
+  }, [refresh, t])
 
   if (account) return <Navigate to={next} replace />
 
@@ -42,7 +49,10 @@ export function LoginPage() {
     setError(null)
     try {
       const { nonce, clientId } = await cloud.startSignIn()
-      startGoogleSignIn(clientId, nonce, next, language)
+      if (!startGoogleSignIn({ clientId, nonce, returnPath: `/login?next=${encodeURIComponent(next)}`, locale: language })) {
+        setError(t('cloud.signInFailed'))
+        setBusy(false)
+      }
     } catch (e) {
       setError(errorMessage(e))
       setBusy(false)
