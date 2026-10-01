@@ -1,6 +1,6 @@
+import { randomId } from '@codefusion-cc/base58'
 import { clientNetwork, json, jsonError, rateLimit, readJson, requireSameOrigin, sha256 } from '@codefusion-cc/workers-http'
 import type { CloudDeviceDto, PairApproveResponse, PairingInfoDto, PairPollResponse, PairStartRequest, PairStartResponse } from '@magnetar/protocol/cloud'
-import { randomId } from '@codefusion-cc/base58'
 import { randomToken } from '@magnetar/protocol/base64'
 import { RELAY_CLOSE } from '@magnetar/protocol/relay'
 import { requireUser } from './auth.ts'
