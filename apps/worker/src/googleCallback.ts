@@ -57,7 +57,7 @@ async function callbackPage(): Promise<Response> {
 /** Sends the browser back to the login page with the token in the fragment, which no server sees. */
 async function bounce(request: Request, env: Env): Promise<Response> {
   if (!request.headers.get('content-type')?.startsWith('application/x-www-form-urlencoded')) return new Response('Invalid sign-in response', { status: 400 })
-  const form = new URLSearchParams(new TextDecoder().decode(await readBody(request, { maxBytes: MAX_BODY })))
+  const form = new URLSearchParams(new TextDecoder().decode(await readBody(request, { maxBytes: MAX_BODY, message: 'Sign-in response too large' })))
   const state = form.get('state')
   const target = signInReturnUrl(state, env)
   if (!target) return new Response('Invalid sign-in response', { status: 400 })
