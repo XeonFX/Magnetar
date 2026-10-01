@@ -1,3 +1,4 @@
+import { cancelGoogleSignIn } from '@codefusion-cc/google-sign-in/browser'
 import type { AccountDto } from '@magnetar/protocol/cloud'
 import { consolePage } from '@magnetar/protocol/console-pages'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
@@ -69,6 +70,8 @@ export default function CloudApp({ config }: { config: AppConfig }) {
   const signOut = useCallback(async () => {
     try {
       await cloud.signOut()
+      // A sign-in still at Google must not complete into the account just signed out of.
+      cancelGoogleSignIn()
       setAccount(null)
     } catch (e) {
       toast(errorMessage(e), 'error')

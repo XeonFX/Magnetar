@@ -10,7 +10,8 @@ process.env.WRANGLER_LOG ??= 'error'
 export default defineConfig(async () => ({
   plugins: [cloudflareTest({
     wrangler: { configPath: join(import.meta.dirname, 'wrangler.jsonc'), environment: 'dev' },
-    miniflare: { bindings: { TEST_MIGRATIONS: await readD1Migrations(join(import.meta.dirname, 'migrations')) } },
+    // Google sign-in is configured with the client id of the fake Google in test/auth.test.ts.
+    miniflare: { bindings: { TEST_MIGRATIONS: await readD1Migrations(join(import.meta.dirname, 'migrations')), GOOGLE_CLIENT_ID: 'test-client.apps.googleusercontent.com' } },
   })],
   test: {
     name: 'worker',

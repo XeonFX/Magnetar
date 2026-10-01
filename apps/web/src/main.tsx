@@ -1,6 +1,8 @@
 import { StrictMode, Suspense, lazy, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+// The theme follows the system and the other tabs from the start, whatever page shows.
+import './ui/theme.ts'
 import { LocalApp } from './LocalApp.tsx'
 import { loadAppConfig, type AppConfig } from './lib/cloudApi.ts'
 import { reporting } from './lib/console.ts'

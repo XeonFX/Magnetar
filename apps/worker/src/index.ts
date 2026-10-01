@@ -1,3 +1,4 @@
+import { handleGoogleSignIn } from '@codefusion-cc/google-sign-in'
 import { consoleAdmin, createConsoleRoutes } from '@codefusion-cc/console/worker'
 import type { AppConfig, FailureReport } from '@magnetar/protocol/cloud'
 import { CONSOLE_PAGES } from '@magnetar/protocol/console-pages'
@@ -6,7 +7,6 @@ import { consoleResources } from './console/admin.ts'
 import { manifest } from './console/manifest.ts'
 import { handleDevices } from './devices.ts'
 import { allowedOrigins, devLoginEnabled, type Env } from './env.ts'
-import { handleGoogleCallback } from './googleCallback.ts'
 import { clientIp, error, HttpError, json, limit, readJson } from './http.ts'
 import { handlePush } from './push.ts'
 import { handleReleases } from './releases.ts'
@@ -44,6 +44,8 @@ async function reportFailure(request: Request, env: Env): Promise<Response> {
   return new Response(null, { status: 204 })
 }
 
+const GOOGLE_CALLBACK_PAGE = { background: { light: '#f6f7fb', dark: '#0f1117' } }
+
 async function route(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const path = new URL(request.url).pathname
   const consoleAnswer = await consoleRoutes.fetch(request, env, ctx, origin => allowedOrigins(env).includes(origin))
@@ -52,7 +54,9 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
     return json({ mode: 'cloud', googleClientId: env.GOOGLE_CLIENT_ID || undefined, devLogin: devLoginEnabled(env) || undefined } satisfies AppConfig)
   }
   if (path === '/api/telemetry/failure' && request.method === 'POST') return reportFailure(request, env)
-  return (await handleGoogleCallback(request, env, path))
+  // Google's redirect back: the page it lands on, in the dashboard's background so it never flashes white, and
+  // the hand-off that sends the token to /login on one of our origins.
+  return (await handleGoogleSignIn(request, { allowedOrigin: origin => allowedOrigins(env).includes(origin), page: GOOGLE_CALLBACK_PAGE }))
     ?? (await handleAuth(request, env, path))
     ?? (await handleDevices(request, env, path))
     ?? (await handlePush(request, env, path))
