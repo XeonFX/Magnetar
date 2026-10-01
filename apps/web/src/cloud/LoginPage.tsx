@@ -1,13 +1,18 @@
 import { Download, KeyRound, MonitorSmartphone, ShieldCheck } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Navigate, useSearchParams } from 'react-router'
-import { cloud } from '../lib/cloudApi.ts'
+import { startGoogleSignIn, takeGoogleSignInResult } from '@codefusion-cc/google-sign-in/browser'
+import { cloud, CloudError } from '../lib/cloudApi.ts'
 import { errorMessage } from '../lib/errors.ts'
-import { startGoogleSignIn, takeGoogleSignInResult } from '../lib/googleSignIn.ts'
 import { useLanguage, useT } from '../lib/i18n.tsx'
 import { useAccount } from './CloudApp.tsx'
 import { CloudFrame } from './CloudFrame.tsx'
 import { DownloadApp } from './DownloadApp.tsx'
+
+/** What to say about a return from Google that brought no credential; a cancelled one says nothing. */
+const RETURN_ERRORS = { expired: 'cloud.signInExpired', failed: 'cloud.signInFailed' } as const
+/** What to say when the Worker refuses the credential: 503 when Google's keys could not be read. */
+const STATUS_ERRORS: Partial<Record<number, 'cloud.signInFailed' | 'cloud.signInUnavailable'>> = { 401: 'cloud.signInFailed', 503: 'cloud.signInUnavailable' }
 
 function safeNext(value: string | null): string {
   return value && value.startsWith('/') && !value.startsWith('//') ? value : '/'
@@ -30,10 +35,17 @@ export function LoginPage() {
     handled.current = true
     const result = takeGoogleSignInResult()
     if (!result) return
-    if ('error' in result) return setError(result.error)
+    // Closing Google's account chooser is a choice, not an error to report.
+    if ('error' in result) {
+      if (result.error !== 'cancelled') setError(t(RETURN_ERRORS[result.error]))
+      return
+    }
     setBusy(true)
-    cloud.completeSignIn(result.credential).then(refresh, e => setError(errorMessage(e))).finally(() => setBusy(false))
-  }, [refresh])
+    cloud.completeSignIn(result.credential).then(refresh, e => {
+      const key = e instanceof CloudError ? STATUS_ERRORS[e.status] : undefined
+      setError(key ? t(key) : errorMessage(e))
+    }).finally(() => setBusy(false))
+  }, [refresh, t])
 
   if (account) return <Navigate to={next} replace />
 
@@ -42,7 +54,11 @@ export function LoginPage() {
     setError(null)
     try {
       const { nonce, clientId } = await cloud.startSignIn()
-      startGoogleSignIn(clientId, nonce, next, language)
+      // Google returns to this page, /login with its `next`.
+      if (!startGoogleSignIn({ clientId, nonce, locale: language })) {
+        setError(t('cloud.signInFailed'))
+        setBusy(false)
+      }
     } catch (e) {
       setError(errorMessage(e))
       setBusy(false)

@@ -19,9 +19,11 @@ describe('the website API', () => {
   })
 
   test('app-config tells the page it is the cloud site, with dev sign-in only in development', async () => {
-    expect(await (await call('/app-config.json')).json()).toEqual({ mode: 'cloud', devLogin: true })
+    expect(await (await call('/app-config.json')).json()).toEqual({ mode: 'cloud', googleClientId: 'test-client.apps.googleusercontent.com', devLogin: true })
     const live = await fetchWith(production, new Request('https://magnetar.codefusion.cc/app-config.json'))
-    expect(await live.json()).toEqual({ mode: 'cloud' })
+    expect(await live.json()).toEqual({ mode: 'cloud', googleClientId: 'test-client.apps.googleusercontent.com' })
+    const unconfigured = await fetchWith({ ...production, GOOGLE_CLIENT_ID: '' }, new Request('https://magnetar.codefusion.cc/app-config.json'))
+    expect(await unconfigured.json()).toEqual({ mode: 'cloud' })
   })
 
   test('dev sign-in does not exist in production', async () => {
