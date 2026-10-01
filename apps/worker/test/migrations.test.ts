@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers'
 import { describe, expect, test } from 'vitest'
 import { isDeviceName } from '@magnetar/protocol/device-name'
+import rules from '../../../packages/protocol/src/device-names.json'
 import { signIn } from './client.ts'
 
 /** Runs a migration again over rows written as they were before it. */
@@ -50,5 +51,18 @@ describe('0002: device names become addresses', () => {
     expect(names.results.every(r => isDeviceName(r.name))).toBe(true)
     await expect(env.DB.prepare('INSERT INTO devices (id, user_id, name, platform, version, token_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .bind('d_m10', userId(user.email), 'STUDIO-MAC', 'macos', '1', 'hash-d_m10', 10).run()).rejects.toThrow(/UNIQUE constraint failed/)
+  })
+
+  test('steps around every word the website keeps for itself, as the Worker does', async () => {
+    const user = await signIn()
+    const owner = (await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(user.email).first<{ id: string }>())!.id
+    await env.DB.prepare('DROP INDEX devices_user_name').run()
+    for (const [i, word] of rules.reserved.entries()) {
+      await env.DB.prepare('INSERT INTO devices (id, user_id, name, platform, version, token_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .bind(`d_r${i}`, owner, word.toUpperCase(), 'macos', '1', `hash-r${i}`, i).run()
+    }
+    await rerun('0002')
+    const names = await env.DB.prepare("SELECT name FROM devices WHERE id LIKE 'd_r%' ORDER BY created_at").all<{ name: string }>()
+    expect(names.results.map(r => r.name)).toEqual(rules.reserved.map(word => `${word.toUpperCase()}-device`))
   })
 })

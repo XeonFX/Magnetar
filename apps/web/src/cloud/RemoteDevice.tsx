@@ -17,31 +17,30 @@ import { DeviceSwitcher } from './DeviceSwitcher.tsx'
 
 /**
  * The account's devices for finding one by its address: the list last fetched at once, then a fresh one each
- * time the address names another device. `fresh` says whether the list is from this visit.
+ * time the address names another device. `state` says whether the list on hand is from this visit.
  */
 function useDeviceList(address: string) {
   const [devices, setDevices] = useState(() => cloud.knownDevices())
-  const [fresh, setFresh] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const [state, setState] = useState<'loading' | 'fresh' | 'failed'>('loading')
   const load = useCallback(() => {
     let cancelled = false
-    setFailed(false)
-    setFresh(false)
+    setState('loading')
     cloud.devices().then(list => {
       if (cancelled) return
       setDevices(list)
-      setFresh(true)
-    }, () => !cancelled && setFailed(true))
+      setState('fresh')
+    }, () => !cancelled && setState('failed'))
     return () => { cancelled = true }
   }, [])
-  useEffect(load, [load, address])
-  return { devices, fresh, failed, retry: load, setDevices }
+  // Names match in any case, so moving to the device's own spelling is not another device.
+  useEffect(load, [load, address.toLowerCase()])
+  return { devices, state, retry: load, setDevices }
 }
 
 /** What to show while the device an address names is not known: loading, a failed list, or no such device. */
-function DeviceLookup({ devices, fresh, failed, retry, name }: ReturnType<typeof useDeviceList> & { name: string }) {
+function DeviceLookup({ devices, state, retry, name }: ReturnType<typeof useDeviceList> & { name: string }) {
   const t = useT()
-  if (failed && !fresh) {
+  if (state === 'failed') {
     return (
       <CloudFrame>
         <div role="alert" className="surface mx-auto flex max-w-md flex-col items-center gap-4 px-6 py-10 text-center">
@@ -52,7 +51,7 @@ function DeviceLookup({ devices, fresh, failed, retry, name }: ReturnType<typeof
     )
   }
   // A list from before this visit may predate a rename: only a fresh one may say the device is not there.
-  if (!devices || !fresh) return <Loading screen />
+  if (!devices || state !== 'fresh') return <Loading screen />
   return (
     <CloudFrame>
       <div className="surface mx-auto flex max-w-md flex-col gap-4 p-6">

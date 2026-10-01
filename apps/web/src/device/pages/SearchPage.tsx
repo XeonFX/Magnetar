@@ -1,4 +1,4 @@
-import type { SearchResultDto, SourceDto, SourceOutcomeDto, TorrentDetailsDto } from '@magnetar/protocol'
+import type { SearchResultDto, SourceOutcomeDto, TorrentDetailsDto } from '@magnetar/protocol'
 import { formatBytes } from '@magnetar/protocol/bytes'
 import { BellRing, Check, CircleAlert, Copy, Download, ExternalLink, FolderOpen, SearchIcon, SearchX, Sprout, Telescope, X } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
@@ -29,9 +29,6 @@ const SORTS: Record<Sort, (a: SearchResultDto, b: SearchResultDto) => number> = 
 /** Each sort and its word in addresses (`?sort=new`); the first is the default, left out of them. */
 const SORT_WORDS: SearchChoices<string, Sort>['sorts'] = [['seeders', 'seeders'], ['newest', 'new'], ['largest', 'large'], ['smallest', 'small']]
 const SORT_NAMES = SORT_WORDS.map(([sort]) => sort)
-
-/** How addresses name a source; an app older than source ids has only names. */
-const sourceId = (source: SourceDto) => source.id || source.name
 
 /** Starts a download and says so, with a way to go and watch it. */
 function useStartDownload() {
@@ -65,7 +62,7 @@ export function SearchPage() {
   const location = useLocation()
   const segment = location.pathname.slice(`${basePath}/search`.length).replace(/^\//, '')
   const choices = useMemo<SearchChoices<string, Sort>>(() => ({
-    resolutions: RESOLUTIONS, sorts: SORT_WORDS, sources: sources.map(s => ({ id: sourceId(s), name: s.name })),
+    resolutions: RESOLUTIONS, sorts: SORT_WORDS, sources,
   }), [sources])
   const view = useMemo(() => readSearch(segment, params, choices), [segment, params, choices])
   const { sort } = view
@@ -136,7 +133,7 @@ export function SearchPage() {
           <select className="select select-sm w-auto rounded-full" aria-label={t('search.source')} value={view.source}
             onChange={e => show({ source: e.target.value }, { replace: true })}>
             <option value="">{t('search.allSources')}</option>
-            {sources.filter(s => s.enabled || sourceId(s) === view.source).map(s => <option key={sourceId(s)} value={sourceId(s)}>{s.name}</option>)}
+            {sources.filter(s => s.enabled || s.id === view.source).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
           {results && results.length > 1 && (
             <select className="select select-sm ml-auto w-auto rounded-full" aria-label={t('search.sort')} value={sort}

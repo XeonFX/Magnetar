@@ -17,7 +17,8 @@ export const CONSOLE_PAGES = [
 export type ConsolePage = (typeof CONSOLE_PAGES)[number]
 
 const DEVICE_TABS = new Set(['search', 'series', 'settings'])
-const SITE_PAGES = new Set(['login', 'pair', 'link', 'add'])
+/** The website's own top-level pages, which no device may be named after (device-names.json). */
+export const SITE_PAGES = new Set(['login', 'pair', 'link', 'add'])
 
 /** The screen a website path shows (`/MacBook-Pro/search/dragon` is device-search), never a name or id from it. */
 export function consolePage(pathname: string): ConsolePage {

@@ -33,8 +33,9 @@ async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T)
 }
 
-/** The account's devices as `cloud.devices()` last listed them. */
+/** The account's devices as `cloud.devices()` last listed them, and the listing under way, which callers share. */
 let knownDevices: CloudDeviceDto[] | null = null
+let listing: Promise<CloudDeviceDto[]> | null = null
 
 export const cloud = {
   /** The signed-in account, or null when signed out. */
@@ -53,9 +54,11 @@ export const cloud = {
     await api<void>('/api/auth/logout', { method: 'POST', body: '{}' })
     knownDevices = null
   },
-  async devices(): Promise<CloudDeviceDto[]> {
-    knownDevices = await api<CloudDeviceDto[]>('/api/devices')
-    return knownDevices
+  devices(): Promise<CloudDeviceDto[]> {
+    listing ??= api<CloudDeviceDto[]>('/api/devices')
+      .then(list => (knownDevices = list))
+      .finally(() => { listing = null })
+    return listing
   },
   /** The devices as last listed, to show a page at once while they are listed again; null before the first list. */
   knownDevices: () => knownDevices,

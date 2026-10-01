@@ -1,6 +1,7 @@
 import fc from 'fast-check'
 import { describe, expect, test } from 'vitest'
 import { DEVICE_NAME_MAX_LENGTH, isDeviceName, sameDeviceName, toDeviceName, uniqueDeviceName } from './deviceName.ts'
+import { SITE_PAGES } from './consolePages.ts'
 import rules from './device-names.json'
 
 describe('device names', () => {
@@ -10,7 +11,8 @@ describe('device names', () => {
   })
 
   test('refuse every top-level path of the website, in any case', () => {
-    for (const path of ['login', 'pair', 'link', 'add', 'd', 'api', 'assets']) {
+    // d: addresses by device id; api: the Worker's routes; assets: the built bundles.
+    for (const path of [...SITE_PAGES, 'd', 'api', 'assets']) {
       expect(isDeviceName(path)).toBe(false)
       expect(isDeviceName(path.toUpperCase())).toBe(false)
     }

@@ -22,7 +22,6 @@ static RULES: LazyLock<Rules> = LazyLock::new(|| {
 /// Whether `name` may be a device's name as it is.
 pub fn is_device_name(name: &str) -> bool {
     name.len() <= RULES.max_length
-        && !name.is_empty()
         && name.split('-').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_alphanumeric()))
         && !RULES.reserved.contains(&name.to_ascii_lowercase())
 }

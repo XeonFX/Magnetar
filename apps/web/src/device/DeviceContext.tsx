@@ -54,6 +54,9 @@ export function mergeRows(list: DownloadDto[], rows: DownloadDto[]): DownloadDto
   return changed ? next : list
 }
 
+/** An app older than source ids names its sources only by name; that name stands in for the id. */
+const withIds = (sources: SourceDto[]) => sources.map(s => (s.id ? s : { ...s, id: s.name }))
+
 const DeviceContext = createContext<DeviceState | null>(null)
 /** Separate so the once-a-second progress updates re-render only the views that show downloads. */
 const DownloadsContext = createContext<DownloadDto[]>([])
@@ -104,7 +107,7 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
         setDownloads(d)
         setSeries(s)
         setSettings(st)
-        setSources(src)
+        setSources(withIds(src))
         setUpdates(u)
         setRemote(r)
         setTransfer(tr)
@@ -128,7 +131,7 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
       connection.on('watches.changed', setWatches),
       connection.on('settings.changed', next => {
         setSettings(next)
-        void connection.call('sources.list').then(setSources).catch(() => {})
+        void connection.call('sources.list').then(list => setSources(withIds(list))).catch(() => {})
       }),
       connection.on('updates.changed', setUpdates),
       connection.on('remote.changed', setRemote),
