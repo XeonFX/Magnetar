@@ -14,7 +14,8 @@
     "directory": "../web/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/app-config.json", "/_console/*"]
+    // Everything but the built bundles, so pages keep their address exactly as written (see page() in src/index.ts).
+    "run_worker_first": ["/*", "!/assets/*"]
   },
   "d1_databases": [
     { "binding": "DB", "database_name": "magnetar", "database_id": "04dff4c8-e6b5-48e1-94b0-2769261e8a70", "migrations_dir": "migrations" }

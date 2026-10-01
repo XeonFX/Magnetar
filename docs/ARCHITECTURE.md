@@ -14,7 +14,9 @@
 ## One dashboard, two transports
 
 `apps/web` is a single build. It asks `/app-config.json` where it is running: the app answers `local`, the Worker
-answers `cloud`. Every page talks to a device through an `RpcClient`:
+answers `cloud`. On the website a device's pages are `/<device name>/…` (`/d/<device id>/…` moves there), and the
+Worker answers page paths itself with the dashboard's one page (`page()` in `apps/worker/src/index.ts`): the static
+assets would redirect a path to their own spelling, turning a search's `+` into `%2B`. Every page talks to a device through an `RpcClient`:
 
 - **LocalConnection**: a same-origin WebSocket to `/ws` on the app. The app accepts it only from a loopback address,
   under a loopback host name, with the app's own `Origin`, so neither web pages nor DNS-rebound sites can drive it.
@@ -33,9 +35,12 @@ changes, desktop notifications). The dashboard's side is typed with zod; the app
    poll secret. It also mints a **browser key** (below), inactive for now, and opens
    `https://magnetar.codefusion.cc/pair/<pairingId>#i=<keyId>&k=<key>`.
 2. The website parks the key from the fragment in session storage, has you sign in, and shows the device name.
-   Approving creates the device in D1 with a fresh random token, stored only as a hash.
-3. The app polls `POST /api/pair/poll` with the poll secret, collects the token (handed over once, then deleted),
-   activates the pending key and connects to the relay. The browser stores its key under the new device id.
+   Approving creates the device in D1 with a fresh random token, stored only as a hash, under a name unique on the
+   account (`MacBook-Pro`, else `MacBook-Pro-2`): the name is the device's address, `/<name>/…`
+   (`packages/protocol/src/deviceName.ts`, a unique index in D1).
+3. The app polls `POST /api/pair/poll` with the poll secret, collects the token (handed over once, then deleted) and
+   its name, activates the pending key and connects to the relay. The browser stores its key under the new device id,
+   so a rename never unlinks it.
 
 Anyone who got hold of the pairing link before you could approve it into their own account. That is why the app shows
 which account it was connected to, and you can disconnect it at any time.
@@ -86,7 +91,8 @@ keys limit what a compromised page could take away.
 `DeviceRelay` (`apps/worker/src/relay.ts`) is a Durable Object per device using the WebSocket Hibernation API. The
 device socket is tagged `device`, each browser `browser` plus `b:<connectionId>`. Browser frames go to the device
 prefixed with the 16-byte connection id; device frames are unwrapped and sent to that browser. Text frames are relay
-control (`open`, `close`, device online/offline, `revoked`). Pings are answered with an auto-response, without waking
+control (`open`, `close`, device online/offline, `revoked`, and `name` when the app says hello with another name than
+the account's). Pings are answered with an auto-response, without waking
 the object. Removing a device closes the device socket with 4001 and browsers with 4003.
 
 ## Accounts and sessions

@@ -1,9 +1,20 @@
 import { describe, expect, test } from 'vitest'
 import fc from 'fast-check'
-import { pathChoice, pickParam, readSearch, searchKey, withParam, writeSearch, type SearchView } from './urlState.ts'
+import { pathChoice, pickParam, readSearch, searchAddress, searchKey, searchTextFrom, searchTextSegment, withParam, type SearchChoices, type SearchView } from './urlState.ts'
 
-const RESOLUTIONS = ['', '720p', '1080p', '2160p'] as const
-const SORTS = ['seeders', 'newest', 'largest', 'smallest'] as const
+type Resolution = '' | '720p' | '1080p' | '2160p'
+type Sort = 'seeders' | 'newest' | 'largest' | 'smallest'
+const SOURCES = [{ id: 'tpb', name: 'The Pirate Bay' }, { id: 'nyaa', name: 'Nyaa' }, { id: '1337x', name: '1337x' }]
+const CHOICES: SearchChoices<Resolution, Sort> = {
+  resolutions: ['', '720p', '1080p', '2160p'],
+  sorts: [['seeders', 'seeders'], ['newest', 'new'], ['largest', 'large'], ['smallest', 'small']],
+  sources: SOURCES,
+}
+/** Reads an address the way the search page does: the path after /search/ and the query string. */
+const read = (address: string, choices = CHOICES) => {
+  const url = new URL(address, 'https://x.example')
+  return readSearch(url.pathname.replace(/^\/search\/?/, ''), url.searchParams, choices)
+}
 
 describe('query parameters', () => {
   test('a default value is left out, anything else is set, and other parameters are kept', () => {
@@ -26,42 +37,83 @@ describe('query parameters', () => {
 })
 
 describe('a search in the address bar', () => {
-  test('reads every choice, and falls back on ones it does not know', () => {
-    expect(readSearch(new URLSearchParams('q=%20dragon%20&res=1080p&source=Nyaa&sort=newest'), RESOLUTIONS, SORTS))
-      .toEqual({ query: 'dragon', resolution: '1080p', source: 'Nyaa', sort: 'newest' })
-    expect(readSearch(new URLSearchParams('q=x&res=8K&sort=random'), RESOLUTIONS, SORTS))
-      .toEqual({ query: 'x', resolution: '', source: '', sort: 'seeders' })
-    expect(readSearch(new URLSearchParams(''), RESOLUTIONS, SORTS)).toEqual({ query: '', resolution: '', source: '', sort: 'seeders' })
+  test('reads the text from the path and every choice from the query', () => {
+    expect(read('/search/house+of+the+dragon?res=720p&source=tpb&sort=new'))
+      .toEqual({ query: 'house of the dragon', resolution: '720p', source: 'tpb', sort: 'newest' })
+    expect(read('/search/dragon')).toEqual({ query: 'dragon', resolution: '', source: '', sort: 'seeders' })
+    expect(read('/search')).toEqual({ query: '', resolution: '', source: '', sort: 'seeders' })
   })
 
-  test('writes a short link: the defaults stay out', () => {
-    expect(writeSearch({ query: 'dragon', resolution: '', source: '', sort: 'seeders' }, RESOLUTIONS, SORTS).toString()).toBe('q=dragon')
-    expect(writeSearch({ query: 'Łódź & co?', resolution: '2160p', source: 'The Pirate Bay', sort: 'smallest' }, RESOLUTIONS, SORTS).toString())
-      .toBe('q=%C5%81%C3%B3d%C5%BA+%26+co%3F&res=2160p&source=The+Pirate+Bay&sort=smallest')
+  test('reads older addresses the same', () => {
+    expect(read('/search?q=dragon&res=720p&source=The+Pirate+Bay&sort=newest'))
+      .toEqual({ query: 'dragon', resolution: '720p', source: 'tpb', sort: 'newest' })
+    expect(read('/search?q=%20dragon%20&source=nyaa&sort=largest')).toEqual({ query: 'dragon', resolution: '', source: 'nyaa', sort: 'largest' })
+    // The path wins over a stray q.
+    expect(read('/search/dragon?q=other').query).toBe('dragon')
+  })
+
+  test('falls back on choices it does not know', () => {
+    expect(read('/search/x?res=8K&sort=random&source=nope')).toEqual({ query: 'x', resolution: '', source: '', sort: 'seeders' })
+    expect(read('/search/x?source=TPB&sort=NEW')).toMatchObject({ source: 'tpb', sort: 'seeders' })
+  })
+
+  test('keeps a source as written until the device has said which it has', () => {
+    const loading = { ...CHOICES, sources: [] }
+    expect(read('/search/x?source=The+Pirate+Bay', loading).source).toBe('The Pirate Bay')
+    expect(read('/search/x?source=tpb', loading).source).toBe('tpb')
+  })
+
+  test('writes a short address: the defaults stay out', () => {
+    expect(searchAddress({ query: 'dragon', resolution: '', source: '', sort: 'seeders' }, CHOICES)).toBe('/search/dragon')
+    expect(searchAddress({ query: '', resolution: '', source: '', sort: 'seeders' }, CHOICES)).toBe('/search')
+    expect(searchAddress({ query: '', resolution: '1080p', source: '', sort: 'seeders' }, CHOICES)).toBe('/search?res=1080p')
+    expect(searchAddress({ query: 'dragon', resolution: '720p', source: 'tpb', sort: 'newest' }, CHOICES)).toBe('/search/dragon?res=720p&source=tpb&sort=new')
+  })
+
+  test('spells text readably in the path, and anything else safely', () => {
+    expect(searchTextSegment('house of the dragon')).toBe('house+of+the+dragon')
+    expect(searchTextSegment('C++ & Rust: 2024, vol=1')).toBe('C%2B%2B+&+Rust:+2024,+vol=1')
+    expect(searchTextSegment('AC/DC? #1 100%')).toBe('AC%2FDC%3F+%231+100%25')
+    expect(searchTextSegment('Łódź')).toBe('%C5%81%C3%B3d%C5%BA')
+    expect(searchTextSegment('half \uD83D')).toBe('half+%EF%BF%BD')
+    expect(searchTextFrom('C%2B%2B+&+Rust:+2024,+vol=1')).toBe('C++ & Rust: 2024, vol=1')
+    // A broken escape is read as it is rather than failing the page.
+    expect(searchTextFrom('100%+off')).toBe('100% off')
+    expect(searchTextFrom('%E0%A4%A')).toBe('%E0%A4%A')
   })
 
   test('sorting does not make it another search; a query, resolution or source does', () => {
     const base: SearchView = { query: 'dragon', resolution: '', source: '', sort: 'seeders' }
     expect(searchKey({ ...base, sort: 'newest' })).toBe(searchKey(base))
     expect(searchKey({ ...base, resolution: '1080p' })).not.toBe(searchKey(base))
-    expect(searchKey({ ...base, source: 'Nyaa' })).not.toBe(searchKey(base))
+    expect(searchKey({ ...base, source: 'nyaa' })).not.toBe(searchKey(base))
     expect(searchKey({ ...base, query: 'dragons' })).not.toBe(searchKey(base))
     expect(searchKey({ ...base, query: '' })).toBeNull()
     // Fields can't run into each other.
     expect(searchKey({ ...base, query: 'a 1080p', resolution: '' })).not.toBe(searchKey({ ...base, query: 'a', resolution: '1080p' }))
   })
 
+  const view = fc.record({
+    query: fc.string({ unit: 'binary', maxLength: 120 }).map(s => s.trim()),
+    resolution: fc.constantFrom(...CHOICES.resolutions),
+    source: fc.constantFrom('', ...SOURCES.map(s => s.id)),
+    sort: fc.constantFrom(...CHOICES.sorts.map(([value]) => value)),
+  })
+
   test('what is written reads back the same, for any text', () => {
-    const view = fc.record({
-      query: fc.string({ maxLength: 200 }).map(s => s.trim()),
-      resolution: fc.constantFrom(...RESOLUTIONS),
-      source: fc.string({ maxLength: 40 }).map(s => s.trim()),
-      sort: fc.constantFrom(...SORTS),
-    })
     fc.assert(fc.property(view, v => {
-      const again = readSearch(new URLSearchParams(writeSearch(v, RESOLUTIONS, SORTS).toString()), RESOLUTIONS, SORTS)
-      expect(again).toEqual(v)
-      expect(searchKey(again)).toBe(searchKey(v))
+      expect(read(searchAddress(v, CHOICES))).toEqual(v)
+    }))
+  })
+
+  test('an address written from what was read is written the same again, so it is never moved twice', () => {
+    const address = fc.oneof(
+      view.map(v => searchAddress(v, CHOICES)),
+      fc.tuple(fc.string({ maxLength: 30 }), fc.string({ maxLength: 20 })).map(([path, query]) => `/search/${encodeURIComponent(path)}?${query}`),
+    )
+    fc.assert(fc.property(address, a => {
+      const once = searchAddress(read(a), CHOICES)
+      expect(searchAddress(read(once), CHOICES)).toBe(once)
     }))
   })
 })

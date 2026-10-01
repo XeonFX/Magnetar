@@ -29,7 +29,7 @@ export function DeviceRoutes({ headerStart, headerEnd, deviceMenu, fallbackLangu
       <Routes>
         <Route element={<Shell headerStart={headerStart} headerEnd={headerEnd} deviceMenu={deviceMenu} />}>
           <Route index element={<DownloadsPage />} />
-          <Route path="search" element={<Page><SearchPage /></Page>} />
+          <Route path="search/*" element={<Page><SearchPage /></Page>} />
           <Route path="series/:tab?" element={<Page><SeriesPage /></Page>} />
           <Route path="settings/:section?" element={<Page><SettingsPage /></Page>} />
           <Route path="*" element={<DownloadsPage />} />

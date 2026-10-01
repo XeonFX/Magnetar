@@ -32,7 +32,7 @@ interface DeviceState {
   updates: UpdateStatusDto | null
   remote: RemoteStatusDto | null
   transfer: TransferStatusDto | null
-  /** Base path of this device's pages: '' locally, '/d/<id>' through the relay. */
+  /** Base path of this device's pages: '' locally, '/<device name>' through the relay. */
   basePath: string
   deviceName: string
 }
@@ -54,6 +54,9 @@ export function mergeRows(list: DownloadDto[], rows: DownloadDto[]): DownloadDto
   return changed ? next : list
 }
 
+/** An app older than source ids names its sources only by name; that name stands in for the id. */
+const withIds = (sources: SourceDto[]) => sources.map(s => (s.id ? s : { ...s, id: s.name }))
+
 const DeviceContext = createContext<DeviceState | null>(null)
 /** Separate so the once-a-second progress updates re-render only the views that show downloads. */
 const DownloadsContext = createContext<DownloadDto[]>([])
@@ -62,10 +65,10 @@ const SearchContext = createContext<SearchContextValue | null>(null)
 interface SearchContextValue {
   search: SearchState
   setSearch: (update: (state: SearchState) => SearchState) => void
-  /** Remembers the search page's query string, for the links back to it. */
+  /** Remembers the search page's address from `/search` on, for the links back to it. */
   setSearchAddress: (query: string) => void
 }
-/** The last search's query string, apart so only the links back to Search re-render when it changes. */
+/** The last search's address, apart so only the links back to Search re-render when it changes. */
 const SearchAddressContext = createContext('')
 /** Just the connection, which never changes for a device: for per-row views that only make calls. */
 const ConnectionContext = createContext<RpcClient | null>(null)
@@ -104,7 +107,7 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
         setDownloads(d)
         setSeries(s)
         setSettings(st)
-        setSources(src)
+        setSources(withIds(src))
         setUpdates(u)
         setRemote(r)
         setTransfer(tr)
@@ -128,7 +131,7 @@ export function DeviceProvider({ connection, basePath, deviceName, children }: {
       connection.on('watches.changed', setWatches),
       connection.on('settings.changed', next => {
         setSettings(next)
-        void connection.call('sources.list').then(setSources).catch(() => {})
+        void connection.call('sources.list').then(list => setSources(withIds(list))).catch(() => {})
       }),
       connection.on('updates.changed', setUpdates),
       connection.on('remote.changed', setRemote),
@@ -186,7 +189,7 @@ export function useConnection(): RpcClient {
 export function useSearchLink(): string {
   const { basePath } = useDevice()
   const address = useContext(SearchAddressContext)
-  return `${basePath}/search${address ? `?${address}` : ''}`
+  return `${basePath}${address || '/search'}`
 }
 
 export function useSearch(): SearchContextValue {

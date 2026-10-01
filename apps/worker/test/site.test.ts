@@ -18,6 +18,37 @@ describe('the website API', () => {
     expect(response.headers.get('referrer-policy')).toBe('no-referrer')
   })
 
+  test("pages are the dashboard's one page, at the address exactly as written", async () => {
+    // The assets redirect a path to their own spelling (a search's + becomes %2B, a plus), so the Worker asks them
+    // for the page itself and leaves the address alone.
+    const asked: string[] = []
+    const assets = { fetch: async (input: RequestInfo | URL) => {
+      asked.push(new URL(input instanceof Request ? input.url : input).pathname)
+      return new Response('asset', { headers: { 'content-type': 'text/html' } })
+    } } as unknown as Fetcher
+    const get = async (path: string) => {
+      asked.length = 0
+      const response = await fetchWith({ ...env, ASSETS: assets } as Env, new Request(`http://localhost:8790${path}`))
+      return { response, asked: [...asked] }
+    }
+    for (const path of ['/', '/MacBook-Pro', '/MacBook-Pro/search/house+of+the+dragon?res=720p', '/MacBook-Pro/search/AC%2FDC+%2B:1', '/MacBook-Pro/search/s01e01+1080p.mkv', '/d/d_x/settings']) {
+      const { response, asked } = await get(path)
+      expect([response.status, await response.text(), asked], path).toEqual([200, 'asset', ['/']])
+      expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+    }
+    // Only reading a page is a page; nothing goes to the assets for anything else.
+    asked.length = 0
+    const posted = await fetchWith({ ...env, ASSETS: assets } as Env, new Request('http://localhost:8790/MacBook-Pro', { method: 'POST' }))
+    expect([posted.status, await posted.json(), asked]).toEqual([405, { error: 'Method not allowed' }, []])
+    // Files are the assets' own; the API's and the console's unknown paths stay JSON 404s.
+    expect((await get('/sw.js')).asked).toEqual(['/sw.js'])
+    expect((await get('/icon-192.png')).asked).toEqual(['/icon-192.png'])
+    for (const path of ['/api/nope', '/_console/nope']) {
+      const { response, asked } = await get(path)
+      expect([response.status, await response.json(), asked], path).toEqual([404, { error: 'Not found' }, []])
+    }
+  })
+
   test('app-config tells the page it is the cloud site, with dev sign-in only in development', async () => {
     expect(await (await call('/app-config.json')).json()).toEqual({ mode: 'cloud', googleClientId: 'test-client.apps.googleusercontent.com', devLogin: true })
     const live = await fetchWith(production, new Request('https://magnetar.codefusion.cc/app-config.json'))

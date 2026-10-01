@@ -2,10 +2,10 @@ import type { SearchResultDto, SourceOutcomeDto, TorrentDetailsDto } from '@magn
 import { formatBytes } from '@magnetar/protocol/bytes'
 import { BellRing, Check, CircleAlert, Copy, Download, ExternalLink, FolderOpen, SearchIcon, SearchX, Sprout, Telescope, X } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { useNavigate, useSearchParams } from 'react-router'
+import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { useFormatDate, useFormatRelative, useT } from '../../lib/i18n.tsx'
 import { RESOLUTIONS } from '../../lib/quality.ts'
-import { readSearch, searchKey, writeSearch } from '../../lib/urlState.ts'
+import { readSearch, searchAddress, searchKey, type SearchChoices } from '../../lib/urlState.ts'
 import { askNotificationPermission } from '../../lib/notifications.ts'
 import { releaseTags } from '../../lib/releaseTags.ts'
 import { PageHeader, Segmented } from '../../ui/controls.tsx'
@@ -26,8 +26,9 @@ const SORTS: Record<Sort, (a: SearchResultDto, b: SearchResultDto) => number> = 
   largest: (a, b) => b.sizeBytes - a.sizeBytes,
   smallest: (a, b) => a.sizeBytes - b.sizeBytes,
 }
-/** The first is the default, left out of links. */
-const SORT_NAMES = Object.keys(SORTS) as [Sort, ...Sort[]]
+/** Each sort and its word in addresses (`?sort=new`); the first is the default, left out of them. */
+const SORT_WORDS: SearchChoices<string, Sort>['sorts'] = [['seeders', 'seeders'], ['newest', 'new'], ['largest', 'large'], ['smallest', 'small']]
+const SORT_NAMES = SORT_WORDS.map(([sort]) => sort)
 
 /** Starts a download and says so, with a way to go and watch it. */
 function useStartDownload() {
@@ -55,13 +56,22 @@ export function SearchPage() {
   const [details, setDetails] = useState<SearchResultDto | null>(null)
   const [added, setAdded] = useState<Set<string>>(new Set())
   const [shown, setShown] = useState(PAGE_SIZE)
-  // The search on screen lives in the address bar (query, resolution, source and sort), so a
+  // The search on screen lives in the address bar (/search/dragon?res=720p&source=tpb&sort=new), so a
   // reload, a bookmark, a shared link or Back shows the same one.
-  const [params, setParams] = useSearchParams()
-  const view = useMemo(() => readSearch(params, RESOLUTIONS, SORT_NAMES), [params])
+  const [params] = useSearchParams()
+  const location = useLocation()
+  const segment = location.pathname.slice(`${basePath}/search`.length).replace(/^\//, '')
+  const choices = useMemo<SearchChoices<string, Sort>>(() => ({
+    resolutions: RESOLUTIONS, sorts: SORT_WORDS, sources,
+  }), [sources])
+  const view = useMemo(() => readSearch(segment, params, choices), [segment, params, choices])
   const { sort } = view
   const key = searchKey(view)
-  const show = (change: Partial<typeof view>, how: { replace: boolean }) => setParams(writeSearch({ ...view, ...change }, RESOLUTIONS, SORT_NAMES), how)
+  const address = searchAddress(view, choices)
+  // A source in the address is checked against the device's own once they are known.
+  const settled = !params.get('source') || sources.length > 0
+  const proper = !settled || `/search${segment ? `/${segment}` : ''}${location.search}` === address
+  const show = (change: Partial<typeof view>, how: { replace: boolean }) => navigate(basePath + searchAddress({ ...view, ...change }, choices), how)
 
   const start = async (target: typeof view) => {
     if (search.searchId && search.searching) void connection.call('search.cancel', { searchId: search.searchId }).catch(() => {})
@@ -80,14 +90,19 @@ export function SearchPage() {
     if (query === view.query) void start(view)
     else show({ query }, { replace: false })
   }
-  // Runs the search the address describes, once connected, unless it is the one already on screen.
+  // An older or untidy address (?q=dragon&source=The+Pirate+Bay&sort=newest) becomes the proper one in place.
   useEffect(() => {
-    if (key && key !== search.ran && connectionState.status === 'open') void start(view)
-  }, [key, connectionState.status])
+    if (!proper) navigate(basePath + address + location.hash, { replace: true })
+  }, [proper, address])
+  // Runs the search the address describes, once connected and the address is the proper one, unless it is
+  // the one already on screen.
+  useEffect(() => {
+    if (key && key !== search.ran && settled && proper && connectionState.status === 'open') void start(view)
+  }, [key, settled, proper, connectionState.status])
   // The links back to Search open this one again.
   useEffect(() => {
-    if (key) setSearchAddress(params.toString())
-  }, [params])
+    if (key && proper) setSearchAddress(address)
+  }, [key, proper, address])
 
   const results = useMemo(() => (search.results ? [...search.results].sort(SORTS[sort]) : null), [search.results, sort])
   // Stable for the memoized rows, so typing a new query doesn't re-render the list below.
@@ -118,7 +133,7 @@ export function SearchPage() {
           <select className="select select-sm w-auto rounded-full" aria-label={t('search.source')} value={view.source}
             onChange={e => show({ source: e.target.value }, { replace: true })}>
             <option value="">{t('search.allSources')}</option>
-            {sources.filter(s => s.enabled || s.name === view.source).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+            {sources.filter(s => s.enabled || s.id === view.source).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
           {results && results.length > 1 && (
             <select className="select select-sm ml-auto w-auto rounded-full" aria-label={t('search.sort')} value={sort}

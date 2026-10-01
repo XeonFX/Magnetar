@@ -2,6 +2,7 @@ import { randomId } from '@codefusion-cc/base58'
 import { clientNetwork, json, jsonError, rateLimit, readJson, requireSameOrigin, sha256 } from '@codefusion-cc/workers-http'
 import type { CloudDeviceDto, PairApproveResponse, PairingInfoDto, PairPollResponse, PairStartRequest, PairStartResponse } from '@magnetar/protocol/cloud'
 import { randomToken } from '@magnetar/protocol/base64'
+import { toDeviceName, uniqueDeviceName } from '@magnetar/protocol/device-name'
 import { RELAY_CLOSE } from '@magnetar/protocol/relay'
 import { requireUser } from './auth.ts'
 import { allowedOrigins, MAX_BODY, type Env } from './env.ts'
@@ -19,6 +20,9 @@ interface DeviceRow {
   last_seen_at: number | null
   online: number
 }
+
+/** Whether a D1 write failed on the one-name-per-account index. */
+const nameTaken = (e: unknown) => e instanceof Error && /UNIQUE constraint failed: devices\.user_id, devices\.name/.test(e.message)
 
 const clean = (value: unknown, max: number) => (typeof value === 'string' ? value.replace(/\p{Cc}/gu, '').trim().slice(0, max) : '')
 
@@ -60,7 +64,8 @@ export async function handleDevices(request: Request, env: Env, path: string): P
   if (path === '/api/pair/start' && method === 'POST') {
     await rateLimit(env.PAIR_LIMITER, clientNetwork(request))
     const body = await readJson<Partial<PairStartRequest>>(request, { maxBytes: MAX_BODY })
-    const name = clean(body.name, 60) || 'Magnetar'
+    // Spelled as an address at once, so the approval page shows the name the device will have.
+    const name = toDeviceName(clean(body.name, 60))
     const platform = clean(body.platform, 20) || 'unknown'
     const version = clean(body.version, 40) || 'unknown'
     const pairingId = randomId(16)
@@ -75,14 +80,17 @@ export async function handleDevices(request: Request, env: Env, path: string): P
   if (path === '/api/pair/poll' && method === 'POST') {
     const body = await readJson<{ pairingId?: string; pollSecret?: string }>(request, { maxBytes: MAX_BODY })
     const row = await env.DB.prepare('SELECT * FROM pairings WHERE id = ?').bind(String(body.pairingId ?? '')).first<{
-      poll_secret_hash: string; expires_at: number; device_id: string | null; device_token: string | null; approved_by: string | null
+      poll_secret_hash: string; name: string; expires_at: number; device_id: string | null; device_token: string | null; approved_by: string | null
     }>()
     if (!row || row.poll_secret_hash !== (await sha256(String(body.pollSecret ?? ''), 'base64url'))) return jsonError(404, 'Unknown pairing')
     if (row.device_id && row.device_token) {
       // Handed over exactly once: the plaintext token leaves the database with this answer.
       const account = await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(row.approved_by).first<{ email: string }>()
+      const device = await env.DB.prepare('SELECT name FROM devices WHERE id = ?').bind(row.device_id).first<{ name: string }>()
       await env.DB.prepare('UPDATE pairings SET device_token = NULL WHERE id = ?').bind(body.pairingId).run()
-      return json({ state: 'approved', deviceId: row.device_id, deviceToken: row.device_token, accountEmail: account?.email ?? '' } satisfies PairPollResponse)
+      return json({
+        state: 'approved', deviceId: row.device_id, deviceToken: row.device_token, deviceName: device?.name ?? row.name, accountEmail: account?.email ?? '',
+      } satisfies PairPollResponse)
     }
     if (row.device_id || row.expires_at < Date.now()) return json({ state: 'expired' } satisfies PairPollResponse)
     return json({ state: 'pending' } satisfies PairPollResponse)
@@ -106,14 +114,28 @@ export async function handleDevices(request: Request, env: Env, path: string): P
       if ((count?.n ?? 0) >= MAX_DEVICES_PER_USER) return jsonError(409, 'Remove a device before adding another')
       const deviceId = `d_${randomId(12)}`
       const token = randomToken(32)
-      const now = Date.now()
-      // Only the first approval wins, even if two tabs approve at once.
-      const claimed = await env.DB.prepare('UPDATE pairings SET approved_by = ?, device_id = ?, device_token = ? WHERE id = ? AND device_id IS NULL AND expires_at > ?')
-        .bind(user.id, deviceId, token, row.id, now).run()
-      if (!claimed.meta.changes) return jsonError(409, 'This device is already connected')
-      await env.DB.prepare('INSERT INTO devices (id, user_id, name, platform, version, token_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .bind(deviceId, user.id, row.name, row.platform, row.version, await sha256(token, 'base64url'), now).run()
-      return json({ deviceId } satisfies PairApproveResponse)
+      const tokenHash = await sha256(token, 'base64url')
+      // The claim and the device go in together. Only the first approval of a pairing claims it, even if two
+      // tabs approve at once; a name another approval took meanwhile undoes both, and the next free one is tried.
+      // Each lost try means another device joined the account, so an account's limit bounds the tries.
+      for (let attempt = 1; ; attempt++) {
+        const taken = await env.DB.prepare('SELECT name FROM devices WHERE user_id = ?').bind(user.id).all<{ name: string }>()
+        const name = uniqueDeviceName(toDeviceName(row.name), taken.results.map(d => d.name))
+        const now = Date.now()
+        try {
+          const [claimed] = await env.DB.batch([
+            env.DB.prepare('UPDATE pairings SET approved_by = ?, device_id = ?, device_token = ? WHERE id = ? AND device_id IS NULL AND expires_at > ?')
+              .bind(user.id, deviceId, token, row.id, now),
+            env.DB.prepare(`INSERT INTO devices (id, user_id, name, platform, version, token_hash, created_at)
+              SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM pairings WHERE id = ? AND device_id = ?)`)
+              .bind(deviceId, user.id, name, row.platform, row.version, tokenHash, now, row.id, deviceId),
+          ])
+          if (!claimed!.meta.changes) return jsonError(409, 'This device is already connected')
+          return json({ deviceId, deviceName: name } satisfies PairApproveResponse)
+        } catch (e) {
+          if (!nameTaken(e) || attempt > MAX_DEVICES_PER_USER) throw e
+        }
+      }
     }
     return jsonError(405, 'Method not allowed')
   }
@@ -137,11 +159,17 @@ export async function handleDevices(request: Request, env: Env, path: string): P
       return json({ ok: true })
     }
     if (method === 'PATCH') {
-      const { name } = await readJson<{ name?: string }>(request, { maxBytes: MAX_BODY })
-      const cleaned = clean(name, 60)
+      const cleaned = clean((await readJson<{ name?: string }>(request, { maxBytes: MAX_BODY })).name, 60)
       if (!cleaned) return jsonError(400, 'A name is required')
-      await env.DB.prepare('UPDATE devices SET name = ? WHERE id = ?').bind(cleaned, device.id).run()
-      return json({ ok: true })
+      // Apps from before names were addresses send any text; it is spelled as one, and the app keeps what comes back.
+      const name = toDeviceName(cleaned)
+      try {
+        await env.DB.prepare('UPDATE devices SET name = ? WHERE id = ?').bind(name, device.id).run()
+      } catch (e) {
+        if (nameTaken(e)) return jsonError(409, `Another device on this account is already called ${name}`)
+        throw e
+      }
+      return json({ ok: true, name })
     }
     return jsonError(405, 'Method not allowed')
   }

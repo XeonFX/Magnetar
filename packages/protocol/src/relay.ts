@@ -33,6 +33,8 @@ export type RelayToDevice =
   | { t: 'open'; c: string }
   | { t: 'close'; c: string }
   | { t: 'revoked' }
+  /** The device's name on the account, when it is not the one the device said hello with. */
+  | { t: 'name'; name: string }
 export type DeviceToRelay = { t: 'close'; c: string } | { t: 'hello'; version: string; name: string }
 
 export function wrapForDevice(connectionId: string, payload: Uint8Array): Uint8Array<ArrayBuffer> {

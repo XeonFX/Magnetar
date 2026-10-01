@@ -16,8 +16,8 @@ Rust, the dashboard and website TypeScript. It can import everything from a Medi
 
 - **Search six sources in parallel**, with results streamed in as each answers: The Pirate Bay (apibay API with HTML
   mirror fallback), 1337x (the real site where it answers, else a mirror; magnet and description fetched on demand),
-  RARBG (TheRARBG's JSON API), Torrents-CSV, Nyaa and EZTV. A search can be linked (`/search?q=…`), and queries in any
-  script match.
+  RARBG (TheRARBG's JSON API), Torrents-CSV, Nyaa and EZTV. A search can be linked (`/search/house+of+the+dragon?res=720p&source=tpb&sort=new`), and
+  queries in any script match.
 - **Per-source outcomes** above the results, so a failing site or an over-eager relevance filter never looks like
   "no results". Turn any source off in Settings.
 - **Built-in BitTorrent engine** (librqbit, with DHT and trackers): live progress, speed and peers;
@@ -84,7 +84,10 @@ The dashboard is at <http://localhost:47820> (the next free port if that one is 
 3. That browser is now linked. To add your phone, choose **Link a phone or another browser** (from the local
    dashboard or any linked browser) and scan the QR code while signed in to the same account.
 
-One account holds up to 20 computers. On the website, the device's name at the bottom of the sidebar (at the top on
+One account holds up to 20 computers. Each has a name of letters, digits and hyphens, unique on the account, which is
+its address on the website: `magnetar.codefusion.cc/MacBook-Pro/search/dragon`. Renaming moves an open page to the new
+address; links by id (`/d/<device id>/…`, as notifications use) always find the device under its current name. On the
+website, the device's name at the bottom of the sidebar (at the top on
 a phone) switches to another one and keeps the page you are on; each shows whether it is online and whether this
 browser is linked to it. A computer's own dashboard links to the others once it is on an account.
 
@@ -118,8 +121,8 @@ claude mcp add --transport http --scope user magnetar http://localhost:47820/mcp
 ```
 
 The resolved URLs and bearer token are also written to `endpoint.json` in the data folder (owner-only). REST lives
-under `/api`, described at `/openapi/v1.json`. Tools and routes: search (rate limited), details, start/pause/resume/
-delete downloads, series-task CRUD with `PATCH` (partial) and `PUT` (complete) updates, "check now", and read-only
+under `/api`, described at `/openapi/v1.json`. Tools and routes: search (rate limited; a source by its name or its
+short id, `tpb`, `1337x`, `nyaa`, `eztv`, `rarbg`, `torrents-csv`), details, start/pause/resume/delete downloads, series-task CRUD with `PATCH` (partial) and `PUT` (complete) updates, "check now", and read-only
 settings. Agent-chosen save folders must be inside the download folder, symlinks included, because an agent picks
 arguments after reading untrusted torrent titles and descriptions.
 

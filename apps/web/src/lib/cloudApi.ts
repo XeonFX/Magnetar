@@ -33,21 +33,45 @@ async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T)
 }
 
+/**
+ * The account's devices as `cloud.devices()` last listed them, for the account `me()` last saw (another account
+ * in the same tab starts without them), and the listing under way, which callers share.
+ */
+let knownDevices: CloudDeviceDto[] | null = null
+let knownAccount: string | null = null
+let listing: Promise<CloudDeviceDto[]> | null = null
+
 export const cloud = {
   /** The signed-in account, or null when signed out. */
   async me(): Promise<AccountDto | null> {
+    let account: AccountDto | null
     try {
-      return await api<AccountDto>('/api/me')
+      account = await api<AccountDto>('/api/me')
     } catch (error) {
-      if (error instanceof CloudError && error.status === 401) return null
-      throw error
+      if (!(error instanceof CloudError && error.status === 401)) throw error
+      account = null
     }
+    if ((account?.id ?? null) !== knownAccount) {
+      knownAccount = account?.id ?? null
+      knownDevices = null
+    }
+    return account
   },
   startSignIn: () => api<{ nonce: string; clientId: string }>('/api/auth/start', { method: 'POST', body: '{}' }),
   completeSignIn: (credential: string) => api<AccountDto>('/api/auth/google', { method: 'POST', body: JSON.stringify({ credential }) }),
   devSignIn: (email: string) => api<AccountDto>('/api/auth/dev', { method: 'POST', body: JSON.stringify({ email }) }),
-  signOut: () => api<void>('/api/auth/logout', { method: 'POST', body: '{}' }),
-  devices: () => api<CloudDeviceDto[]>('/api/devices'),
+  async signOut(): Promise<void> {
+    await api<void>('/api/auth/logout', { method: 'POST', body: '{}' })
+    knownDevices = null
+  },
+  devices(): Promise<CloudDeviceDto[]> {
+    listing ??= api<CloudDeviceDto[]>('/api/devices')
+      .then(list => (knownDevices = list))
+      .finally(() => { listing = null })
+    return listing
+  },
+  /** The devices as last listed, to show a page at once while they are listed again; null before the first list. */
+  knownDevices: () => knownDevices,
   removeDevice: (id: string) => api<void>(`/api/devices/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   pairing: (id: string) => api<PairingInfoDto>(`/api/pair/${encodeURIComponent(id)}`),
   latestRelease: () => api<LatestReleaseDto>('/api/releases/latest'),

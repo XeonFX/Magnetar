@@ -88,7 +88,9 @@ export class DeviceRelay extends DurableObject<Env> {
       } else if (control.t === 'hello') {
         const deviceId = await this.ctx.storage.get<string>('deviceId')
         if (deviceId && typeof control.version === 'string') {
-          await this.env.DB.prepare('UPDATE devices SET version = ? WHERE id = ?').bind(control.version.slice(0, 40), deviceId).run()
+          const row = await this.env.DB.prepare('UPDATE devices SET version = ? WHERE id = ? RETURNING name').bind(control.version.slice(0, 40), deviceId).first<{ name: string }>()
+          // The account's name wins: one spelled for the address, or made unique, reaches the app this way.
+          if (row && row.name !== control.name) this.sendJson(ws, { t: 'name', name: row.name } satisfies RelayToDevice)
         }
       }
       return

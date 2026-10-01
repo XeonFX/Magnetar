@@ -107,7 +107,7 @@ impl Actions {
         self.search
             .providers
             .iter()
-            .map(|p| SourceDto { name: p.name().into(), enabled: self.settings.is_provider_enabled(p.name()) })
+            .map(|p| SourceDto { id: p.id().into(), name: p.name().into(), enabled: self.settings.is_provider_enabled(p.name()) })
             .collect()
     }
 
@@ -358,7 +358,9 @@ impl Actions {
                 Err(ApiError::bad("No torrent sources are available. Enable a source in Settings."))
             };
         };
-        let Some(source) = sources.iter().find(|s| s.name.eq_ignore_ascii_case(requested)) else {
+        let Some(source) =
+            sources.iter().find(|s| s.name.eq_ignore_ascii_case(requested) || s.id.eq_ignore_ascii_case(requested))
+        else {
             let names: Vec<_> = sources.iter().map(|s| s.name.as_str()).collect();
             return Err(ApiError::bad(format!("Unknown source '{requested}'. Valid sources: {}.", names.join(", "))));
         };

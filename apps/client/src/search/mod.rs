@@ -103,7 +103,7 @@ impl SearchService {
     }
 
     pub fn find_provider(&self, name: &str) -> Option<&Arc<dyn Provider>> {
-        self.providers.iter().find(|p| p.name().eq_ignore_ascii_case(name))
+        self.providers.iter().find(|p| p.is_called(name))
     }
 
     /// A whole search, merged, with every source's outcome.
@@ -133,9 +133,10 @@ impl SearchService {
         cancel: &CancellationToken,
         filter_relevance: bool,
     ) -> anyhow::Result<Vec<SourceOutcomeDto>> {
-        let targets = self.providers.iter().filter(|p| {
-            provider.is_none_or(|wanted| p.name().eq_ignore_ascii_case(wanted)) && self.settings.is_provider_enabled(p.name())
-        });
+        let targets = self
+            .providers
+            .iter()
+            .filter(|p| provider.is_none_or(|wanted| p.is_called(wanted)) && self.settings.is_provider_enabled(p.name()));
         let outcomes = join_all(targets.map(|p| async move {
             let outcome = match p.search(&self.http, query, cancel).await {
                 Ok(results) => {

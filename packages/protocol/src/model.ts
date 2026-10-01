@@ -51,6 +51,8 @@ export interface DownloadFileDto {
 
 /** A search source and whether the user has it switched on. */
 export interface SourceDto {
+  /** Short and lowercase, for addresses: `tpb` for The Pirate Bay. */
+  id: string
   name: string
   enabled: boolean
 }

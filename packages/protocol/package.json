@@ -12,7 +12,8 @@
     "./scrub": "./src/scrub.ts",
     "./merge": "./src/merge.ts",
     "./limits": "./src/limits.ts",
-    "./console-pages": "./src/consolePages.ts"
+    "./console-pages": "./src/consolePages.ts",
+    "./device-name": "./src/deviceName.ts"
   },
   "scripts": {
     "typecheck": "tsc -p ."

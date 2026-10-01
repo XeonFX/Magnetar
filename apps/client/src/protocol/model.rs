@@ -116,6 +116,8 @@ pub struct FileSelectionDto {
 
 #[derive(Serialize, Clone, Debug)]
 pub struct SourceDto {
+    /// Short and lowercase, for addresses: `tpb` for The Pirate Bay.
+    pub id: String,
     pub name: String,
     pub enabled: bool,
 }

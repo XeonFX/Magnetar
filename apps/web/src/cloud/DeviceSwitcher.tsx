@@ -6,7 +6,7 @@ import { cloud } from '../lib/cloudApi.ts'
 import { useFormatRelative, useT } from '../lib/i18n.tsx'
 import { listDeviceKeys } from '../lib/keyStore.ts'
 import { MenuButton } from '../ui/Menu.tsx'
-import { samePageOn } from './devicePaths.ts'
+import { devicePath, samePageOn } from './devicePaths.ts'
 
 /**
  * The device name in the dashboard's frame, as a menu of the account's devices: picking one opens the
@@ -15,7 +15,7 @@ import { samePageOn } from './devicePaths.ts'
 export function DeviceSwitcher({ children, placement }: { children: ReactNode; placement: 'up' | 'down' }) {
   const t = useT()
   const formatRelative = useFormatRelative()
-  const { deviceId = '' } = useParams()
+  const { deviceName = '' } = useParams()
   const { pathname, search } = useLocation()
   const [devices, setDevices] = useState<CloudDeviceDto[] | null>(null)
   const [linked, setLinked] = useState<Set<string>>(new Set())
@@ -43,10 +43,10 @@ export function DeviceSwitcher({ children, placement }: { children: ReactNode; p
           {devices === null && !failed && <li aria-busy="true" className="px-3 py-2"><span className="loading loading-dots loading-sm" /></li>}
           {failed && <li role="none" className="muted px-3 py-2 text-sm">{t('devices.loadFailed')}</li>}
           {devices?.map(device => {
-            const current = device.id === deviceId
+            const current = device.name === deviceName
             return (
               <li key={device.id} role="none">
-                <Link role="menuitem" to={samePageOn(pathname, search, deviceId, device.id)} onClick={close}
+                <Link role="menuitem" to={samePageOn(pathname, search, devicePath(deviceName), devicePath(device.name))} onClick={close}
                   aria-current={current ? 'page' : undefined} className={`flex items-center gap-3 ${current ? 'menu-active' : ''}`}>
                   <span className="relative grid size-8 shrink-0 place-items-center rounded-field bg-base-200">
                     <Laptop size={16} className={device.online ? '' : 'muted'} />

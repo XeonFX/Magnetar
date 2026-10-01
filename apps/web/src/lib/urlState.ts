@@ -49,35 +49,72 @@ export function usePathChoice<T extends string>(segment: string | undefined, all
   return pathChoice(segment, params, allowed, legacyParam)
 }
 
-/** A search as the address bar holds it: `/search?q=dragon&res=1080p&source=Nyaa&sort=newest`. */
+/** A search as the address holds it: `/search/house+of+the+dragon?res=720p&source=tpb&sort=new`. */
 export interface SearchView<R extends string = string, S extends string = string> {
   query: string
   resolution: R
+  /** A source's id, or '' for all of them. */
   source: string
   sort: S
 }
 
-const SEARCH_PARAMS = { query: 'q', resolution: 'res', source: 'source', sort: 'sort' } as const
+/** What a search address may name, each list's first entry being the default that addresses leave out. */
+export interface SearchChoices<R extends string, S extends string> {
+  resolutions: readonly [R, ...R[]]
+  /** Each sort and the word an address spells it with (`newest` → `new`). */
+  sorts: readonly [readonly [S, string], ...(readonly [S, string])[]]
+  /** The device's sources, still empty while they load: an address names one by id, older ones by name. */
+  sources: readonly { id: string; name: string }[]
+}
 
-/** Reads a search; `resolutions[0]` and `sorts[0]` are the defaults. */
-export function readSearch<R extends string, S extends string>(params: URLSearchParams, resolutions: readonly [R, ...R[]], sorts: readonly [S, ...S[]]): SearchView<R, S> {
+/** Characters a path segment may hold as they are, which encodeURIComponent escapes anyway. */
+const READABLE = /%(3A|40|2C|24|26|3B|3D)/g
+
+/** Search text as a path segment: words joined by `+`, a real plus as `%2B`, anything else percent-encoded. */
+export function searchTextSegment(text: string): string {
+  // A lone surrogate (half an emoji) has no UTF-8 spelling and would make encodeURIComponent throw.
+  return encodeURIComponent(text.replace(/\p{Cs}/gu, '\uFFFD')).replace(/%20/g, '+').replace(READABLE, escaped => decodeURIComponent(escaped))
+}
+
+/** The text a path segment spells; a malformed escape is read as it is. */
+export function searchTextFrom(segment: string): string {
+  return segment.split('+').map(part => {
+    try {
+      return decodeURIComponent(part)
+    } catch {
+      return part
+    }
+  }).join(' ')
+}
+
+/**
+ * Reads a search from what follows `/search/` in the path (as the address bar has it, still encoded) and the
+ * query string. Older addresses (`?q=dragon&source=The+Pirate+Bay&sort=newest`) read the same; unknown choices
+ * fall back to the defaults. A source stays as written until the device's sources are known.
+ */
+export function readSearch<R extends string, S extends string>(segment: string, params: URLSearchParams, choices: SearchChoices<R, S>): SearchView<R, S> {
+  const sortWord = params.get('sort')
+  const sort = choices.sorts.find(([value, word]) => sortWord === word || sortWord === value) ?? choices.sorts[0]
+  const source = (params.get('source') ?? '').trim()
+  const known = choices.sources.find(s => s.id.toLowerCase() === source.toLowerCase() || s.name.toLowerCase() === source.toLowerCase())
   return {
-    query: (params.get(SEARCH_PARAMS.query) ?? '').trim(),
-    resolution: pickParam(params, SEARCH_PARAMS.resolution, resolutions, resolutions[0]),
-    source: (params.get(SEARCH_PARAMS.source) ?? '').trim(),
-    sort: pickParam(params, SEARCH_PARAMS.sort, sorts, sorts[0]),
+    query: (segment ? searchTextFrom(segment) : params.get('q') ?? '').trim(),
+    resolution: pickParam(params, 'res', choices.resolutions, choices.resolutions[0]),
+    source: known ? known.id : choices.sources.length ? '' : source,
+    sort: sort[0],
   }
 }
 
-/** The query string for `view`, defaults left out. */
-export function writeSearch<R extends string, S extends string>(view: SearchView<R, S>, resolutions: readonly [R, ...R[]], sorts: readonly [S, ...S[]]): URLSearchParams {
-  const defaults = { query: '', resolution: resolutions[0], source: '', sort: sorts[0] }
+/** The address of a search, from `/search` on: the text in the path, choices other than the defaults after it. */
+export function searchAddress<R extends string, S extends string>(view: SearchView<R, S>, choices: SearchChoices<R, S>): string {
   const params = new URLSearchParams()
-  for (const field of ['query', 'resolution', 'source', 'sort'] as const) {
-    const value = view[field].trim()
-    if (value !== defaults[field]) params.set(SEARCH_PARAMS[field], value)
-  }
-  return params
+  if (view.resolution !== choices.resolutions[0]) params.set('res', view.resolution)
+  if (view.source) params.set('source', view.source)
+  const sort = choices.sorts.find(([value]) => value === view.sort)
+  if (sort && sort !== choices.sorts[0]) params.set('sort', sort[1])
+  const query = view.query.trim()
+  const search = params.toString()
+  return `/search${query ? `/${searchTextSegment(query)}` : ''}${search ? `?${search}` : ''}`
 }
 
 /** What makes two searches the same search: sorting is done here, so it isn't part of it. Null without a query. */

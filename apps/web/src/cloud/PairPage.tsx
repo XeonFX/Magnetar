@@ -55,11 +55,11 @@ export function PairPage() {
     setBusy(true)
     setError(null)
     try {
-      const { deviceId } = await cloud.approvePairing(pairingId)
+      const { deviceId, deviceName } = await cloud.approvePairing(pairingId)
       const parked = parkedKey('pair', pairingId)
       if (parked) await saveDeviceKey(deviceId, parked.keyId, parked.key)
       clearParkedKey()
-      navigate(devicePath(deviceId), { replace: true })
+      navigate(devicePath(deviceName), { replace: true })
     } catch (e) {
       setError(errorMessage(e))
       setBusy(false)

@@ -2,6 +2,7 @@
 //! the dashboard and the Worker use, so the three agree byte for byte.
 
 pub mod bytes;
+pub mod device_name;
 pub mod e2e;
 pub mod encoding;
 pub mod model;

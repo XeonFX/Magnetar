@@ -18,6 +18,10 @@ impl Provider for TorrentsCsv {
         NAME
     }
 
+    fn id(&self) -> &'static str {
+        "torrents-csv"
+    }
+
     async fn search(
         &self,
         http: &reqwest::Client,

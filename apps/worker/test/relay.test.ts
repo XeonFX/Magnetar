@@ -145,6 +145,17 @@ describe('the relay', () => {
     expect((await deviceRow(device.deviceId))!.version).toBe(`2.2.0-${'x'.repeat(34)}`)
   })
 
+  test("tells an app saying hello with another name the account's name for it", async () => {
+    const { device, app } = await onlineDevice()
+    app.ws.send(JSON.stringify({ t: 'hello', version: '2.2.0', name: 'Studio-Mac' }))
+    await eventually(async () => expect((await deviceRow(device.deviceId))!.version).toBe('2.2.0'))
+    await settle()
+    expect(app.pending()).toEqual([])
+    // Named before names were addresses, or renamed by the account since.
+    app.ws.send(JSON.stringify({ t: 'hello', version: '2.2.0', name: 'Studio Mac' }))
+    expect(await app.nextJson()).toEqual({ t: 'name', name: 'Studio-Mac' })
+  })
+
   test('answers keepalive pings', async () => {
     const { user, device, app } = await onlineDevice()
     app.ws.send(RELAY_PING)

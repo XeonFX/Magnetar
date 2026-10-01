@@ -32,11 +32,12 @@ export function LinkPage() {
     const parked = parkedKey('link', deviceId)
     if (!parked) return setError(t('link.invalid'))
     cloud.devices().then(async devices => {
-      if (!devices.some(d => d.id === deviceId)) throw new Error(t('link.otherAccount'))
+      const device = devices.find(d => d.id === deviceId)
+      if (!device) throw new Error(t('link.otherAccount'))
       await saveDeviceKey(deviceId, parked.keyId, parked.key)
       clearParkedKey()
       sessionStorage.removeItem(TARGET)
-      navigate(devicePath(deviceId), { replace: true })
+      navigate(devicePath(device.name), { replace: true })
     }).catch(e => setError(errorMessage(e)))
   }, [account, deviceId, navigate, t])
 
