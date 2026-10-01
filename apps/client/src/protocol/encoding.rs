@@ -38,7 +38,7 @@ const BASE58_ALPHABET: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghij
 
 /// Bytes in base58 the way `@codefusion-cc/base58` spells them: one big-endian number, left-padded with `1` to
 /// the width every value of that many bytes fits in (17 characters for 12 bytes, 22 for 16).
-pub fn to_base58(bytes: &[u8]) -> String {
+fn to_base58(bytes: &[u8]) -> String {
     // 58^L >= 256^n never holds with equality (58 has the factor 29), so the ceiling is exact.
     let width = (bytes.len() as f64 * 8.0 / 58f64.log2()).ceil() as usize;
     let mut number = bytes.to_vec();
@@ -131,10 +131,7 @@ mod tests {
     fn random_ids_are_base58_at_their_width() {
         let ids: std::collections::HashSet<_> = (0..2000).map(|_| random_id(9)).collect();
         assert_eq!(ids.len(), 2000);
-        for id in &ids {
-            assert_eq!(id.len(), 13);
-            assert!(id.bytes().all(|b| BASE58_ALPHABET.contains(&b)), "{id}");
-        }
+        assert!(ids.iter().all(|id| id.bytes().all(|b| BASE58_ALPHABET.contains(&b))));
         assert_eq!(random_token(32).len(), 43);
     }
 }

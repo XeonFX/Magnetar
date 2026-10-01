@@ -17,6 +17,6 @@ export function randomBytes(length: number): Uint8Array<ArrayBuffer> {
 }
 
 /** A random base64url secret with `bytes` of entropy. Ids people see come from `@codefusion-cc/base58`. */
-export function randomToken(bytes = 32): string {
+export function randomToken(bytes: number): string {
   return toBase64Url(randomBytes(bytes))
 }
