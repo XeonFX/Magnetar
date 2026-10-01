@@ -351,7 +351,7 @@ impl DownloadManager {
             .filter(|i| !matches!(i.status, DownloadStatus::Completed | DownloadStatus::Error))
             .map(|i| (i.info_hash.to_lowercase(), i.status != DownloadStatus::Paused))
             .collect();
-        engine.reconcile(wanted);
+        engine.reconcile(&wanted);
         let mut resumed = 0;
         for item in items.values_mut().filter(|i| i.wants_engine()) {
             self.attach(item);
@@ -624,18 +624,18 @@ impl DownloadManager {
     }
 
     pub async fn pause(&self, id: i64) -> ApiResult<DownloadDto> {
-        let (handle, dto) = {
+        let (paused, dto) = {
             let mut items = self.items();
             let item = items.get_mut(&id).ok_or_else(|| not_found(id))?;
-            let handle = item.detach();
+            let paused = item.detach().zip(self.engine()).map(|(handle, engine)| engine.pause(handle));
             item.status = DownloadStatus::Paused;
             item.clear_stats();
             self.persist(item);
-            (handle, item.to_dto())
+            (paused, item.to_dto())
         };
         self.changed();
-        if let (Some(handle), Some(engine)) = (handle, self.engine()) {
-            engine.pause(&handle).await;
+        if let Some(paused) = paused {
+            let _ = paused.await;
         }
         Ok(dto)
     }
@@ -685,15 +685,20 @@ impl DownloadManager {
 
     /// Removes a download; `delete_files` also erases what it downloaded, leaving other files alone.
     pub async fn delete(&self, id: i64, delete_files_too: bool) -> ApiResult<()> {
-        // Drop it from the live list first so the tick and attach tasks leave it alone.
-        let mut item = self.items().remove(&id).ok_or_else(|| not_found(id))?;
+        // Drop it from the live list first so the tick and attach tasks leave it alone. By hash: a
+        // paused download has no handle, but the engine still keeps it.
+        let (mut item, removed) = {
+            let mut items = self.items();
+            let item = items.remove(&id).ok_or_else(|| not_found(id))?;
+            let removed = self.engine().map(|engine| engine.remove(&item.info_hash));
+            (item, removed)
+        };
         self.changed();
         item.detach();
         let save_path = PathBuf::from(&item.save_path);
         let metadata = self.metadata(&item.info_hash);
-        // By hash: a paused download has no handle, but the engine still keeps it.
-        if let Some(engine) = self.engine() {
-            engine.remove(&item.info_hash).await;
+        if let Some(removed) = removed {
+            let _ = removed.await;
         }
         if delete_files_too && let Some(metadata) = &metadata {
             delete_files(metadata, &save_path);
@@ -920,7 +925,7 @@ impl DownloadManager {
     #[allow(clippy::too_many_arguments)]
     async fn run_attach(
         &self,
-        engine: &Engine,
+        engine: &Arc<Engine>,
         id: i64,
         attempt: u64,
         magnet: &str,
@@ -942,9 +947,10 @@ impl DownloadManager {
         };
         self.on_metadata(id, attempt, &metadata, &cached);
         let only_files = only_files.filter(|files| files.iter().all(|&f| f < metadata.files.len()));
-        let handle = engine.add(&metadata, save_path, only_files).await?;
+        let handle = engine.add(hash, &metadata, save_path, only_files).await?;
         let shutting_down = self.shutting_down.load(Ordering::SeqCst);
-        let still_listed = {
+        // Paused, failed or deleted while it was starting. On shutdown the engine keeps it as it is.
+        let set_aside = {
             let mut items = self.items();
             match items.get_mut(&id) {
                 Some(item) if item.attempt == attempt && !shutting_down => {
@@ -958,15 +964,12 @@ impl DownloadManager {
                     self.changed();
                     return Ok(());
                 }
-                other => other.is_some(),
+                Some(_) if shutting_down => return Ok(()),
+                Some(_) => engine.pause(handle),
+                None => engine.remove(&handle.info_hash().as_string()),
             }
         };
-        // Paused, failed or deleted while it was starting. On shutdown the engine keeps it as it is.
-        if !still_listed {
-            engine.remove(&handle.info_hash().as_string()).await;
-        } else if !shutting_down {
-            engine.pause(&handle).await;
-        }
+        let _ = set_aside.await;
         Ok(())
     }
 
@@ -1004,30 +1007,23 @@ impl DownloadManager {
     }
 
     /// Changes a download and saves it; `change` returns None to leave it alone, else whether the
-    /// download now leaves the engine (its numbers cleared, its torrent dropped in the background).
+    /// download now leaves the engine (its numbers cleared, its torrent dropped in the background so
+    /// a retry starts from a full check).
     fn settle(&self, id: i64, change: impl FnOnce(&mut Item) -> Option<bool>) {
-        let handle = {
+        {
             let mut items = self.items();
             let Some(item) = items.get_mut(&id) else { return };
             let Some(leaves) = change(item) else { return };
-            let handle = if leaves {
+            if leaves {
                 item.clear_stats();
-                item.detach()
-            } else {
-                None
-            };
+                // Before the downloads are unlocked, so an attach right after waits for it to go.
+                if let (Some(handle), Some(engine)) = (item.detach(), self.engine()) {
+                    engine.remove(&handle.info_hash().as_string());
+                }
+            }
             self.persist(item);
-            handle
-        };
-        self.changed();
-        self.remove_in_background(handle);
-    }
-
-    /// Drops a failed or finished torrent from the engine, so a retry starts from a full check.
-    fn remove_in_background(&self, handle: Option<TorrentHandle>) {
-        if let (Some(handle), Some(engine)) = (handle, self.engine()) {
-            tokio::spawn(async move { engine.remove(&handle.info_hash().as_string()).await });
         }
+        self.changed();
     }
 
     fn send_start_notification(&self, item: &mut Item) {

@@ -15,10 +15,14 @@ use magnetar::paths::Paths;
 use magnetar::protocol::{DownloadStatus, PostDownloadAction};
 
 async fn start_app(paths: &Paths) -> Arc<App> {
+    start_app_and_engine(paths).await.0
+}
+
+async fn start_app_and_engine(paths: &Paths) -> (Arc<App>, Arc<Engine>) {
     let engine = Arc::new(Engine::start(paths, &NetworkOptions::default(), SpeedLimits::default()).await.unwrap());
     let app = App::new(AppOptions {
         paths: paths.clone(),
-        engine: EngineSource::Fixed(engine),
+        engine: EngineSource::Fixed(engine.clone()),
         providers: Vec::new(),
         legacy_database: None,
         show_lookups: false,
@@ -26,7 +30,18 @@ async fn start_app(paths: &Paths) -> Arc<App> {
     .unwrap();
     app.settings.update(|s| s.post_download_action = PostDownloadAction::KeepSeeding);
     app.start();
-    app
+    (app, engine)
+}
+
+fn magnet(hash: &str, folder: &Path) -> AddDownload {
+    AddDownload {
+        name: String::new(),
+        magnet_uri: format!("magnet:?xt=urn:btih:{hash}"),
+        source: "Magnet".into(),
+        series_task_id: None,
+        episode: None,
+        save_folder: Some(folder.display().to_string()),
+    }
 }
 
 async fn wait_for(app: &App, id: i64, status: DownloadStatus) {
@@ -97,7 +112,7 @@ async fn a_torrent_file_starts_at_once_and_its_files_can_be_chosen() {
     let all = app.downloads.select_files(added.id, vec![1, 0]).await.unwrap();
     assert_eq!(all.partial_files, None, "every file chosen is not partial");
     assert_eq!(all.status, DownloadStatus::Completed, "the subtitle is already on disk");
-    // Straight after a start, while the engine still holds the torrent it restored with every piece.
+    // Straight after a start, the engine may still hold the torrent it restored, with every piece.
     std::fs::remove_file(pack.join("e01.srt")).unwrap();
     app.downloads.select_files(added.id, vec![0]).await.unwrap();
     assert_eq!(app.downloads.files(added.id).unwrap()[1].done, 0, "a left-out file that is gone has nothing");
@@ -157,17 +172,7 @@ async fn an_update_pauses_downloads_and_the_next_start_resumes_only_those() {
     let bitv = paths.torrent_session.join(format!("{hash}.bitv"));
 
     let app = start_app(&paths).await;
-    let added = app
-        .downloads
-        .add(AddDownload {
-            name: String::new(),
-            magnet_uri: format!("magnet:?xt=urn:btih:{hash}"),
-            source: "Magnet".into(),
-            series_task_id: None,
-            episode: None,
-            save_folder: Some(folder.display().to_string()),
-        })
-        .unwrap();
+    let added = app.downloads.add(magnet(&hash, &folder)).unwrap();
     wait_for(&app, added.id, DownloadStatus::Seeding).await;
     assert!(bitv.exists(), "the engine saves the pieces it verified");
 
@@ -195,6 +200,28 @@ async fn an_update_pauses_downloads_and_the_next_start_resumes_only_those() {
     assert!(!bitv.exists());
     app.downloads.delete(added.id, false).await.unwrap();
     assert!(folder.join("episode.mkv").exists());
+    app.stop().await;
+}
+
+/// A double click: the resume lands while the engine still pauses the torrent, and must not take it
+/// up halfway, to be left paused under a download shown as running.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_download_resumed_while_it_pauses_runs() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("Downloads");
+    let paths = Paths::new(dir.path().join("data")).unwrap();
+    let hash = seed_file(&folder, &paths).await;
+    let (app, engine) = start_app_and_engine(&paths).await;
+    let added = app.downloads.add(magnet(&hash, &folder)).unwrap();
+    wait_for(&app, added.id, DownloadStatus::Seeding).await;
+
+    // join! polls in order, so the pause has handed the torrent over before the resume starts.
+    let (paused, resumed) = tokio::join!(app.downloads.pause(added.id), async { app.downloads.resume(added.id) });
+    assert_eq!(paused.unwrap().status, DownloadStatus::Paused);
+    assert_ne!(resumed.unwrap().status, DownloadStatus::Paused);
+    wait_for(&app, added.id, DownloadStatus::Seeding).await;
+    let torrent = engine.handle(&hash).expect("in the engine");
+    assert!(!torrent.is_paused(), "seeding, not left paused");
     app.stop().await;
 }
 
