@@ -67,9 +67,14 @@ async fn wait_for(app: &App, id: i64, status: DownloadStatus) {
 /// A finished 3 MiB file in `folder`, with its .torrent cached so the manager needs no peers for
 /// metadata. Returns the info hash.
 async fn seed_file(folder: &Path, paths: &Paths) -> String {
+    seed_distinct_file(folder, paths, 0).await
+}
+
+/// Like `seed_file`, with contents shifted by `offset` so each offset is a different torrent.
+async fn seed_distinct_file(folder: &Path, paths: &Paths, offset: u32) -> String {
     std::fs::create_dir_all(folder).unwrap();
     let file = folder.join("episode.mkv");
-    std::fs::write(&file, (0..3 * 1024 * 1024).map(|i| (i % 251) as u8).collect::<Vec<u8>>()).unwrap();
+    std::fs::write(&file, (0..3 * 1024 * 1024u32).map(|i| ((i + offset) % 251) as u8).collect::<Vec<u8>>()).unwrap();
     let torrent = bounded!(create_torrent(&file, CreateTorrentOptions::default(), &BlockingSpawner::new(2))).unwrap();
     let hash = torrent.info_hash().as_string();
     std::fs::create_dir_all(&paths.torrent_files).unwrap();
@@ -293,5 +298,34 @@ async fn downloads_wait_for_the_chosen_interface_and_stop_without_it() {
     app.settings.update(|s| s.network_interface = "magnetar-missing0".into());
     wait_engine(EngineState::WaitingForNetwork).await;
     wait_for(&app, added.id, DownloadStatus::Queued).await;
+    bounded!(app.stop());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pause_all_and_resume_all_touch_only_what_they_should() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path().join("data")).unwrap();
+    let app = bounded!(start_app(&paths));
+    let mut ids = Vec::new();
+    for (offset, name) in ["One", "Two"].into_iter().enumerate() {
+        let folder = dir.path().join(name);
+        let hash = bounded!(seed_distinct_file(&folder, &paths, offset as u32));
+        let added = app.downloads.add(magnet(&hash, &folder)).unwrap();
+        wait_for(&app, added.id, DownloadStatus::Seeding).await;
+        ids.push(added.id);
+    }
+    assert_ne!(ids[0], ids[1]);
+
+    assert_eq!(bounded!(app.actions.pause_all()), 2);
+    for &id in &ids {
+        assert_eq!(app.downloads.get(id).unwrap().status, DownloadStatus::Paused);
+    }
+    assert_eq!(bounded!(app.actions.pause_all()), 0, "nothing left running");
+
+    assert_eq!(app.actions.resume_all(), 2);
+    for &id in &ids {
+        wait_for(&app, id, DownloadStatus::Seeding).await;
+    }
+    assert_eq!(app.actions.resume_all(), 0, "nothing left stopped");
     bounded!(app.stop());
 }

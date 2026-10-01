@@ -24,7 +24,24 @@ fn gui_domain() -> String {
     format!("gui/{}", unsafe { libc::getuid() })
 }
 
+/// Reading it runs `launchctl` on macOS, so a reading is kept this long; changing it here refreshes it.
+const CACHE_FOR: std::time::Duration = std::time::Duration::from_secs(30);
+static CACHED: std::sync::Mutex<Option<(LoginStartupStatus, std::time::Instant)>> = std::sync::Mutex::new(None);
+
+/// The current state, from a recent reading when there is one.
 pub fn status() -> LoginStartupStatus {
+    let mut cached = CACHED.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((status, at)) = *cached
+        && at.elapsed() < CACHE_FOR
+    {
+        return status;
+    }
+    let status = read_status();
+    *cached = Some((status, std::time::Instant::now()));
+    status
+}
+
+fn read_status() -> LoginStartupStatus {
     #[cfg(target_os = "macos")]
     {
         if crate::paths::mac_app_bundle().is_none() {
@@ -62,7 +79,9 @@ pub fn set(enabled: bool) -> ApiResult<LoginStartupStatus> {
     set_windows(enabled)?;
     #[cfg(not(any(target_os = "macos", windows)))]
     let _ = enabled;
-    Ok(status())
+    let status = read_status();
+    *CACHED.lock().unwrap_or_else(|e| e.into_inner()) = Some((status, std::time::Instant::now()));
+    Ok(status)
 }
 
 #[cfg(target_os = "macos")]
@@ -95,10 +114,8 @@ fn set_mac(enabled: bool) -> ApiResult<()> {
     if let Some(parent) = plist_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let temporary = plist_path.with_extension(format!("{}.tmp", std::process::id()));
-    crate::db::write_private(&temporary, contents.as_bytes(), false)?;
+    crate::db::replace_file(&plist_path, contents.as_bytes(), true)?;
     let _ = run_captured("/bin/launchctl", &["enable", &format!("{}/{MAC_LABEL}", gui_domain())]);
-    std::fs::rename(&temporary, &plist_path)?;
     Ok(())
 }
 

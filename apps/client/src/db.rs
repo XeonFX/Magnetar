@@ -218,6 +218,26 @@ pub fn write_private(path: &Path, contents: &[u8], new_only: bool) -> std::io::R
     Ok(())
 }
 
+/// Replaces `path` with `contents` in one step, a temporary file renamed over it, so a reader never
+/// sees half a file. `private` makes it owner-only, as for secrets; otherwise it keeps the
+/// permissions it had.
+pub fn replace_file(path: &Path, contents: &[u8], private: bool) -> std::io::Result<()> {
+    let temporary =
+        path.with_file_name(format!(".{}.{}.tmp", path.file_name().unwrap_or_default().to_string_lossy(), std::process::id()));
+    let written = if private {
+        write_private(&temporary, contents, false)
+    } else {
+        std::fs::write(&temporary, contents).map(|()| {
+            if let Ok(metadata) = std::fs::metadata(path) {
+                let _ = std::fs::set_permissions(&temporary, metadata.permissions());
+            }
+        })
+    };
+    written.and_then(|()| std::fs::rename(&temporary, path)).inspect_err(|_| {
+        let _ = std::fs::remove_file(&temporary);
+    })
+}
+
 /// POSIX: mode 600. Windows ignores modes, so inherited ACLs are replaced with the current user only.
 pub fn restrict_to_owner(path: &Path) {
     #[cfg(unix)]
@@ -307,6 +327,30 @@ impl SecretStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn replacing_a_file_keeps_or_restricts_its_permissions_and_leaves_nothing_behind() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let shared = dir.path().join("settings.json");
+        std::fs::write(&shared, "old").unwrap();
+        std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o644)).unwrap();
+        replace_file(&shared, b"new", false).unwrap();
+        assert_eq!(std::fs::read_to_string(&shared).unwrap(), "new");
+        assert_eq!(std::fs::metadata(&shared).unwrap().permissions().mode() & 0o777, 0o644);
+
+        let secret = dir.path().join("endpoint.json");
+        std::fs::write(&secret, "old").unwrap();
+        std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o644)).unwrap();
+        replace_file(&secret, b"token", true).unwrap();
+        assert_eq!(std::fs::metadata(&secret).unwrap().permissions().mode() & 0o777, 0o600);
+
+        // A folder that doesn't exist fails cleanly, with no temporary file anywhere.
+        assert!(replace_file(&dir.path().join("missing/x.json"), b"x", false).is_err());
+        let names: Vec<_> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names.len(), 2, "{names:?}");
+    }
 
     #[test]
     fn sealed_secrets_round_trip_and_detect_tampering() {

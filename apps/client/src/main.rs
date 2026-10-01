@@ -40,6 +40,10 @@ async fn termination() {
 }
 
 fn main() -> anyhow::Result<()> {
+    // `magnetar mcp`: a stdio bridge an agent starts, not the app; stdout carries only JSON-RPC.
+    if std::env::args().nth(1).as_deref() == Some("mcp") {
+        return magnetar::bridge::main(Paths::from_environment()?);
+    }
     wait_for_previous_process();
     let paths = Paths::from_environment()?;
     magnetar::log::init(Some(paths.logs.clone()), *IS_DEV);

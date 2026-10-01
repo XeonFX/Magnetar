@@ -1,24 +1,31 @@
-import { CloudOff, Download, Loader, Search, Settings, ShieldAlert, Tv, WifiOff } from 'lucide-react'
+import { Check, ChevronsUpDown, CloudOff, Download, ExternalLink, Loader, Search, Settings, ShieldAlert, Tv, WifiOff } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Outlet } from 'react-router'
 import { useT } from '../lib/i18n.tsx'
 import { Loading } from '../ui/Loading.tsx'
-import { useDevice, useDownloads } from './DeviceContext.tsx'
+import { useDevice, useDownloads, useSearchLink } from './DeviceContext.tsx'
 import { isActive } from './components/downloads.tsx'
 import { BrandMark } from '../ui/BrandMark.tsx'
+import { MenuButton } from '../ui/Menu.tsx'
+
+/** Wraps the device's name in a way to reach the account's other devices; `placement` is where it opens. */
+export type DeviceMenu = (label: ReactNode, placement: 'up' | 'down') => ReactNode
 
 /**
  * The dashboard frame. Wide screens get a sidebar with the device's status; phones get a slim top
- * bar and a tab bar at the bottom, within thumb reach.
+ * bar and a tab bar at the bottom, within thumb reach. The device's name opens `deviceMenu`, or, on
+ * this computer's own dashboard once it is on an account, a link to the account's other devices.
  */
-export function Shell({ headerStart, headerEnd }: { headerStart?: ReactNode; headerEnd?: ReactNode }) {
+export function Shell({ headerStart, headerEnd, deviceMenu }: { headerStart?: ReactNode; headerEnd?: ReactNode; deviceMenu?: DeviceMenu }) {
   const t = useT()
-  const { basePath, info, connectionState } = useDevice()
+  const { basePath, info, connectionState, connection, remote } = useDevice()
+  const menu = deviceMenu ?? (connection.kind === 'local' && remote?.paired ? localDeviceMenu(remote.cloudUrl, t) : undefined)
   const active = useDownloads().filter(isActive).length
+  const searchLink = useSearchLink()
 
   const nav = [
     { to: basePath || '/', end: true, icon: Download, label: t('nav.downloads'), badge: active },
-    { to: `${basePath}/search`, end: false, icon: Search, label: t('nav.search') },
+    { to: searchLink, end: false, icon: Search, label: t('nav.search') },
     { to: `${basePath}/series`, end: false, icon: Tv, label: t('nav.series') },
     { to: `${basePath}/settings`, end: false, icon: Settings, label: t('nav.settings') },
   ]
@@ -42,14 +49,14 @@ export function Shell({ headerStart, headerEnd }: { headerStart?: ReactNode; hea
           ))}
         </nav>
         <div className="flex-1" />
-        <DeviceStatus end={headerEnd} />
+        <DeviceStatus end={headerEnd} menu={menu} />
         {info && <p className="muted px-3 text-xs">Magnetar {info.version}</p>}
       </aside>
 
       <div className="flex min-h-screen min-w-0 flex-col">
         <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-base-300 bg-base-100/90 px-3 backdrop-blur lg:hidden">
           {headerStart}
-          <div className="min-w-0 flex-1"><DeviceStatus compact /></div>
+          <div className="min-w-0 flex-1"><DeviceStatus compact menu={menu} /></div>
           {headerEnd}
         </header>
         <ConnectionBanner />
@@ -83,30 +90,46 @@ function Brand() {
   )
 }
 
-/** Which device this is and whether it is reachable. */
-function DeviceStatus({ compact = false, end }: { compact?: boolean; end?: ReactNode }) {
+/** On this computer's own dashboard: this computer, and the website for the account's other devices. */
+function localDeviceMenu(cloudUrl: string, t: ReturnType<typeof useT>): DeviceMenu {
+  return (label, placement) => (
+    <MenuButton label={t('devices.switch')} placement={placement} className="min-w-0 flex-1" button={label}
+      items={close => (
+        <>
+          <li role="none">
+            <a role="menuitem" href="/" aria-current="page" className="menu-active" onClick={event => { event.preventDefault(); close() }}>
+              <span className="flex-1">{t('shell.thisComputer')}</span><Check size={16} aria-hidden />
+            </a>
+          </li>
+          <li role="none">
+            <a role="menuitem" href={cloudUrl} target="_blank" rel="noopener" onClick={close}>
+              <span className="flex-1">{t('devices.others')}</span><ExternalLink size={14} aria-hidden />
+            </a>
+          </li>
+        </>
+      )} />
+  )
+}
+
+/** Which device this is and whether it is reachable; with a menu, also the way to the others. */
+function DeviceStatus({ compact = false, end, menu }: { compact?: boolean; end?: ReactNode; menu?: DeviceMenu }) {
   const t = useT()
   const { deviceName, connection, connectionState } = useDevice()
   const online = connectionState.status === 'open'
   const where = connection.kind === 'remote' ? t('remote.viaRelay') : t('shell.thisComputer')
   const dot = <span className={`inline-block size-2 shrink-0 rounded-full ${online ? 'bg-success' : 'bg-warning'}`} />
-  if (compact) {
-    return (
-      <div className="min-w-0 leading-tight">
-        <div className="truncate text-sm font-semibold">{deviceName}</div>
-        <div className="muted flex items-center gap-1.5 text-xs">{dot}<span className="truncate">{online ? where : t('connection.reconnecting')}</span></div>
-      </div>
-    )
-  }
-  return (
-    <div className="flex items-center gap-2 rounded-box border border-base-300 p-3">
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-semibold">{deviceName}</div>
-        <div className="muted mt-0.5 flex items-center gap-1.5 text-xs">{dot}<span className="truncate">{online ? where : t('connection.reconnecting')}</span></div>
-      </div>
-      {end}
-    </div>
+  const label = (
+    <span className={`flex min-w-0 items-center gap-2 ${menu ? 'rounded-field -m-1.5 p-1.5 transition-colors hover:bg-base-200' : ''}`}>
+      <span className={`min-w-0 flex-1 ${compact ? 'leading-tight' : ''}`}>
+        <span className="block truncate text-sm font-semibold">{deviceName}</span>
+        <span className={`muted flex items-center gap-1.5 text-xs ${compact ? '' : 'mt-0.5'}`}>{dot}<span className="truncate">{online ? where : t('connection.reconnecting')}</span></span>
+      </span>
+      {menu && <ChevronsUpDown size={16} className="muted shrink-0" aria-hidden />}
+    </span>
   )
+  const body = menu ? menu(label, compact ? 'down' : 'up') : <div className="min-w-0 flex-1">{label}</div>
+  if (compact) return body
+  return <div className="flex items-center gap-2 rounded-box border border-base-300 p-3">{body}{end}</div>
 }
 
 function ConnectionBanner() {

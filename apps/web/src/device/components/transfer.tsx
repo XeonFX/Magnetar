@@ -26,7 +26,7 @@ export function TransferNotice({ transfer }: { transfer: TransferStatusDto | nul
           </p>
         )}
       </div>
-      {waiting && <Link to={`${basePath}/settings?section=downloads`} className="btn btn-ghost btn-sm shrink-0">{t('transfer.change')}</Link>}
+      {waiting && <Link to={`${basePath}/settings/downloads`} className="btn btn-ghost btn-sm shrink-0">{t('transfer.change')}</Link>}
     </div>
   )
 }

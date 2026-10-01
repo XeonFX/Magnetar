@@ -1,9 +1,11 @@
-import type { SearchResultDto, SeriesResolution, SourceOutcomeDto, TorrentDetailsDto } from '@magnetar/protocol'
+import type { SearchResultDto, SourceOutcomeDto, TorrentDetailsDto } from '@magnetar/protocol'
 import { formatBytes } from '@magnetar/protocol/bytes'
 import { BellRing, Check, CircleAlert, Copy, Download, ExternalLink, FolderOpen, SearchIcon, SearchX, Sprout, Telescope, X } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useFormatDate, useFormatRelative, useT } from '../../lib/i18n.tsx'
+import { RESOLUTIONS } from '../../lib/quality.ts'
+import { readSearch, searchKey, writeSearch } from '../../lib/urlState.ts'
 import { askNotificationPermission } from '../../lib/notifications.ts'
 import { releaseTags } from '../../lib/releaseTags.ts'
 import { PageHeader, Segmented } from '../../ui/controls.tsx'
@@ -24,6 +26,8 @@ const SORTS: Record<Sort, (a: SearchResultDto, b: SearchResultDto) => number> = 
   largest: (a, b) => b.sizeBytes - a.sizeBytes,
   smallest: (a, b) => a.sizeBytes - b.sizeBytes,
 }
+/** The first is the default, left out of links. */
+const SORT_NAMES = Object.keys(SORTS) as [Sort, ...Sort[]]
 
 /** Starts a download and says so, with a way to go and watch it. */
 function useStartDownload() {
@@ -43,38 +47,47 @@ function useStartDownload() {
 
 export function SearchPage() {
   const t = useT()
-  const { connection, sources, basePath } = useDevice()
-  const { search, setSearch } = useSearch()
+  const { connection, connectionState, sources, basePath } = useDevice()
+  const { search, setSearch, setSearchAddress } = useSearch()
   const navigate = useNavigate()
   const run = useRun()
   const startDownload = useStartDownload()
   const [details, setDetails] = useState<SearchResultDto | null>(null)
-  const [sort, setSort] = useState<Sort>('seeders')
   const [added, setAdded] = useState<Set<string>>(new Set())
   const [shown, setShown] = useState(PAGE_SIZE)
+  // The search on screen lives in the address bar (query, resolution, source and sort), so a
+  // reload, a bookmark, a shared link or Back shows the same one.
   const [params, setParams] = useSearchParams()
+  const view = useMemo(() => readSearch(params, RESOLUTIONS, SORT_NAMES), [params])
+  const { sort } = view
+  const key = searchKey(view)
+  const show = (change: Partial<typeof view>, how: { replace: boolean }) => setParams(writeSearch({ ...view, ...change }, RESOLUTIONS, SORT_NAMES), how)
 
-  const start = async (text: string) => {
-    const query = [text.trim(), search.resolution].filter(Boolean).join(' ')
-    if (!text.trim()) return
+  const start = async (target: typeof view) => {
     if (search.searchId && search.searching) void connection.call('search.cancel', { searchId: search.searchId }).catch(() => {})
     setShown(PAGE_SIZE)
-    setSearch(s => ({ ...s, query: text, searching: true, results: [], outcomes: [], searchId: null }))
-    const started = await run(() => connection.call('search.start', { query, source: search.source || undefined }), 'search.failed')
+    setSearch(s => ({ ...s, query: target.query, ran: searchKey(target), searching: true, results: [], outcomes: [], searchId: null }))
+    const query = [target.query, target.resolution].filter(Boolean).join(' ')
+    const started = await run(() => connection.call('search.start', { query, source: target.source || undefined }), 'search.failed')
     if (!started) return setSearch(s => ({ ...s, searching: false, results: null }))
     setSearch(s => ({ ...s, searchId: started.searchId }))
   }
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    // In the address bar, so a search can be bookmarked, shared, or gone back to.
-    setParams(search.query.trim() ? { q: search.query.trim() } : {}, { replace: true })
-    void start(search.query)
+    const query = search.query.trim()
+    if (!query) return
+    // The same search again is a refresh; a new one is a new history entry, so Back returns to the last.
+    if (query === view.query) void start(view)
+    else show({ query }, { replace: false })
   }
-  // A link or bookmark with ?q= runs that search, unless it is the one already on screen.
-  const linked = params.get('q')
+  // Runs the search the address describes, once connected, unless it is the one already on screen.
   useEffect(() => {
-    if (linked && linked !== search.query && connection.state.status === 'open') void start(linked)
-  }, [linked])
+    if (key && key !== search.ran && connectionState.status === 'open') void start(view)
+  }, [key, connectionState.status])
+  // The links back to Search open this one again.
+  useEffect(() => {
+    if (key) setSearchAddress(params.toString())
+  }, [params])
 
   const results = useMemo(() => (search.results ? [...search.results].sort(SORTS[sort]) : null), [search.results, sort])
   // Stable for the memoized rows, so typing a new query doesn't re-render the list below.
@@ -100,24 +113,25 @@ export function SearchPage() {
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Segmented label={t('search.resolution')} value={search.resolution} onChange={resolution => setSearch(s => ({ ...s, resolution }))}
-            options={resolutionOptions(t)} />
-          <select className="select select-sm w-auto rounded-full" aria-label={t('search.source')} value={search.source}
-            onChange={e => setSearch(s => ({ ...s, source: e.target.value }))}>
+          <Segmented label={t('search.resolution')} value={view.resolution}
+            onChange={resolution => show({ resolution }, { replace: true })} options={resolutionOptions(t)} />
+          <select className="select select-sm w-auto rounded-full" aria-label={t('search.source')} value={view.source}
+            onChange={e => show({ source: e.target.value }, { replace: true })}>
             <option value="">{t('search.allSources')}</option>
-            {sources.filter(s => s.enabled).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+            {sources.filter(s => s.enabled || s.name === view.source).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
           </select>
           {results && results.length > 1 && (
-            <select className="select select-sm ml-auto w-auto rounded-full" aria-label={t('search.sort')} value={sort} onChange={e => setSort(e.target.value as Sort)}>
-              {(Object.keys(SORTS) as Sort[]).map(s => <option key={s} value={s}>{t(`search.sort.${s}`)}</option>)}
+            <select className="select select-sm ml-auto w-auto rounded-full" aria-label={t('search.sort')} value={sort}
+              onChange={e => show({ sort: e.target.value as Sort }, { replace: true })}>
+              {SORT_NAMES.map(s => <option key={s} value={s}>{t(`search.sort.${s}`)}</option>)}
             </select>
           )}
         </div>
       </form>
 
       {search.outcomes.length > 0 && <Outcomes outcomes={search.outcomes} total={results?.length ?? 0} searching={search.searching}
-        onWatch={search.searching ? undefined : () => navigate(`${basePath}/series?tab=releases`, {
-          state: { watch: { query: search.query.trim(), resolution: (search.resolution || null) as SeriesResolution | null } },
+        onWatch={search.searching ? undefined : () => navigate(`${basePath}/series/releases`, {
+          state: { watch: { query: view.query, resolution: view.resolution || null } },
         })} />}
       {search.searching && !results?.length && <div className="flex justify-center py-16"><span className="loading loading-dots loading-lg text-primary" /></div>}
 

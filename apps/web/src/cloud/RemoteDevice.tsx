@@ -10,11 +10,19 @@ import { RelayConnection } from '../lib/relayConnection.ts'
 import { Loading } from '../ui/Loading.tsx'
 import { AccountMenu } from './CloudFrame.tsx'
 import { CloudFrame } from './CloudFrame.tsx'
+import { devicePath } from './devicePaths.ts'
+import { DeviceSwitcher } from './DeviceSwitcher.tsx'
 
 /** A device's dashboard through the relay, end-to-end encrypted with this browser's key. */
 export function RemoteDevice() {
-  const t = useT()
   const { deviceId = '' } = useParams()
+  // Keyed by device: switching to another starts clean, with nothing of the last one's key,
+  // connection or state.
+  return <DeviceView key={deviceId} deviceId={deviceId} />
+}
+
+function DeviceView({ deviceId }: { deviceId: string }) {
+  const t = useT()
   const [key, setKey] = useState<StoredDeviceKey | null | undefined>(undefined)
   const [connection, setConnection] = useState<RelayConnection | null>(null)
   const [name, setName] = useState('')
@@ -49,10 +57,11 @@ export function RemoteDevice() {
   if (!connection) return null
 
   return (
-    <DeviceProvider connection={connection} basePath={`/d/${encodeURIComponent(deviceId)}`} deviceName={name || t('devices.device')}>
+    <DeviceProvider connection={connection} basePath={devicePath(deviceId)} deviceName={name || t('devices.device')}>
       <DeviceRoutes fallbackLanguage={browserLanguage()}
         headerStart={<Link to="/" className="btn btn-ghost btn-square btn-sm" aria-label={t('devices.back')} title={t('devices.back')}><ArrowLeft size={18} /></Link>}
-        headerEnd={<AccountMenu />} />
+        headerEnd={<AccountMenu />}
+        deviceMenu={(label, placement) => <DeviceSwitcher placement={placement}>{label}</DeviceSwitcher>} />
     </DeviceProvider>
   )
 }

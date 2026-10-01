@@ -44,9 +44,12 @@ Rust, the dashboard and website TypeScript. It can import everything from a Medi
   or browser gets them with the website closed, encrypted on the computer for that browser.
 - **Installable website** (a Progressive Web App) with a download button for your system.
 - **Remote access** from any browser: sign in with Google, connect the computer once, link your phone with a QR code.
+  Several computers on one account, with a switcher that keeps your page.
 - **Agent access** (MCP and REST) for AI agents and scripts, off by default and loopback-only unless you add a TLS
   proxy and a bearer token.
-- **Menu-bar (macOS) and notification-area (Windows) icon** with live download speed, active downloads and updates.
+- **Menu-bar (macOS) and notification-area (Windows) icon** with live download and upload totals, every unfinished download
+  (pause or resume it, show it in Finder or Explorer), pause and resume all, slow mode and speed-limit presets, notification
+  and Open at Login switches, remote access and updates. The open menu updates in place.
 - **Start at login** on macOS and Windows.
 - **Self-updating** from GitHub Releases, verified with a signature whose key is built into the app.
 - **Eight languages**: English, Polish, German, French, Spanish, Italian, Portuguese and Russian.
@@ -81,6 +84,10 @@ The dashboard is at <http://localhost:47820> (the next free port if that one is 
 3. That browser is now linked. To add your phone, choose **Link a phone or another browser** (from the local
    dashboard or any linked browser) and scan the QR code while signed in to the same account.
 
+One account holds up to 20 computers. On the website, the device's name at the bottom of the sidebar (at the top on
+a phone) switches to another one and keeps the page you are on; each shows whether it is online and whether this
+browser is linked to it. A computer's own dashboard links to the others once it is on an account.
+
 Revoke a browser, rename the device or disconnect it from the same Settings section, or remove a device from the
 website's device list. How the encryption works is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#end-to-end-encryption).
 
@@ -94,9 +101,17 @@ read, so re-enter them. Private-tracker (PTE) downloads are not imported: Magnet
 
 ## Agent access (MCP and REST)
 
-On the computer running Magnetar, **Settings → AI agents → Connect Claude** turns agent access on and adds
-the server to Claude Code (for every project). Other MCP clients, or Claude Code where the app can't find it, use the URL
-shown there:
+On the computer running Magnetar, **Settings → AI agents → Connect an AI agent** lists the agents it finds and connects
+one with a click, turning agent access on:
+
+| Agent | How it is connected |
+|---|---|
+| Claude Code, Codex, Gemini CLI | Its own command (`claude mcp add …`, `codex mcp add …`, `gemini mcp add …`), for every project |
+| Cursor, VS Code, Windsurf, OpenCode | An entry in its user settings file (`~/.cursor/mcp.json` and the like), other settings untouched and the original kept once as `*.before-magnetar` |
+| Claude Desktop | `magnetar mcp` in its settings: the app as a stdio MCP server that relays to the running app, and starts it if needed |
+
+A settings file that isn't plain JSON (comments, trailing commas) is left alone. Every agent, found or not, also has
+**Set up by hand** with the exact command or JSON. From a terminal, for any other MCP client:
 
 ```bash
 claude mcp add --transport http --scope user magnetar http://localhost:47820/mcp

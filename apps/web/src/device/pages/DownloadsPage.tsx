@@ -4,11 +4,12 @@ import { ArrowDown, ArrowUp, CloudDownload, Plus, Search, Tv } from 'lucide-reac
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { useT } from '../../lib/i18n.tsx'
+import { useQueryChoice, withParam } from '../../lib/urlState.ts'
 import { magnetsIn } from '../../lib/magnets.ts'
 import { PageHeader, Segmented } from '../../ui/controls.tsx'
 import { Empty } from '../../ui/Empty.tsx'
 import { PAGE_SIZE, ShowMore } from '../../ui/ShowMore.tsx'
-import { useDevice, useDownloads } from '../DeviceContext.tsx'
+import { useDevice, useDownloads, useSearchLink } from '../DeviceContext.tsx'
 import { AddDownloadDialog, DropOverlay, useAddShortcuts, type PendingAdd } from '../components/addDownload.tsx'
 import { DownloadDetailsDialog } from '../components/downloadDetails.tsx'
 import { DownloadRow, isActive } from '../components/downloads.tsx'
@@ -30,7 +31,8 @@ export function DownloadsPage() {
   const t = useT()
   const { basePath, settings, transfer, connection } = useDevice()
   const downloads = useDownloads()
-  const [filter, setFilter] = useState<Filter>('all')
+  const searchLink = useSearchLink()
+  const [filter, setFilter] = useQueryChoice('filter', FILTERS, 'all')
   const [adding, setAdding] = useState<PendingAdd | null>(null)
   const [details, setDetails] = useState<number | null>(null)
   const dragging = useAddShortcuts(setAdding)
@@ -41,7 +43,7 @@ export function DownloadsPage() {
     const path = connection.kind === 'local' ? params.get('torrent') : null
     if (!magnet && !path) return
     setAdding({ magnets: magnet ? magnetsIn(magnet) : [], files: [], paths: path ? [path] : [] })
-    setParams({}, { replace: true })
+    setParams(current => withParam(withParam(current, 'add', ''), 'torrent', ''), { replace: true })
   }, [params, setParams, connection])
 
   // One pass for every count and total, rather than one filter per chip on each update.
@@ -73,7 +75,7 @@ export function DownloadsPage() {
       <PageHeader title={t('downloads.title')} summary={summary}
         action={<div className="flex flex-wrap items-center gap-2">
           {settings && transfer && <AltSpeedToggle settings={settings} transfer={transfer} />}
-          {downloads.length > 0 && <Link to={`${basePath}/search`} className="btn btn-ghost hidden sm:inline-flex"><Search size={16} />{t('downloads.searchButton')}</Link>}
+          {downloads.length > 0 && <Link to={searchLink} className="btn btn-ghost hidden sm:inline-flex"><Search size={16} />{t('downloads.searchButton')}</Link>}
           {add}
         </div>} />
       <TransferNotice transfer={transfer} />
@@ -81,7 +83,7 @@ export function DownloadsPage() {
       {downloads.length === 0 ? (
         <Empty icon={<CloudDownload size={40} strokeWidth={1.5} className="text-primary" />} title={t('downloads.emptyTitle')} text={t('downloads.emptyHint')}>
           <div className="flex flex-wrap justify-center gap-2">
-            <Link to={`${basePath}/search`} className="btn btn-primary"><Search size={16} />{t('downloads.searchButton')}</Link>
+            <Link to={searchLink} className="btn btn-primary"><Search size={16} />{t('downloads.searchButton')}</Link>
             <Link to={`${basePath}/series`} className="btn btn-ghost"><Tv size={16} />{t('downloads.seriesButton')}</Link>
           </div>
           <p className="muted mt-4 text-xs">{t('add.emptyHint')}</p>

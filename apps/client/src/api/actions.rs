@@ -211,6 +211,30 @@ impl Actions {
         self.downloads.resume(id)
     }
 
+    /// Pauses every download that is running, queued or seeding; how many were paused.
+    pub async fn pause_all(&self) -> usize {
+        let mut paused = 0;
+        for d in self.downloads.unfinished().into_iter().filter(|d| d.status.wants_engine()) {
+            match self.downloads.pause(d.id).await {
+                Ok(_) => paused += 1,
+                Err(error) => tracing::warn!("Could not pause download {}: {error}", d.id),
+            }
+        }
+        paused
+    }
+
+    /// Resumes every paused or failed download; how many were resumed.
+    pub fn resume_all(&self) -> usize {
+        let mut resumed = 0;
+        for d in self.downloads.unfinished().into_iter().filter(|d| !d.status.wants_engine()) {
+            match self.downloads.resume(d.id) {
+                Ok(_) => resumed += 1,
+                Err(error) => tracing::warn!("Could not resume download {}: {error}", d.id),
+            }
+        }
+        resumed
+    }
+
     /// `delete_files` erases what was downloaded — the one irreversible action, so it defaults to false everywhere.
     pub async fn delete_download(&self, id: i64, delete_files: bool) -> ApiResult<Done> {
         let item = self.downloads.get(id)?;

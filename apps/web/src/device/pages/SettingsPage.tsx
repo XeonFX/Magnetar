@@ -1,9 +1,9 @@
 import type { AgentStatusDto, HandlerStatus, LoginStartupStatus, SettingsDto, SettingsPatch } from '@magnetar/protocol'
 import {
-  Bell, Bot, Cloud, Copy, Download, Eye, EyeOff, Info, Mail, RefreshCw, Send, Server, Smartphone, SlidersHorizontal, Sparkles, Upload,
+  Bell, Bot, Cloud, Copy, Download, Eye, EyeOff, Info, Mail, RefreshCw, Send, Server, Smartphone, SlidersHorizontal, Upload,
 } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
-import { useSearchParams } from 'react-router'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Link, Navigate, useParams } from 'react-router'
 import { LANGUAGES, useFormatDate, useT } from '../../lib/i18n.tsx'
 import { askNotificationPermission } from '../../lib/notifications.ts'
 import { PageHeader, Segmented, SettingGroup, SettingRow, Switch } from '../../ui/controls.tsx'
@@ -12,11 +12,13 @@ import { ConfirmDialog } from '../../ui/Modal.tsx'
 import { useTheme, type ThemeMode } from '../../ui/theme.ts'
 import { useCopy, useToast } from '../../ui/toast.tsx'
 import { useDevice } from '../DeviceContext.tsx'
+import { usePathChoice } from '../../lib/urlState.ts'
 import { BrowserPushChannel } from '../components/browserPush.tsx'
 import { FolderField } from '../components/folders.tsx'
 import { useLegacyImport } from '../components/legacyImport.tsx'
 import { RemoteAccessSection } from '../components/remoteAccess.tsx'
 import { NetworkSettings, SeedingRow, SpeedSettings } from '../components/transferSettings.tsx'
+import { AgentClients } from '../components/agentClients.tsx'
 import { useRun } from '../useRun.ts'
 import { Loading } from '../../ui/Loading.tsx'
 
@@ -30,36 +32,43 @@ const SECTIONS = [
   { id: 'about', icon: Info },
 ] as const
 type SectionId = (typeof SECTIONS)[number]['id']
+const SECTION_IDS = SECTIONS.map(s => s.id) as [SectionId, ...SectionId[]]
 
 export function SettingsPage() {
   const t = useT()
-  const { settings } = useDevice()
-  const [params, setParams] = useSearchParams()
-  const current = SECTIONS.find(s => s.id === params.get('section'))?.id ?? 'general'
-  const select = (id: SectionId) => setParams(id === 'general' ? {} : { section: id }, { replace: true })
+  const { settings, basePath } = useDevice()
+  // Each section has its own address: /settings is General, /settings/agents the AI agents.
+  const { value: shown, redirect } = usePathChoice(useParams().section, SECTION_IDS, 'section')
+  const href = (id: SectionId) => `${basePath}/settings${id === 'general' ? '' : `/${id}`}`
+  // On a phone the sections scroll sideways; a link straight to one scrolls it into sight.
+  const nav = useRef<HTMLElement>(null)
+  useEffect(() => {
+    nav.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [shown, settings !== null])
+  if (redirect) return <Navigate to={href(redirect)} replace />
   if (!settings) return <Loading />
 
   return (
     <>
       <PageHeader title={t('settings.title')} summary={t('settings.subtitle')} />
       <div className="flex flex-col gap-5 lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-8">
-        <nav aria-label={t('settings.title')} className="scroll-strip -mx-4 flex gap-1 overflow-x-auto px-4 lg:sticky lg:top-10 lg:mx-0 lg:flex-col lg:self-start lg:px-0">
+        <nav ref={nav} aria-label={t('settings.title')} className="scroll-strip -mx-4 flex gap-1 overflow-x-auto px-4 lg:sticky lg:top-10 lg:mx-0 lg:flex-col lg:self-start lg:px-0">
           {SECTIONS.map(({ id, icon: Icon }) => (
-            <button key={id} type="button" aria-current={current === id ? 'page' : undefined} onClick={() => select(id)}
+            <Link key={id} to={href(id)} replace aria-current={shown === id ? 'page' : undefined}
               className={`flex shrink-0 items-center gap-2.5 rounded-full px-3.5 py-2 text-sm font-medium transition-colors lg:rounded-field ${
-                current === id ? 'bg-neutral text-neutral-content lg:bg-primary/10 lg:text-primary' : 'muted hover:bg-base-100 hover:text-base-content'}`}>
+                shown === id ? 'bg-neutral text-neutral-content lg:bg-primary/10 lg:text-primary' : 'muted hover:bg-base-100 hover:text-base-content'}`}>
               <Icon size={16} />{t(`settings.section.${id}`)}
-            </button>
+            </Link>
           ))}
         </nav>
         <div className="flex min-w-0 flex-col gap-4">
-          {current === 'general' && <GeneralSection settings={settings} />}
-          {current === 'downloads' && <DownloadsSection settings={settings} />}
-          {current === 'notifications' && <NotificationsSection settings={settings} />}
-          {current === 'sources' && <SourcesSection settings={settings} />}
-          {current === 'remote' && <RemoteAccessSection />}
-          {current === 'agents' && <AgentSection />}
-          {current === 'about' && <><AboutSection /><ImportSection /></>}
+          {shown === 'general' && <GeneralSection settings={settings} />}
+          {shown === 'downloads' && <DownloadsSection settings={settings} />}
+          {shown === 'notifications' && <NotificationsSection settings={settings} />}
+          {shown === 'sources' && <SourcesSection settings={settings} />}
+          {shown === 'remote' && <RemoteAccessSection />}
+          {shown === 'agents' && <AgentSection />}
+          {shown === 'about' && <><AboutSection /><ImportSection /></>}
         </div>
       </div>
     </>
@@ -314,7 +323,6 @@ function AgentSection() {
   const [agent, setAgent] = useState<AgentStatusDto | null>(null)
   const [reveal, setReveal] = useState(false)
   const [confirming, setConfirming] = useState(false)
-  const [connectingClaude, setConnectingClaude] = useState(false)
   useEffect(() => {
     void connection.call('agent.status').then(setAgent).catch(() => {})
   }, [connection])
@@ -326,30 +334,15 @@ function AgentSection() {
     if (next && patch.allowRemote !== undefined) toast(t('settings.agentRestart'), 'info')
   }
 
-  /** Registers the MCP server with Claude Code on this computer (turning agent access on). */
-  const connectClaude = async () => {
-    setConnectingClaude(true)
-    const result = await run(() => connection.call('agent.connectClaude'), 'settings.claudeConnectFailed')
-    setConnectingClaude(false)
-    if (!result) return
-    setAgent(result.agent)
-    toast(t(result.status === 'connected' ? 'settings.claudeConnected' : 'settings.claudeNotFound'), result.status === 'connected' ? 'success' : 'info')
-  }
-
   return (
     <>
       <SettingGroup>
         <SettingRow title={t('settings.agentAccess')} description={t('settings.agentHint')}>
           <Switch label={t('settings.agentAccess')} checked={agent.enabled} onChange={enabled => void change({ enabled })} />
         </SettingRow>
-        {connection.kind === 'local' && (
-          <SettingRow layout="wide" title={t('settings.connectClaude')} description={t('settings.connectClaudeHint')}>
-            <button type="button" className="btn btn-primary btn-sm" disabled={connectingClaude} onClick={() => void connectClaude()}>
-              {connectingClaude ? <span className="loading loading-spinner loading-xs" /> : <Sparkles size={14} />}{t('settings.connectClaude')}
-            </button>
-          </SettingRow>
-        )}
       </SettingGroup>
+      {/* Agents run on the computer itself; a remote dashboard can't set them up. */}
+      {connection.kind === 'local' && <AgentClients onAgent={setAgent} />}
       {agent.enabled && (
         <SettingGroup title={t('settings.agentDetails')} description={t('settings.agentLoopbackHint')}>
           <SettingRow title={t('settings.agentRemote')} description={t('settings.agentRemoteHint')}>
@@ -365,7 +358,6 @@ function AgentSection() {
               </div>
             </Field>
             <CopyField label={t('settings.agentMcpUrl')} value={agent.mcpUrl} onCopy={copy} />
-            <CopyField label={t('settings.agentClaudeCommand')} value={agent.claudeCommand} onCopy={copy} />
             <p className="muted break-release text-xs">{t('settings.agentEndpointFile', agent.endpointFile)}</p>
           </div>
         </SettingGroup>

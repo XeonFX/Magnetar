@@ -8,6 +8,7 @@ import { clearParkedKey, parkedKey, saveDeviceKey } from '../lib/keyStore.ts'
 import { useAccount } from './CloudApp.tsx'
 import { CloudFrame } from './CloudFrame.tsx'
 import { captureFragmentKey } from './PairPage.tsx'
+import { devicePath } from './devicePaths.ts'
 
 const TARGET = 'magnetar-link-device'
 
@@ -35,7 +36,7 @@ export function LinkPage() {
       await saveDeviceKey(deviceId, parked.keyId, parked.key)
       clearParkedKey()
       sessionStorage.removeItem(TARGET)
-      navigate(`/d/${encodeURIComponent(deviceId)}`, { replace: true })
+      navigate(devicePath(deviceId), { replace: true })
     }).catch(e => setError(errorMessage(e)))
   }, [account, deviceId, navigate, t])
 

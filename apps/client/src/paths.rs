@@ -52,6 +52,22 @@ fn local_app_data() -> PathBuf {
     std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(|| home_dir().join("AppData").join("Local"))
 }
 
+/// Per-user settings on Linux, and where some cross-platform tools keep theirs everywhere.
+pub fn xdg_config_home() -> PathBuf {
+    std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| home_dir().join(".config"))
+}
+
+/// Per-user application settings: ~/Library/Application Support, %APPDATA% or the XDG config folder.
+pub fn app_config_home() -> PathBuf {
+    if cfg!(target_os = "macos") {
+        home_dir().join("Library/Application Support")
+    } else if cfg!(windows) {
+        std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| home_dir().join("AppData").join("Roaming"))
+    } else {
+        xdg_config_home()
+    }
+}
+
 /// Where Linux desktops keep per-user application data.
 pub fn xdg_data_home() -> PathBuf {
     std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home_dir().join(".local/share"))
