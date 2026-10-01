@@ -70,10 +70,10 @@ function AgentRow({ client, busy, disabled, failed, onConnect }: {
   onConnect: () => void
 }) {
   const t = useT()
-  const [manual, setManual] = useState(false)
-  useEffect(() => {
-    if (failed) setManual(true)
-  }, [failed])
+  // Opens by itself when connecting failed, until the user closes it.
+  const [manual, setManual] = useState<boolean | null>(null)
+  const open = manual ?? failed
+  const action = t(client.connected ? 'settings.agentReconnect' : 'settings.agentConnect')
   const panel = `agent-manual-${client.id}`
   return (
     <li className="py-3">
@@ -85,18 +85,18 @@ function AgentRow({ client, busy, disabled, failed, onConnect }: {
             {t(client.connected ? 'settings.agentConnected' : client.installed ? 'settings.agentFound' : 'settings.agentNotFound')}
           </div>
         </div>
-        <button type="button" className="btn btn-ghost btn-sm" aria-expanded={manual} aria-controls={panel} onClick={() => setManual(m => !m)}>
-          {t('settings.agentManual')}<ChevronDown size={14} className={`transition-transform ${manual ? 'rotate-180' : ''}`} />
+        <button type="button" className="btn btn-ghost btn-sm" aria-expanded={open} aria-controls={panel} onClick={() => setManual(!open)}>
+          {t('settings.agentManual')}<ChevronDown size={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
         </button>
         {client.installed && (
           <button type="button" className={`btn btn-sm ${client.connected ? 'btn-ghost' : 'btn-primary'}`} disabled={disabled} onClick={onConnect}
-            aria-label={`${t(client.connected ? 'settings.agentReconnect' : 'settings.agentConnect')}: ${client.name}`}>
+            aria-label={`${action}: ${client.name}`}>
             {busy ? <span className="loading loading-spinner loading-xs" /> : <Plug size={14} />}
-            {t(client.connected ? 'settings.agentReconnect' : 'settings.agentConnect')}
+            {action}
           </button>
         )}
       </div>
-      {manual && <div id={panel} className="mt-3"><ManualSetup client={client} /></div>}
+      {open && <div id={panel} className="mt-3"><ManualSetup client={client} /></div>}
     </li>
   )
 }

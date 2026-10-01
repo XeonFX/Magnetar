@@ -4,38 +4,28 @@
 //! allows, so a long search doesn't hold up a ping. Nothing but JSON-RPC is written to stdout.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use serde_json::{Value, json};
+use serde_json::Value;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::Mutex;
 
+use crate::api::agent_access::EndpointFile;
+use crate::http::mcp::error;
 use crate::paths::Paths;
-
-/// Where the running app answers, from the endpoint file it keeps current. The bridge talks to it
-/// on this computer, which needs no token, so none is sent: a stopped app's port can't collect it.
-#[derive(Clone, Debug)]
-pub struct Endpoint {
-    pub mcp_url: String,
-}
-
-impl Endpoint {
-    pub fn read(paths: &Paths) -> Option<Self> {
-        let file: Value = serde_json::from_str(&std::fs::read_to_string(&paths.endpoint).ok()?).ok()?;
-        Some(Self { mcp_url: file["mcpUrl"].as_str()?.to_owned() })
-    }
-}
 
 /// How long a freshly started app gets to answer.
 const START_WAIT: Duration = Duration::from_secs(20);
 const NOT_RUNNING: &str = "Magnetar isn't running. Open it on this computer, then try again.";
 
-/// Passes messages until `input` ends. `endpoint` is read again for every message, so a restarted
-/// app on another port is found; `start_app` is tried once when the app can't be reached.
+/// Passes messages until `input` ends. `mcp_url` is read again for every message, so a restarted
+/// app on another port is found; `start_app` is tried once, when the app can't be reached. The app
+/// is on this computer, which needs no token, so none is sent: a stopped app's port can't collect it.
 pub async fn serve<R, W>(
     input: R,
     output: W,
-    endpoint: impl Fn() -> Option<Endpoint> + Send + Sync + 'static,
+    mcp_url: impl Fn() -> Option<String> + Send + Sync + 'static,
     start_app: impl Fn() -> bool + Send + Sync + 'static,
 ) where
     R: AsyncBufRead + Unpin,
@@ -43,43 +33,35 @@ pub async fn serve<R, W>(
 {
     let http = reqwest::Client::builder().no_proxy().build().expect("HTTP client");
     let output = Arc::new(Mutex::new(output));
-    let endpoint = Arc::new(endpoint);
-    let start_app = Arc::new(start_app);
-    let started = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mcp_url = Arc::new(mcp_url);
+    let tried = AtomicBool::new(false);
+    let start_once = Arc::new(move || !tried.swap(true, Ordering::SeqCst) && start_app());
     let mut lines = input.lines();
     let mut tasks = tokio::task::JoinSet::new();
     while let Ok(Some(line)) = lines.next_line().await {
         if line.trim().is_empty() {
             continue;
         }
-        let (http, output, endpoint, start_app, started) =
-            (http.clone(), output.clone(), endpoint.clone(), start_app.clone(), started.clone());
+        let (http, output, mcp_url, start_once) = (http.clone(), output.clone(), mcp_url.clone(), start_once.clone());
         tasks.spawn(async move {
-            let answer =
-                relay(&http, &line, &*endpoint, || !started.swap(true, std::sync::atomic::Ordering::SeqCst) && start_app()).await;
-            if let Some(answer) = answer {
-                let mut out = output.lock().await;
-                let mut text = serde_json::to_string(&answer).expect("JSON");
-                text.push('\n');
-                if out.write_all(text.as_bytes()).await.is_err() || out.flush().await.is_err() {
-                    tracing::debug!("The agent stopped reading");
-                }
+            let Some(answer) = relay(&http, &line, &*mcp_url, &*start_once).await else { return };
+            let mut text = serde_json::to_string(&answer).expect("JSON");
+            text.push('\n');
+            let mut out = output.lock().await;
+            if out.write_all(text.as_bytes()).await.is_err() || out.flush().await.is_err() {
+                tracing::debug!("The agent stopped reading");
             }
         });
     }
     while tasks.join_next().await.is_some() {}
 }
 
-fn error(id: Value, code: i64, message: &str) -> Value {
-    json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
-}
-
 /// One message there and its answer back; None when there is nothing to answer (notifications).
 async fn relay(
     http: &reqwest::Client,
     line: &str,
-    endpoint: &(dyn Fn() -> Option<Endpoint> + Send + Sync),
-    start_app: impl Fn() -> bool,
+    mcp_url: &(dyn Fn() -> Option<String> + Send + Sync),
+    start_once: &(dyn Fn() -> bool + Send + Sync),
 ) -> Option<Value> {
     let Ok(message) = serde_json::from_str::<Value>(line) else {
         return Some(error(Value::Null, -32700, "Parse error"));
@@ -88,24 +70,17 @@ async fn relay(
     let id = message.get("id").cloned().filter(|_| message.get("method").is_some());
     let fail = |text: &str| id.clone().map(|id| error(id, -32000, text));
 
-    let post = |target: &Endpoint| {
-        http.post(&target.mcp_url)
-            .header("accept", "application/json, text/event-stream")
-            .json(&message)
-            .timeout(Duration::from_secs(300))
-            .send()
+    let attempt = || async {
+        let url = mcp_url()?;
+        let request = http.post(url).header("accept", "application/json, text/event-stream").json(&message);
+        request.timeout(Duration::from_secs(300)).send().await.ok()
     };
-    let mut response = match endpoint() {
-        Some(target) => post(&target).await.ok(),
-        None => None,
-    };
-    if response.is_none() && start_app() {
+    let mut response = attempt().await;
+    if response.is_none() && start_once() {
         let deadline = tokio::time::Instant::now() + START_WAIT;
         while response.is_none() && tokio::time::Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(500)).await;
-            if let Some(target) = endpoint() {
-                response = post(&target).await.ok();
-            }
+            response = attempt().await;
         }
     }
     let Some(response) = response else { return fail(NOT_RUNNING) };
@@ -114,10 +89,7 @@ async fn relay(
     match status.as_u16() {
         200 => Some(body),
         202 => None,
-        _ => {
-            let reason = body["error"].as_str().map_or_else(|| format!("Magnetar answered {status}"), str::to_owned);
-            fail(&reason)
-        }
+        _ => fail(&body["error"].as_str().map_or_else(|| format!("Magnetar answered {status}"), str::to_owned)),
     }
 }
 
@@ -128,12 +100,16 @@ pub fn start_app() -> bool {
         return std::process::Command::new("/usr/bin/open").arg("-g").arg(bundle).status().is_ok_and(|s| s.success());
     }
     let Ok(program) = std::env::current_exe() else { return false };
-    let mut command = std::process::Command::new(program);
+    let mut command = crate::system::hidden_command(program);
     command.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
     #[cfg(unix)]
     std::os::unix::process::CommandExt::process_group(&mut command, 0);
     #[cfg(windows)]
-    std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0000_0008 | 0x0800_0000);
+    {
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        std::os::windows::process::CommandExt::creation_flags(&mut command, DETACHED_PROCESS | CREATE_NO_WINDOW);
+    }
     command.spawn().is_ok()
 }
 
@@ -143,7 +119,7 @@ pub fn main(paths: Paths) -> anyhow::Result<()> {
     runtime.block_on(serve(
         tokio::io::BufReader::new(tokio::io::stdin()),
         tokio::io::stdout(),
-        move || Endpoint::read(&paths),
+        move || EndpointFile::read(&paths).map(|file| file.mcp_url),
         start_app,
     ));
     Ok(())

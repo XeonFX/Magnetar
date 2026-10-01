@@ -58,30 +58,24 @@ pub struct Environment {
 impl Environment {
     pub fn current() -> Self {
         let home = crate::paths::home_dir();
-        let env_path = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
-        let xdg_config = env_path("XDG_CONFIG_HOME").unwrap_or_else(|| home.join(".config"));
-        let app_config = if cfg!(target_os = "macos") {
-            home.join("Library/Application Support")
-        } else if cfg!(windows) {
-            env_path("APPDATA").unwrap_or_else(|| home.join("AppData/Roaming"))
-        } else {
-            xdg_config.clone()
-        };
+        let app_config = crate::paths::app_config_home();
         // An app started from Finder or the Start menu gets a minimal PATH, so the installers' usual
         // folders are searched too.
         let mut path: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
         path.extend([home.join(".local/bin"), home.join(".claude/local"), home.join(".npm-global/bin"), home.join(".bun/bin")]);
         if cfg!(windows) {
-            path.extend(env_path("APPDATA").map(|a| a.join("npm")));
+            path.push(app_config.join("npm"));
         } else {
             path.extend(["/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from));
         }
         Self {
-            codex_home: env_path("CODEX_HOME").unwrap_or_else(|| home.join(".codex")),
+            codex_home: std::env::var_os("CODEX_HOME")
+                .filter(|v| !v.is_empty())
+                .map_or_else(|| home.join(".codex"), PathBuf::from),
             executable: std::env::current_exe().unwrap_or_else(|_| PathBuf::from(SERVER_NAME)),
             home,
             app_config,
-            xdg_config,
+            xdg_config: crate::paths::xdg_config_home(),
             path,
         }
     }
@@ -97,7 +91,8 @@ impl Environment {
 /// An agent registered through its own command line.
 struct Command {
     program: &'static str,
-    add: fn(&str) -> Vec<String>,
+    /// The arguments that add the server; its URL follows them.
+    add: &'static [&'static str],
     remove: &'static [&'static str],
     /// The settings file the command writes, to tell whether it is connected.
     settings: fn(&Environment) -> PathBuf,
@@ -106,9 +101,10 @@ struct Command {
 
 /// An agent registered by adding an entry to its settings file.
 struct SettingsFile {
-    file: fn(&Environment) -> PathBuf,
-    /// Found when this folder exists.
+    /// Its settings folder: the agent counts as installed when it exists.
     folder: fn(&Environment) -> PathBuf,
+    /// The settings file, in that folder.
+    file: &'static str,
     /// A command that also counts as installed.
     program: Option<&'static str>,
     /// The object entries go into, and the entry for `url`.
@@ -124,6 +120,28 @@ enum How {
 fn strings(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|s| (*s).to_owned()).collect()
 }
+
+impl Command {
+    fn add_args(&self, url: &str) -> Vec<String> {
+        let mut args = strings(self.add);
+        args.push(url.to_owned());
+        args
+    }
+}
+
+impl SettingsFile {
+    fn path(&self, env: &Environment) -> PathBuf {
+        (self.folder)(env).join(self.file)
+    }
+
+    fn installed(&self, env: &Environment) -> bool {
+        (self.folder)(env).is_dir() || self.program.and_then(|p| env.find(p)).is_some()
+    }
+}
+
+/// Claude Code and Gemini CLI take the same arguments.
+const ADD_HTTP_USER: &[&str] = &["mcp", "add", "--transport", "http", "--scope", "user", SERVER_NAME];
+const REMOVE_USER: &[&str] = &["mcp", "remove", "--scope", "user", SERVER_NAME];
 
 /// The JSON object at `section.magnetar` in a settings file's text, if the file parses.
 fn json_entry(text: &str, section: &str) -> Option<Value> {
@@ -162,57 +180,57 @@ impl AgentClient {
         match self {
             Self::ClaudeCode => How::Command(Command {
                 program: "claude",
-                add: |url| strings(&["mcp", "add", "--transport", "http", "--scope", "user", SERVER_NAME, url]),
-                remove: &["mcp", "remove", "--scope", "user", SERVER_NAME],
+                add: ADD_HTTP_USER,
+                remove: REMOVE_USER,
                 settings: |env| env.home.join(".claude.json"),
                 connected: |text, url| json_entry(text, "mcpServers").is_some_and(|e| e["url"] == url),
             }),
             Self::Codex => How::Command(Command {
                 program: "codex",
-                add: |url| strings(&["mcp", "add", SERVER_NAME, "--url", url]),
+                add: &["mcp", "add", SERVER_NAME, "--url"],
                 remove: &["mcp", "remove", SERVER_NAME],
                 settings: |env| env.codex_home.join("config.toml"),
                 connected: codex_has,
             }),
             Self::GeminiCli => How::Command(Command {
                 program: "gemini",
-                add: |url| strings(&["mcp", "add", "--transport", "http", "--scope", "user", SERVER_NAME, url]),
-                remove: &["mcp", "remove", "--scope", "user", SERVER_NAME],
+                add: ADD_HTTP_USER,
+                remove: REMOVE_USER,
                 settings: |env| env.home.join(".gemini/settings.json"),
                 connected: |text, url| json_entry(text, "mcpServers").is_some_and(|e| e["httpUrl"] == url || e["url"] == url),
             }),
             Self::Cursor => How::File(SettingsFile {
-                file: |env| env.home.join(".cursor/mcp.json"),
                 folder: |env| env.home.join(".cursor"),
+                file: "mcp.json",
                 program: Some("cursor"),
                 section: "mcpServers",
                 entry: |url, _| json!({ "url": url }),
             }),
             Self::Vscode => How::File(SettingsFile {
-                file: |env| env.app_config.join("Code/User/mcp.json"),
                 folder: |env| env.app_config.join("Code"),
+                file: "User/mcp.json",
                 program: Some("code"),
                 section: "servers",
                 entry: |url, _| json!({ "type": "http", "url": url }),
             }),
             Self::Windsurf => How::File(SettingsFile {
-                file: |env| env.home.join(".codeium/windsurf/mcp_config.json"),
                 folder: |env| env.home.join(".codeium/windsurf"),
+                file: "mcp_config.json",
                 program: Some("windsurf"),
                 section: "mcpServers",
                 entry: |url, _| json!({ "serverUrl": url }),
             }),
             Self::Opencode => How::File(SettingsFile {
-                file: |env| env.xdg_config.join("opencode/opencode.json"),
                 folder: |env| env.xdg_config.join("opencode"),
+                file: "opencode.json",
                 program: Some("opencode"),
                 section: "mcp",
                 entry: |url, _| json!({ "type": "remote", "url": url, "enabled": true }),
             }),
             // Claude Desktop starts local servers only: this program, as a bridge to the app.
             Self::ClaudeDesktop => How::File(SettingsFile {
-                file: |env| env.app_config.join("Claude/claude_desktop_config.json"),
                 folder: |env| env.app_config.join("Claude"),
+                file: "claude_desktop_config.json",
                 program: None,
                 section: "mcpServers",
                 entry: |_, env| json!({ "command": env.executable.to_string_lossy(), "args": ["mcp"] }),
@@ -257,14 +275,14 @@ pub fn describe(client: AgentClient, url: &str, env: &Environment) -> AgentClien
         How::Command(command) => {
             let installed = env.find(command.program).is_some();
             let settings = std::fs::read_to_string((command.settings)(env)).unwrap_or_default();
-            let words: Vec<String> = std::iter::once(command.program.to_owned()).chain((command.add)(url)).collect();
+            let words: Vec<String> = std::iter::once(command.program.to_owned()).chain(command.add_args(url)).collect();
             let text = words.iter().map(|w| shell_word(w)).collect::<Vec<_>>().join(" ");
             (installed, (command.connected)(&settings, url), ManualSetup::Command { text })
         }
         How::File(file) => {
-            let path = (file.file)(env);
+            let path = file.path(env);
             let entry = (file.entry)(url, env);
-            let installed = (file.folder)(env).is_dir() || file.program.and_then(|p| env.find(p)).is_some();
+            let installed = file.installed(env);
             let connected =
                 std::fs::read_to_string(&path).ok().and_then(|t| json_entry(&t, file.section)).as_ref() == Some(&entry);
             let text = serde_json::to_string_pretty(&json!({ file.section: { SERVER_NAME: entry } })).expect("JSON");
@@ -284,15 +302,13 @@ async fn run(program: &Path, args: &[String]) -> std::io::Result<std::process::O
 
 async fn run_for(program: &Path, args: &[String], timeout: Duration) -> std::io::Result<std::process::Output> {
     // npm installs a .cmd shim on Windows, which only cmd can start.
-    let mut command = if program.extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd")) {
-        let mut c = tokio::process::Command::new("cmd");
+    let mut command = tokio::process::Command::from(if program.extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd")) {
+        let mut c = super::hidden_command("cmd");
         c.arg("/C").arg(program);
         c
     } else {
-        tokio::process::Command::new(program)
-    };
-    #[cfg(windows)]
-    command.creation_flags(0x0800_0000);
+        super::hidden_command(program)
+    });
     command.args(args).stdin(std::process::Stdio::null()).kill_on_drop(true);
     tokio::time::timeout(timeout, command.output())
         .await
@@ -309,7 +325,7 @@ pub async fn connect(client: AgentClient, url: &str, env: &Environment) -> ApiRe
             // An earlier entry may point at another port, and `add` won't overwrite it.
             let _ = run(&program, &strings(command.remove)).await;
             let output =
-                run(&program, &(command.add)(url)).await.map_err(|e| ApiError::bad(format!("Could not run {name}: {e}")))?;
+                run(&program, &command.add_args(url)).await.map_err(|e| ApiError::bad(format!("Could not run {name}: {e}")))?;
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 let detail = stderr.trim().lines().last().unwrap_or("no details");
@@ -317,11 +333,11 @@ pub async fn connect(client: AgentClient, url: &str, env: &Environment) -> ApiRe
             }
         }
         How::File(file) => {
-            if !describe(client, url, env).installed {
+            if !file.installed(env) {
                 return Err(not_found(name));
             }
             let entry = (file.entry)(url, env);
-            edit_settings(&(file.file)(env), |settings| {
+            edit_settings(&file.path(env), |settings| {
                 let section = settings.entry(file.section).or_insert_with(|| json!({}));
                 let Some(section) = section.as_object_mut() else {
                     return Err(format!("its \"{}\" setting isn't an object", file.section));
@@ -363,23 +379,14 @@ fn edit_settings(path: &Path, change: impl FnOnce(&mut Map<String, Value>) -> Re
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     if let Some(original) = &original {
-        let backup = path.with_file_name(format!("{}.before-magnetar", path.file_name().unwrap_or_default().to_string_lossy()));
+        let backup = path.with_file_name(format!("{name}.before-magnetar"));
         if !backup.exists() {
             std::fs::write(&backup, original).map_err(|e| e.to_string())?;
         }
     }
     let mut text = serde_json::to_string_pretty(&Value::Object(settings)).expect("JSON");
     text.push('\n');
-    let temporary =
-        path.with_file_name(format!(".{}.{}.tmp", path.file_name().unwrap_or_default().to_string_lossy(), std::process::id()));
-    std::fs::write(&temporary, text).map_err(|e| e.to_string())?;
-    if let Ok(metadata) = std::fs::metadata(path) {
-        let _ = std::fs::set_permissions(&temporary, metadata.permissions());
-    }
-    std::fs::rename(&temporary, path).map_err(|e| {
-        let _ = std::fs::remove_file(&temporary);
-        e.to_string()
-    })
+    crate::db::replace_file(path, text.as_bytes(), false).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -401,6 +408,12 @@ mod tests {
         };
         std::fs::create_dir_all(dir.path().join("bin")).unwrap();
         (dir, env)
+    }
+
+    /// Writes a file, creating its folder.
+    fn write(path: &Path, text: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
     }
 
     fn read(path: &Path) -> Value {
@@ -525,27 +538,21 @@ mod tests {
     #[test]
     fn command_agents_read_as_connected_from_their_own_settings() {
         let (_dir, env) = scratch();
-        std::fs::write(
-            env.home.join(".claude.json").tap_parent(),
-            json!({ "mcpServers": { "magnetar": { "type": "http", "url": URL } } }).to_string(),
-        )
-        .unwrap();
+        write(
+            &env.home.join(".claude.json"),
+            &json!({ "mcpServers": { "magnetar": { "type": "http", "url": URL } } }).to_string(),
+        );
         assert!(describe(AgentClient::ClaudeCode, URL, &env).connected);
         assert!(!describe(AgentClient::ClaudeCode, "http://localhost:1/mcp", &env).connected);
 
-        std::fs::write(
-            env.home.join(".gemini/settings.json").tap_parent(),
-            json!({ "mcpServers": { "magnetar": { "httpUrl": URL } } }).to_string(),
-        )
-        .unwrap();
+        write(&env.home.join(".gemini/settings.json"), &json!({ "mcpServers": { "magnetar": { "httpUrl": URL } } }).to_string());
         assert!(describe(AgentClient::GeminiCli, URL, &env).connected);
 
-        let config = env.codex_home.join("config.toml").tap_parent();
-        std::fs::write(
+        let config = env.codex_home.join("config.toml");
+        write(
             &config,
-            format!("model = \"o5\"\n\n[mcp_servers.other]\nurl = \"{URL}\"\n\n[mcp_servers.magnetar]\nurl = \"{URL}\"\n"),
-        )
-        .unwrap();
+            &format!("model = \"o5\"\n\n[mcp_servers.other]\nurl = \"{URL}\"\n\n[mcp_servers.magnetar]\nurl = \"{URL}\"\n"),
+        );
         assert!(describe(AgentClient::Codex, URL, &env).connected);
         std::fs::write(&config, format!("[mcp_servers.other]\nurl = \"{URL}\"\n[mcp_servers.magnetar]\ncommand = \"x\"\n"))
             .unwrap();
@@ -566,18 +573,6 @@ mod tests {
         assert_eq!(shell_word("http://localhost:47820/mcp"), "http://localhost:47820/mcp");
         assert_eq!(shell_word("http://my host/mcp"), "'http://my host/mcp'");
         assert_eq!(shell_word("it's"), r"'it'\''s'");
-    }
-
-    trait TapParent {
-        fn tap_parent(self) -> Self;
-    }
-
-    impl TapParent for PathBuf {
-        /// Creates the folder the file goes in.
-        fn tap_parent(self) -> Self {
-            std::fs::create_dir_all(self.parent().unwrap()).unwrap();
-            self
-        }
     }
 
     #[cfg(unix)]
