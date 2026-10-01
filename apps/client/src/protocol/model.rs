@@ -442,18 +442,15 @@ pub struct AgentStatusDto {
     pub allow_remote: bool,
     pub token: String,
     pub mcp_url: String,
-    /// What adds this device to Claude Code, for running by hand.
-    pub claude_command: String,
     pub endpoint_file: String,
 }
 
-/// Outcome of registering this device's MCP server with Claude Code on the device.
+/// After connecting an AI agent: agent access (now on) and every agent's state.
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct ClaudeConnectResultDto {
-    /// "connected", or "cliNotFound" when the user has to run the agent's `claude_command` themselves.
-    pub status: &'static str,
+pub struct AgentConnectResultDto {
     pub agent: AgentStatusDto,
+    pub clients: Vec<crate::system::agents::AgentClientDto>,
 }
 
 #[derive(Serialize, Clone, Debug)]

@@ -240,3 +240,117 @@ async fn a_stream_link_serves_byte_ranges_of_one_file_and_nothing_else() {
     let rebound = http.get(&url).header("host", "evil.example").send().await.unwrap();
     assert_eq!(rebound.status(), 404, "only under a loopback name");
 }
+
+mod stdio_bridge {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    use magnetar::bridge::serve;
+
+    use super::*;
+
+    /// Runs the bridge over `input` and returns what it wrote, one JSON value per line.
+    async fn bridge(
+        input: &str,
+        mcp_url: impl Fn() -> Option<String> + Send + Sync + 'static,
+        start_app: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> Vec<Value> {
+        let (mut writer, reader) = tokio::io::duplex(1 << 20);
+        let input = tokio::io::BufReader::new(std::io::Cursor::new(input.as_bytes().to_vec()));
+        serve(input, reader, mcp_url, start_app).await;
+        let mut out = String::new();
+        tokio::io::AsyncReadExt::read_to_string(&mut writer, &mut out).await.unwrap();
+        out.lines().map(|l| serde_json::from_str(l).unwrap()).collect()
+    }
+
+    fn at(url: String) -> impl Fn() -> Option<String> + Send + Sync + 'static {
+        move || Some(url.clone())
+    }
+
+    fn by_id(answers: &[Value], id: i64) -> &Value {
+        answers.iter().find(|a| a["id"] == id).unwrap_or_else(|| panic!("no answer {id} in {answers:?}"))
+    }
+
+    #[tokio::test]
+    async fn passes_requests_to_the_running_app_line_by_line() {
+        let (app, base, _dir) = start().await;
+        app.agent.set(Some(true), None);
+        let input = [
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18" } })
+                .to_string(),
+            json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }).to_string(),
+            String::new(),
+            json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }).to_string(),
+            json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": { "name": "list_downloads", "arguments": {} } })
+                .to_string(),
+            "{not json".to_owned(),
+        ]
+        .join("\n");
+        let answers = bridge(&input, at(format!("{base}/mcp")), || panic!("the app is running")).await;
+        assert_eq!(answers.len(), 4, "{answers:?}");
+        assert_eq!(by_id(&answers, 1)["result"]["serverInfo"]["name"], "magnetar");
+        assert!(by_id(&answers, 2)["result"]["tools"].as_array().unwrap().iter().any(|t| t["name"] == "search_torrents"));
+        assert_eq!(by_id(&answers, 3)["result"]["structuredContent"], json!({ "items": [] }));
+        assert!(answers.iter().any(|a| a["id"].is_null() && a["error"]["code"] == -32700));
+    }
+
+    #[tokio::test]
+    async fn says_why_when_agent_access_is_off() {
+        let (_app, base, _dir) = start().await;
+        let answers =
+            bridge(&json!({ "jsonrpc": "2.0", "id": 7, "method": "tools/list" }).to_string(), at(format!("{base}/mcp")), || {
+                false
+            })
+            .await;
+        assert_eq!(answers.len(), 1);
+        assert_eq!(answers[0]["id"], 7);
+        assert!(answers[0]["error"]["message"].as_str().unwrap().contains("agent"), "{answers:?}");
+    }
+
+    #[tokio::test]
+    async fn an_app_that_is_not_running_is_started_once_and_otherwise_explained() {
+        let starts = Arc::new(AtomicUsize::new(0));
+        let counted = starts.clone();
+        let input = [
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" }).to_string(),
+            json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }).to_string(),
+            json!({ "jsonrpc": "2.0", "id": 2, "method": "ping" }).to_string(),
+        ]
+        .join("\n");
+        // Nothing listens on port 9; the start "fails" so no wait happens.
+        let answers = bridge(&input, at("http://127.0.0.1:9/mcp".into()), move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+            false
+        })
+        .await;
+        assert_eq!(starts.load(Ordering::SeqCst), 1, "one start attempt, not one per message");
+        assert_eq!(answers.len(), 2, "the notification gets no answer: {answers:?}");
+        for id in [1, 2] {
+            assert_eq!(
+                by_id(&answers, id)["error"]["message"],
+                "Magnetar isn't running. Open it on this computer, then try again."
+            );
+        }
+        // No endpoint file at all reads the same.
+        let answers = bridge(&json!({ "jsonrpc": "2.0", "id": 5, "method": "ping" }).to_string(), || None, || false).await;
+        assert_eq!(by_id(&answers, 5)["error"]["code"], -32000);
+    }
+
+    #[tokio::test]
+    async fn a_started_app_is_waited_for() {
+        let (app, base, _dir) = start().await;
+        app.agent.set(Some(true), None);
+        let ready = Arc::new(AtomicBool::new(false));
+        let (flag, url) = (ready.clone(), format!("{base}/mcp"));
+        // The endpoint file appears only once the "app" has been started.
+        let answers = bridge(
+            &json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" }).to_string(),
+            move || flag.load(Ordering::SeqCst).then(|| url.clone()),
+            move || {
+                ready.store(true, Ordering::SeqCst);
+                true
+            },
+        )
+        .await;
+        assert_eq!(answers, [json!({ "jsonrpc": "2.0", "id": 1, "result": {} })]);
+    }
+}

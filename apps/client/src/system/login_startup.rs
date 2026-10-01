@@ -114,10 +114,8 @@ fn set_mac(enabled: bool) -> ApiResult<()> {
     if let Some(parent) = plist_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let temporary = plist_path.with_extension(format!("{}.tmp", std::process::id()));
-    crate::db::write_private(&temporary, contents.as_bytes(), false)?;
+    crate::db::replace_file(&plist_path, contents.as_bytes(), true)?;
     let _ = run_captured("/bin/launchctl", &["enable", &format!("{}/{MAC_LABEL}", gui_domain())]);
-    std::fs::rename(&temporary, &plist_path)?;
     Ok(())
 }
 

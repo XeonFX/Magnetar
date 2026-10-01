@@ -378,16 +378,28 @@ export interface AgentStatusDto {
   allowRemote: boolean
   token: string
   mcpUrl: string
-  /** What adds this device to Claude Code, for running by hand. */
-  claudeCommand: string
   endpointFile: string
 }
 
-/** Outcome of registering this device's MCP server with Claude Code on the device. */
-export interface ClaudeConnectResultDto {
-  /** `cliNotFound`: Claude Code isn't installed where the app can find it; run `agent.claudeCommand` instead. */
-  status: 'connected' | 'cliNotFound'
+/** The AI agents Magnetar can connect to its MCP server on this computer. */
+export const AGENT_CLIENTS = ['claudeCode', 'codex', 'geminiCli', 'cursor', 'vscode', 'windsurf', 'opencode', 'claudeDesktop'] as const
+export type AgentClientId = (typeof AGENT_CLIENTS)[number]
+
+export interface AgentClientDto {
+  id: AgentClientId
+  name: string
+  /** Found on this computer: its command, or its settings folder. */
+  installed: boolean
+  /** Already set up to reach this device at its current address. */
+  connected: boolean
+  /** How to connect it by hand: a command to run, or JSON to add to a settings file. */
+  manual: { kind: 'command'; text: string } | { kind: 'json'; file: string; text: string }
+}
+
+/** After connecting an agent: agent access (now on) and every agent's state. */
+export interface AgentConnectResultDto {
   agent: AgentStatusDto
+  clients: AgentClientDto[]
 }
 
 export interface LinkedBrowserDto {

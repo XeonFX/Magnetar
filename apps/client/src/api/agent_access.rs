@@ -2,7 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use subtle::ConstantTimeEq;
 
-use crate::db::{SecretName, SecretStore, write_private};
+use serde::{Deserialize, Serialize};
+
+use crate::db::{SecretName, SecretStore, replace_file};
 use crate::paths::Paths;
 use crate::protocol::AgentStatusDto;
 use crate::protocol::encoding::random_id;
@@ -58,7 +60,6 @@ impl AgentAccess {
             enabled: self.enabled(),
             allow_remote: self.allow_remote(),
             token: self.token(),
-            claude_command: crate::system::claude::command(&mcp_url),
             mcp_url,
             endpoint_file: self.paths.endpoint.to_string_lossy().into_owned(),
         }
@@ -95,18 +96,31 @@ impl AgentAccess {
     /// Owner-only, written atomically so readers never see half a file.
     fn write_endpoint_file(&self) {
         let base_url = self.base_url();
-        let json = serde_json::to_string_pretty(&serde_json::json!({
-            "baseUrl": base_url,
-            "apiUrl": format!("{base_url}/api"),
-            "mcpUrl": format!("{base_url}/mcp"),
-            "token": self.token(),
-        }))
-        .expect("JSON");
-        let temporary = self.paths.endpoint.with_extension(format!("{}.tmp", std::process::id()));
-        let written =
-            write_private(&temporary, json.as_bytes(), false).and_then(|_| std::fs::rename(&temporary, &self.paths.endpoint));
-        if let Err(error) = written {
+        let file = EndpointFile {
+            api_url: format!("{base_url}/api"),
+            mcp_url: format!("{base_url}/mcp"),
+            token: self.token(),
+            base_url,
+        };
+        let json = serde_json::to_string_pretty(&file).expect("JSON");
+        if let Err(error) = replace_file(&self.paths.endpoint, json.as_bytes(), true) {
             tracing::warn!("Could not write the agent endpoint file: {error}");
         }
+    }
+}
+
+/// `endpoint.json` in the data folder: where agents on this computer find the running app.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EndpointFile {
+    pub base_url: String,
+    pub api_url: String,
+    pub mcp_url: String,
+    pub token: String,
+}
+
+impl EndpointFile {
+    pub fn read(paths: &Paths) -> Option<Self> {
+        serde_json::from_str(&std::fs::read_to_string(&paths.endpoint).ok()?).ok()
     }
 }

@@ -101,9 +101,17 @@ read, so re-enter them. Private-tracker (PTE) downloads are not imported: Magnet
 
 ## Agent access (MCP and REST)
 
-On the computer running Magnetar, **Settings → AI agents → Connect Claude** turns agent access on and adds
-the server to Claude Code (for every project). Other MCP clients, or Claude Code where the app can't find it, use the URL
-shown there:
+On the computer running Magnetar, **Settings → AI agents → Connect an AI agent** lists the agents it finds and connects
+one with a click, turning agent access on:
+
+| Agent | How it is connected |
+|---|---|
+| Claude Code, Codex, Gemini CLI | Its own command (`claude mcp add …`, `codex mcp add …`, `gemini mcp add …`), for every project |
+| Cursor, VS Code, Windsurf, OpenCode | An entry in its user settings file (`~/.cursor/mcp.json` and the like), other settings untouched and the original kept once as `*.before-magnetar` |
+| Claude Desktop | `magnetar mcp` in its settings: the app as a stdio MCP server that relays to the running app, and starts it if needed |
+
+A settings file that isn't plain JSON (comments, trailing commas) is left alone. Every agent, found or not, also has
+**Set up by hand** with the exact command or JSON. From a terminal, for any other MCP client:
 
 ```bash
 claude mcp add --transport http --scope user magnetar http://localhost:47820/mcp
