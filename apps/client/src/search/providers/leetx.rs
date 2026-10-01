@@ -37,6 +37,10 @@ impl Provider for Leetx {
         NAME
     }
 
+    fn id(&self) -> &'static str {
+        "1337x"
+    }
+
     async fn search(
         &self,
         http: &reqwest::Client,

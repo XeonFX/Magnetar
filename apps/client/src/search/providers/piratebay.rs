@@ -32,6 +32,10 @@ impl Provider for PirateBay {
         NAME
     }
 
+    fn id(&self) -> &'static str {
+        "tpb"
+    }
+
     async fn search(
         &self,
         http: &reqwest::Client,

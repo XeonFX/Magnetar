@@ -31,6 +31,10 @@ impl Provider for Nyaa {
         NAME
     }
 
+    fn id(&self) -> &'static str {
+        "nyaa"
+    }
+
     async fn search(
         &self,
         http: &reqwest::Client,

@@ -114,7 +114,7 @@ describe('devices in the console', () => {
     await eventually(async () => expect(await admin.get('devices', online.deviceId, OWNER)).toMatchObject({ online: true }))
 
     const record = await admin.get('devices', online.deviceId, OWNER)
-    expect(record).toMatchObject({ id: online.deviceId, name: 'Studio Mac', platform: 'macos', version: '1.0.0', online: true, account: await accountId(user) })
+    expect(record).toMatchObject({ id: online.deviceId, name: 'Studio-Mac', platform: 'macos', version: '1.0.0', online: true, account: await accountId(user) })
     expect(Date.parse(String(record!.created_at))).toBeGreaterThan(Date.now() - 60_000)
 
     const onlineIds = (await admin.list('devices', { filters: { online: 'yes' }, limit: 100 }, OWNER)).items.map(d => d.id)
@@ -130,7 +130,7 @@ describe('devices in the console', () => {
 
   test('are found by name only by members who may read personal data', async () => {
     const user = await signIn()
-    const name = `Desk ${crypto.randomUUID().slice(0, 8)}`
+    const name = `Desk-${crypto.randomUUID().slice(0, 8)}`
     const device = await pairDevice(user, { name })
     expect((await admin.list('devices', { search: name, limit: 25 }, OWNER)).items.map(d => d.id)).toEqual([device.deviceId])
     expect((await admin.list('devices', { search: name, limit: 25 }, MODERATOR)).items).toEqual([])

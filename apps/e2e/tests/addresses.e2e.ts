@@ -36,18 +36,19 @@ test('the Watchlist tab is part of the address', async ({ page }) => {
   await expect(page).toHaveURL(/\/series$/)
 })
 
-test('search choices survive a reload, and unknown ones fall back', async ({ page }) => {
+test('search choices survive a reload, older and unknown ones move to the proper address', async ({ page }) => {
   // No query, so no site is asked; the choices alone are kept.
   await page.goto('/search?res=1080p&sort=newest')
+  await expect(page).toHaveURL(/\/search\?res=1080p&sort=new$/)
   const resolution = (name: string) => page.getByRole('radiogroup', { name: 'Resolution' }).getByRole('radio', { name })
   await expect(resolution('1080p')).toHaveAttribute('aria-checked', 'true')
   await resolution('4K').click()
-  await expect(page).toHaveURL(/[?&]res=2160p/)
-  await expect(page).toHaveURL(/[?&]sort=newest/)
+  await expect(page).toHaveURL(/\/search\?res=2160p&sort=new$/)
   await page.reload()
   await expect(resolution('4K')).toHaveAttribute('aria-checked', 'true')
 
   await page.goto('/search?res=8K&sort=random')
+  await expect(page).toHaveURL(/\/search$/)
   await expect(resolution('Any')).toHaveAttribute('aria-checked', 'true')
 })
 

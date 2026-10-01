@@ -18,10 +18,18 @@ pub const RELAY_PING: &str = r#"{"t":"ping"}"#;
 #[derive(Deserialize, Debug)]
 #[serde(tag = "t", rename_all = "lowercase")]
 pub enum RelayToDevice {
-    Open { c: String },
-    Close { c: String },
+    Open {
+        c: String,
+    },
+    Close {
+        c: String,
+    },
     Revoked,
     Pong,
+    /// The device's name on the account, when it is not the one this device said hello with.
+    Name {
+        name: String,
+    },
 }
 
 #[derive(Serialize)]

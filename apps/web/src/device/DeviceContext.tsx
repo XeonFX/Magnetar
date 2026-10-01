@@ -32,7 +32,7 @@ interface DeviceState {
   updates: UpdateStatusDto | null
   remote: RemoteStatusDto | null
   transfer: TransferStatusDto | null
-  /** Base path of this device's pages: '' locally, '/d/<id>' through the relay. */
+  /** Base path of this device's pages: '' locally, '/<device name>' through the relay. */
   basePath: string
   deviceName: string
 }
@@ -62,10 +62,10 @@ const SearchContext = createContext<SearchContextValue | null>(null)
 interface SearchContextValue {
   search: SearchState
   setSearch: (update: (state: SearchState) => SearchState) => void
-  /** Remembers the search page's query string, for the links back to it. */
+  /** Remembers the search page's address from `/search` on, for the links back to it. */
   setSearchAddress: (query: string) => void
 }
-/** The last search's query string, apart so only the links back to Search re-render when it changes. */
+/** The last search's address, apart so only the links back to Search re-render when it changes. */
 const SearchAddressContext = createContext('')
 /** Just the connection, which never changes for a device: for per-row views that only make calls. */
 const ConnectionContext = createContext<RpcClient | null>(null)
@@ -186,7 +186,7 @@ export function useConnection(): RpcClient {
 export function useSearchLink(): string {
   const { basePath } = useDevice()
   const address = useContext(SearchAddressContext)
-  return `${basePath}/search${address ? `?${address}` : ''}`
+  return `${basePath}${address || '/search'}`
 }
 
 export function useSearch(): SearchContextValue {

@@ -15,7 +15,7 @@ import { DevicesPage } from './DevicesPage.tsx'
 import { LinkPage } from './LinkPage.tsx'
 import { LoginPage } from './LoginPage.tsx'
 import { PairPage } from './PairPage.tsx'
-import { RemoteDevice } from './RemoteDevice.tsx'
+import { DeviceIdRedirect, RemoteDevice } from './RemoteDevice.tsx'
 
 interface AccountState {
   account: AccountDto | null
@@ -89,8 +89,9 @@ export default function CloudApp({ config }: { config: AppConfig }) {
             <Route path="/pair/:pairingId" element={<PairPage />} />
             <Route path="/link" element={<LinkPage />} />
             <Route path="/add" element={<RequireAccount><AddRedirect /></RequireAccount>} />
-            <Route path="/d/:deviceId/*" element={<RequireAccount><RemoteDevice /></RequireAccount>} />
-            <Route path="*" element={<RequireAccount><DevicesPage /></RequireAccount>} />
+            <Route path="/d/:deviceId/*" element={<RequireAccount><DeviceIdRedirect /></RequireAccount>} />
+            <Route path="/:deviceName/*" element={<RequireAccount><RemoteDevice /></RequireAccount>} />
+            <Route path="/" element={<RequireAccount><DevicesPage /></RequireAccount>} />
           </Routes>
         </BrowserRouter>
       </I18nProvider>

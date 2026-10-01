@@ -4,20 +4,20 @@ import { handleDevices } from '../src/devices.ts'
 import { approve, call, deviceAuth, freshIp, listDevices, ORIGIN, pairDevice, poll, signIn, startPairing, type User } from './client.ts'
 
 /**
- * D1 whose pairing claims wait until `count` of them are ready, so racing approvals really race.
- * `waited` counts the claims held, so a reworded query can't quietly stop the race.
+ * D1 whose first `count` batches (an approval's claim and new device) wait until all of them are ready, so racing
+ * approvals really race. `waited` counts the batches held, so a reworded handler can't quietly stop the race.
  */
-function claimsTogether(db: D1Database, count: number): { db: D1Database; waited: () => number } {
+function batchesTogether(db: D1Database, count: number): { db: D1Database; waited: () => number } {
   const waiting: (() => void)[] = []
   const together = () => new Promise<void>(resolve => {
     waiting.push(resolve)
     if (waiting.length === count) waiting.forEach(release => release())
   })
   const racing = {
-    prepare(sql: string) {
-      const statement = db.prepare(sql)
-      if (!sql.startsWith('UPDATE pairings SET approved_by')) return statement
-      return { bind: (...values: unknown[]) => ({ run: async () => (await together(), statement.bind(...values).run()) }) }
+    prepare: (sql: string) => db.prepare(sql),
+    batch: async (statements: D1PreparedStatement[]) => {
+      if (waiting.length < count) await together()
+      return db.batch(statements)
     },
   } as unknown as D1Database
   return { db: racing, waited: () => waiting.length }
@@ -31,14 +31,16 @@ describe('pairing', () => {
     expect(await (await poll(pairing)).json()).toEqual({ state: 'pending' })
 
     const info = await call(`/api/pair/${pairing.pairingId}`, { headers: user.headers })
-    expect(await info.json()).toMatchObject({ pairingId: pairing.pairingId, name: 'Studio Mac', platform: 'macos', version: '2.1.0', state: 'pending' })
+    // Shown as the address will spell it.
+    expect(await info.json()).toMatchObject({ pairingId: pairing.pairingId, name: 'Studio-Mac', platform: 'macos', version: '2.1.0', state: 'pending' })
 
     const approved = await approve(user, pairing.pairingId)
     expect(approved.status).toBe(200)
-    const { deviceId } = await approved.json<{ deviceId: string }>()
+    const { deviceId, deviceName } = await approved.json<{ deviceId: string; deviceName: string }>()
+    expect(deviceName).toBe('Studio-Mac')
 
     const collected = await (await poll(pairing)).json<Record<string, string>>()
-    expect(collected).toMatchObject({ state: 'approved', deviceId, accountEmail: user.email })
+    expect(collected).toMatchObject({ state: 'approved', deviceId, deviceName: 'Studio-Mac', accountEmail: user.email })
     expect(collected.deviceToken).toMatch(/^[A-Za-z0-9_-]{20,100}$/)
     // Handed over exactly once: a second poll, by anyone holding the secret, gets nothing.
     expect(await (await poll(pairing)).json()).toEqual({ state: 'expired' })
@@ -49,6 +51,7 @@ describe('pairing', () => {
     expect(row!.token_hash).not.toContain(collected.deviceToken)
     const renamed = await call('/api/device', { method: 'PATCH', headers: deviceAuth({ deviceToken: collected.deviceToken! }), json: { name: 'Office' } })
     expect(renamed.status).toBe(200)
+    expect(await renamed.json()).toEqual({ ok: true, name: 'Office' })
     expect(await listDevices(user)).toEqual([expect.objectContaining({ id: deviceId, name: 'Office', platform: 'macos', online: false })])
   })
 
@@ -74,7 +77,7 @@ describe('pairing', () => {
     const [first, second] = await Promise.all([signIn(), signIn()])
     const pairing = await startPairing()
     // Both approvals have read the pairing as pending before either claims it.
-    const { db, waited } = claimsTogether(env.DB, 2)
+    const { db, waited } = batchesTogether(env.DB, 2)
     const approveNow = (user: User) => handleDevices(
       new Request(`${ORIGIN}/api/pair/${pairing.pairingId}/approve`, { method: 'POST', headers: user.headers }),
       { ...env, DB: db }, `/api/pair/${pairing.pairingId}/approve`,
@@ -125,8 +128,39 @@ describe('pairing', () => {
     const blank = await pairDevice(user, { name: '\u0001 \t ', platform: '', version: null })
     const list = await listDevices(user)
     const byId = Object.fromEntries(list.map(d => [d.id, d]))
-    expect(byId[long.deviceId]).toMatchObject({ name: `Łódź ${'m'.repeat(55)}`, platform: 'x'.repeat(20), version: 'unknown' })
+    expect(byId[long.deviceId]).toMatchObject({ name: `Lodz-${'m'.repeat(35)}`, platform: 'x'.repeat(20), version: 'unknown' })
     expect(byId[blank.deviceId]).toMatchObject({ name: 'Magnetar', platform: 'unknown', version: 'unknown' })
+  })
+
+  test('a name already on the account gets the next free number, in any case', async () => {
+    const user = await signIn()
+    const first = await pairDevice(user, { name: 'MacBook-Pro' })
+    const second = await startPairing({ name: 'macbook pro' })
+    const approved = await approve(user, second.pairingId)
+    expect(await approved.json()).toMatchObject({ deviceName: 'macbook-pro-2' })
+    expect(await (await poll(second)).json()).toMatchObject({ state: 'approved', deviceName: 'macbook-pro-2' })
+    // Another account may use the same name.
+    const other = await signIn()
+    const theirs = await startPairing({ name: 'MacBook-Pro' })
+    expect(await (await approve(other, theirs.pairingId)).json()).toMatchObject({ deviceName: 'MacBook-Pro' })
+    expect((await listDevices(user)).map(d => [d.id, d.name])).toEqual([[first.deviceId, 'MacBook-Pro'], [expect.any(String), 'macbook-pro-2']])
+  })
+
+  test('two devices with one name approved at once both get in, under different names', async () => {
+    const user = await signIn()
+    const pairings = await Promise.all([startPairing({ name: 'Twin' }), startPairing({ name: 'Twin' })])
+    // Both approvals pick their name before either is stored, so the second store hits the unique name.
+    const { db, waited } = batchesTogether(env.DB, 2)
+    const results = await Promise.all(pairings.map(p => handleDevices(
+      new Request(`${ORIGIN}/api/pair/${p.pairingId}/approve`, { method: 'POST', headers: user.headers }),
+      { ...env, DB: db }, `/api/pair/${p.pairingId}/approve`,
+    )))
+    expect(waited()).toBeGreaterThanOrEqual(2)
+    expect(results.map(r => r!.status)).toEqual([200, 200])
+    const names = await Promise.all(results.map(async r => (await r!.json<{ deviceName: string }>()).deviceName))
+    expect(names.sort()).toEqual(['Twin', 'Twin-2'])
+    expect((await listDevices(user)).map(d => d.name).sort()).toEqual(['Twin', 'Twin-2'])
+    for (const p of pairings) expect(await (await poll(p)).json()).toMatchObject({ state: 'approved' })
   })
 
   test('starting pairings is rate limited per address', async () => {
@@ -170,6 +204,24 @@ describe('devices on an account', () => {
     const { deviceId } = await pairDevice(user)
     expect((await call(`/api/devices/${deviceId}`, { method: 'DELETE', headers: { cookie: user.headers.cookie! } })).status).toBe(403)
     expect(await listDevices(user)).toHaveLength(1)
+  })
+
+  test('the app renaming itself gets an address-safe name no other device of the account has', async () => {
+    const user = await signIn()
+    const [desk, laptop] = [await pairDevice(user, { name: 'Desk' }), await pairDevice(user, { name: 'Laptop' })]
+    const rename = (device: typeof desk, name: string) => call('/api/device', { method: 'PATCH', headers: deviceAuth(device), json: { name } })
+
+    const spelled = await rename(laptop, "Paweł's Laptop")
+    expect(await spelled.json()).toEqual({ ok: true, name: 'Pawels-Laptop' })
+    const taken = await rename(laptop, 'desk')
+    expect(taken.status).toBe(409)
+    expect(await taken.json()).toEqual({ error: 'Another device on this account is already called desk' })
+    // Its own name in another case is no clash.
+    expect(await (await rename(desk, 'DESK')).json()).toEqual({ ok: true, name: 'DESK' })
+    expect((await listDevices(user)).map(d => d.name).sort()).toEqual(['DESK', 'Pawels-Laptop'])
+    // A device of another account may have it.
+    const other = await pairDevice(await signIn(), { name: 'x' })
+    expect(await (await rename(other, 'DESK')).json()).toEqual({ ok: true, name: 'DESK' })
   })
 
   test('the app renaming itself needs a non-empty name', async () => {

@@ -24,6 +24,10 @@ impl Provider for Rarbg {
         NAME
     }
 
+    fn id(&self) -> &'static str {
+        "rarbg"
+    }
+
     async fn search(
         &self,
         http: &reqwest::Client,

@@ -25,6 +25,7 @@ use crate::config::{CLOUD_URL, PLATFORM, USER_AGENT, VERSION};
 use crate::db::{KeyValue, SecretName, SecretStore};
 use crate::error::{ApiError, ApiResult};
 use crate::events::EventBus;
+use crate::protocol::device_name;
 use crate::protocol::e2e::{
     E2ESession, FRAME_HANDSHAKE, FRAME_SEALED, Handshake, accept_browser_handshake, decode_handshake, encode_handshake,
     link_fragment,
@@ -118,6 +119,7 @@ enum PairPollResponse {
     Approved {
         device_id: String,
         device_token: String,
+        device_name: String,
         account_email: String,
     },
 }
@@ -299,8 +301,10 @@ impl RemoteService {
             let body = json!({ "pairingId": pairing_id, "pollSecret": poll_secret });
             match self.cloud("POST", "/api/pair/poll", Some(body), None).await.map(serde_json::from_value::<PairPollResponse>) {
                 _ if cancel.is_cancelled() => return,
-                Ok(Ok(PairPollResponse::Approved { device_id, device_token, account_email })) => {
+                Ok(Ok(PairPollResponse::Approved { device_id, device_token, device_name, account_email })) => {
                     self.kv.set("remote.deviceId", Some(&device_id));
+                    // The name the account gave it, made unique there.
+                    self.kv.set("remote.deviceName", Some(&device_name));
                     self.kv.set("remote.accountEmail", Some(&account_email));
                     self.secrets.set(SecretName::DeviceToken, &device_token);
                     self.keys.activate(&key_id);
@@ -342,12 +346,17 @@ impl RemoteService {
         self.status()
     }
 
+    /// Renames the device, on its account first when it has one: a name another device there has is refused
+    /// and nothing changes.
     pub async fn rename(&self, device_name: &str) -> ApiResult<RemoteStatusDto> {
-        self.kv.set("remote.deviceName", Some(device_name));
         let token = self.secrets.get(SecretName::DeviceToken);
-        if !token.is_empty() {
-            self.cloud("PATCH", "/api/device", Some(json!({ "name": device_name })), Some(&token)).await?;
-        }
+        let name = if token.is_empty() {
+            device_name.to_owned()
+        } else {
+            let renamed = self.cloud("PATCH", "/api/device", Some(json!({ "name": device_name })), Some(&token)).await?;
+            renamed["name"].as_str().unwrap_or(device_name).to_owned()
+        };
+        self.kv.set("remote.deviceName", Some(&name));
         self.changed();
         Ok(self.status())
     }
@@ -540,6 +549,10 @@ impl RemoteService {
             RelayToDevice::Close { c } => self.drop_connection(&c, false),
             RelayToDevice::Revoked => return Some(Closed::DeviceRemoved),
             RelayToDevice::Pong => {}
+            RelayToDevice::Name { name } => {
+                self.kv.set("remote.deviceName", Some(&name));
+                self.changed();
+            }
         }
         None
     }
@@ -652,14 +665,12 @@ fn close_message(connection_id: &str) -> Message {
 }
 
 fn default_device_name() -> String {
-    let host = gethostname::gethostname().to_string_lossy().into_owned();
-    let host = host.strip_suffix(".local").unwrap_or(&host).to_owned();
-    if !host.is_empty() {
-        return host;
-    }
-    match PLATFORM {
-        "macos" => "Mac".into(),
-        "windows" => "Windows PC".into(),
-        _ => "Linux".into(),
-    }
+    device_name::from_hostname(&gethostname::gethostname().to_string_lossy()).unwrap_or_else(|| {
+        match PLATFORM {
+            "macos" => "Mac",
+            "windows" => "Windows-PC",
+            _ => "Linux",
+        }
+        .into()
+    })
 }

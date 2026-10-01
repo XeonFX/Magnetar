@@ -31,6 +31,9 @@ See docs/ARCHITECTURE.md before touching the relay, pairing or either `e2e` impl
   than re-sending the list.
 - Relayed streaming and push go through the encrypted channel only: the Worker forwards opaque bytes (`stream.read`
   replies, sealed push payloads) and must never see a key or plaintext.
+- On the website a device's pages are `/<device name>/…`. A new top-level route there needs its word in
+  `packages/protocol/src/device-names.json` (`reserved`), and a D1 migration renaming any device that has it. Pages
+  are served by the Worker (`page()` in `apps/worker/src/index.ts`) so the assets never respell an address.
 - Test and scratch runs: set `MAGNETAR_DATA_DIRECTORY` and `MAGNETAR_DOWNLOAD_FOLDER`, or they use the user's real folders.
 - `npm run e2e` drives the real app with Playwright; its specs end in `.e2e.ts` so Vitest skips them.
 - Dev ports: app 47820, Vite 5173, Worker 8790.

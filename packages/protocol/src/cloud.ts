@@ -22,6 +22,7 @@ export interface AccountDto {
 
 export interface CloudDeviceDto {
   id: string
+  /** Unique on the account and the first part of the device's address (`deviceName.ts`). */
   name: string
   platform: string
   version: string
@@ -56,12 +57,14 @@ export interface PairingInfoDto {
 
 export interface PairApproveResponse {
   deviceId: string
+  /** The name the device got: what it asked for, made unique on the account. */
+  deviceName: string
 }
 
 export type PairPollResponse =
   | { state: 'pending' }
   | { state: 'expired' }
-  | { state: 'approved'; deviceId: string; deviceToken: string; accountEmail: string }
+  | { state: 'approved'; deviceId: string; deviceToken: string; deviceName: string; accountEmail: string }
 
 export type ReleasePlatform = 'macos' | 'windows' | 'linux'
 export type ReleaseArch = 'arm64' | 'x64'

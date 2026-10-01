@@ -1,7 +1,9 @@
-import { ArrowLeft, QrCode } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router'
-import { DeviceProvider } from '../device/DeviceContext.tsx'
+import type { CloudDeviceDto } from '@magnetar/protocol/cloud'
+import { isDeviceName, sameDeviceName } from '@magnetar/protocol/device-name'
+import { ArrowLeft, Laptop, QrCode, SearchX } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router'
+import { DeviceProvider, useDevice } from '../device/DeviceContext.tsx'
 import { DeviceRoutes } from '../device/DeviceRoutes.tsx'
 import { cloud } from '../lib/cloudApi.ts'
 import { browserLanguage, useT } from '../lib/i18n.tsx'
@@ -10,36 +12,105 @@ import { RelayConnection } from '../lib/relayConnection.ts'
 import { Loading } from '../ui/Loading.tsx'
 import { AccountMenu } from './CloudFrame.tsx'
 import { CloudFrame } from './CloudFrame.tsx'
-import { devicePath } from './devicePaths.ts'
+import { deviceIdPath, devicePath, samePageOn } from './devicePaths.ts'
 import { DeviceSwitcher } from './DeviceSwitcher.tsx'
 
-/** A device's dashboard through the relay, end-to-end encrypted with this browser's key. */
-export function RemoteDevice() {
-  const { deviceId = '' } = useParams()
-  // Keyed by device: switching to another starts clean, with nothing of the last one's key,
-  // connection or state.
-  return <DeviceView key={deviceId} deviceId={deviceId} />
+/**
+ * The account's devices for finding one by its address: the list last fetched at once, then a fresh one each
+ * time the address names another device. `fresh` says whether the list is from this visit.
+ */
+function useDeviceList(address: string) {
+  const [devices, setDevices] = useState(() => cloud.knownDevices())
+  const [fresh, setFresh] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const load = useCallback(() => {
+    let cancelled = false
+    setFailed(false)
+    setFresh(false)
+    cloud.devices().then(list => {
+      if (cancelled) return
+      setDevices(list)
+      setFresh(true)
+    }, () => !cancelled && setFailed(true))
+    return () => { cancelled = true }
+  }, [])
+  useEffect(load, [load, address])
+  return { devices, fresh, failed, retry: load, setDevices }
 }
 
-function DeviceView({ deviceId }: { deviceId: string }) {
+/** What to show while the device an address names is not known: loading, a failed list, or no such device. */
+function DeviceLookup({ devices, fresh, failed, retry, name }: ReturnType<typeof useDeviceList> & { name: string }) {
+  const t = useT()
+  if (failed && !fresh) {
+    return (
+      <CloudFrame>
+        <div role="alert" className="surface mx-auto flex max-w-md flex-col items-center gap-4 px-6 py-10 text-center">
+          <p className="text-sm">{t('devices.loadFailed')}</p>
+          <button type="button" className="btn btn-primary btn-sm" onClick={retry}>{t('common.retry')}</button>
+        </div>
+      </CloudFrame>
+    )
+  }
+  // A list from before this visit may predate a rename: only a fresh one may say the device is not there.
+  if (!devices || !fresh) return <Loading screen />
+  return (
+    <CloudFrame>
+      <div className="surface mx-auto flex max-w-md flex-col gap-4 p-6">
+        <div className="flex items-center gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-field bg-warning/10 text-warning"><SearchX size={20} /></span>
+          <h1 className="min-w-0 break-words text-lg font-semibold">{t('devices.notFoundTitle', name)}</h1>
+        </div>
+        <p className="muted text-sm">{t('devices.notFoundHint')}</p>
+        {devices.map(d => <Link key={d.id} to={devicePath(d.name)} className="btn justify-start"><Laptop size={16} />{d.name}</Link>)}
+        <Link to="/" className="btn btn-ghost"><ArrowLeft size={14} />{t('devices.back')}</Link>
+      </div>
+    </CloudFrame>
+  )
+}
+
+/** `/d/<device id>/…`: the same page under the device's name, which is what the address bar should show. */
+export function DeviceIdRedirect() {
+  const { deviceId = '' } = useParams()
+  const { pathname, search, hash } = useLocation()
+  const list = useDeviceList(deviceId)
+  const device = list.devices?.find(d => d.id === deviceId)
+  if (!device) return <DeviceLookup {...list} name={deviceId} />
+  return <Navigate replace to={samePageOn(pathname, search, deviceIdPath(deviceId), devicePath(device.name)) + hash} />
+}
+
+/** A device's dashboard through the relay, end-to-end encrypted with this browser's key, found by its name. */
+export function RemoteDevice() {
+  const { deviceName = '' } = useParams()
+  const { pathname, search, hash } = useLocation()
+  const list = useDeviceList(deviceName)
+  const { setDevices } = list
+  const device = list.devices?.find(d => sameDeviceName(d.name, deviceName))
+  // The app was renamed while its page is open: the list learns the name, and the address follows.
+  const renamed = useCallback((id: string, name: string) => setDevices(all => all?.map(d => (d.id === id ? { ...d, name } : d)) ?? all), [setDevices])
+  if (!device) return <DeviceLookup {...list} name={deviceName} />
+  // Names match in any case; the address shows the device's own spelling.
+  if (device.name !== deviceName) return <Navigate replace to={samePageOn(pathname, search, devicePath(deviceName), devicePath(device.name)) + hash} />
+  // Keyed by device: switching to another starts clean, with nothing of the last one's key, connection or state.
+  return <DeviceView key={device.id} device={device} onRenamed={renamed} />
+}
+
+function DeviceView({ device, onRenamed }: { device: CloudDeviceDto; onRenamed: (id: string, name: string) => void }) {
   const t = useT()
   const [key, setKey] = useState<StoredDeviceKey | null | undefined>(undefined)
   const [connection, setConnection] = useState<RelayConnection | null>(null)
-  const [name, setName] = useState('')
 
   useEffect(() => {
     let cancelled = false
-    void getDeviceKey(deviceId).catch(() => undefined).then(k => !cancelled && setKey(k ?? null))
-    void cloud.devices().then(list => !cancelled && setName(list.find(d => d.id === deviceId)?.name ?? '')).catch(() => {})
+    void getDeviceKey(device.id).catch(() => undefined).then(k => !cancelled && setKey(k ?? null))
     return () => { cancelled = true }
-  }, [deviceId])
+  }, [device.id])
 
   useEffect(() => {
     if (!key) return
-    const relay = new RelayConnection(deviceId, key)
+    const relay = new RelayConnection(device.id, key)
     setConnection(relay)
     return () => relay.close()
-  }, [deviceId, key])
+  }, [device.id, key])
 
   if (key === undefined) return <Loading screen />
   if (key === null) {
@@ -57,11 +128,27 @@ function DeviceView({ deviceId }: { deviceId: string }) {
   if (!connection) return null
 
   return (
-    <DeviceProvider connection={connection} basePath={devicePath(deviceId)} deviceName={name || t('devices.device')}>
+    <DeviceProvider connection={connection} basePath={devicePath(device.name)} deviceName={device.name}>
+      <FollowRename device={device} onRenamed={onRenamed} />
       <DeviceRoutes fallbackLanguage={browserLanguage()}
         headerStart={<Link to="/" className="btn btn-ghost btn-square btn-sm" aria-label={t('devices.back')} title={t('devices.back')}><ArrowLeft size={18} /></Link>}
         headerEnd={<AccountMenu />}
         deviceMenu={(label, placement) => <DeviceSwitcher placement={placement}>{label}</DeviceSwitcher>} />
     </DeviceProvider>
   )
+}
+
+/** Moves the address to the device's new name when the app says it was renamed, keeping the page and its connection. */
+function FollowRename({ device, onRenamed }: { device: CloudDeviceDto; onRenamed: (id: string, name: string) => void }) {
+  const { remote } = useDevice()
+  const navigate = useNavigate()
+  const { pathname, search, hash } = useLocation()
+  const name = remote?.deviceName
+  useEffect(() => {
+    // An app from before names were addresses may hold one that isn't; the account's name stands then.
+    if (!name || name === device.name || !isDeviceName(name)) return
+    onRenamed(device.id, name)
+    navigate(samePageOn(pathname, search, devicePath(device.name), devicePath(name)) + hash, { replace: true })
+  }, [name])
+  return null
 }

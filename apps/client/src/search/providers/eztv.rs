@@ -23,6 +23,10 @@ impl Provider for Eztv {
         NAME
     }
 
+    fn id(&self) -> &'static str {
+        "eztv"
+    }
+
     async fn search(
         &self,
         http: &reqwest::Client,

@@ -16,6 +16,7 @@ use crate::config::{ARCH, PLATFORM, VERSION};
 use crate::downloads::manager::{FileSource, media_kind};
 use crate::downloads::media::{MediaReader, media_type, open_reader, read_at};
 use crate::error::{ApiError, ApiResult, ErrorCode};
+use crate::protocol::device_name::is_device_name;
 use crate::protocol::encoding::{random_id, to_base64};
 use crate::protocol::{
     AgentConnectResultDto, AppInfoDto, NotificationEvent, SeriesTaskInput, SeriesTaskPatch, SettingsPatch, StartDownloadInput,
@@ -310,12 +311,14 @@ struct KeyId {
     key_id: String,
 }
 
-/// A device name: trimmed, 1–60 characters.
+/// A device name, which is also the device's address on the website (`protocol::device_name`).
 fn device_name(name: Option<String>, required: bool) -> ApiResult<Option<String>> {
     match name.map(|n| n.trim().to_owned()) {
-        Some(name) if (1..=60).contains(&name.chars().count()) => Ok(Some(name)),
+        Some(name) if is_device_name(&name) => Ok(Some(name)),
         None if !required => Ok(None),
-        _ => Err(ApiError::bad("deviceName: must be 1 to 60 characters")),
+        _ => Err(ApiError::bad(
+            "deviceName: up to 40 letters and digits, joined by single hyphens, and not a word the website uses",
+        )),
     }
 }
 

@@ -44,6 +44,17 @@ async function reportFailure(request: Request, env: Env): Promise<Response> {
   return new Response(null, { status: 204 })
 }
 
+/**
+ * The dashboard's pages. Every one is the same page (the app's router reads the path), served here rather than by
+ * the assets, which redirect a path to their own spelling of it: `/MacBook-Pro/search/house+of+the+dragon` would
+ * become `…/house%2Bof%2Bthe%2Bdragon`, a search for pluses. Files (`/sw.js`, the icons) are the assets' own;
+ * `/assets/*` never reaches the Worker (wrangler.jsonc).
+ */
+function page(request: Request, env: Env, path: string): Promise<Response> {
+  if (/\.[A-Za-z0-9]+$/.test(path)) return env.ASSETS.fetch(request)
+  return env.ASSETS.fetch(new Request(new URL('/', request.url), request))
+}
+
 async function route(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const path = new URL(request.url).pathname
   const consoleAnswer = await consoleRoutes.fetch(request, env, ctx, origin => allowedOrigins(env).includes(origin))
@@ -57,7 +68,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
     ?? (await handleDevices(request, env, path))
     ?? (await handlePush(request, env, path))
     ?? (await handleReleases(request, env, path))
-    ?? error(404, 'Not found')
+    ?? (path.startsWith('/api/') || path.startsWith('/_console/') ? error(404, 'Not found') : page(request, env, path))
 }
 
 export default {

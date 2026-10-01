@@ -33,6 +33,9 @@ async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T)
 }
 
+/** The account's devices as `cloud.devices()` last listed them. */
+let knownDevices: CloudDeviceDto[] | null = null
+
 export const cloud = {
   /** The signed-in account, or null when signed out. */
   async me(): Promise<AccountDto | null> {
@@ -46,8 +49,16 @@ export const cloud = {
   startSignIn: () => api<{ nonce: string; clientId: string }>('/api/auth/start', { method: 'POST', body: '{}' }),
   completeSignIn: (credential: string) => api<AccountDto>('/api/auth/google', { method: 'POST', body: JSON.stringify({ credential }) }),
   devSignIn: (email: string) => api<AccountDto>('/api/auth/dev', { method: 'POST', body: JSON.stringify({ email }) }),
-  signOut: () => api<void>('/api/auth/logout', { method: 'POST', body: '{}' }),
-  devices: () => api<CloudDeviceDto[]>('/api/devices'),
+  async signOut(): Promise<void> {
+    await api<void>('/api/auth/logout', { method: 'POST', body: '{}' })
+    knownDevices = null
+  },
+  async devices(): Promise<CloudDeviceDto[]> {
+    knownDevices = await api<CloudDeviceDto[]>('/api/devices')
+    return knownDevices
+  },
+  /** The devices as last listed, to show a page at once while they are listed again; null before the first list. */
+  knownDevices: () => knownDevices,
   removeDevice: (id: string) => api<void>(`/api/devices/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   pairing: (id: string) => api<PairingInfoDto>(`/api/pair/${encodeURIComponent(id)}`),
   latestRelease: () => api<LatestReleaseDto>('/api/releases/latest'),

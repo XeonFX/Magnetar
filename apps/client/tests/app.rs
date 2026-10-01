@@ -21,6 +21,10 @@ impl Provider for Fake {
         "Fake"
     }
 
+    fn id(&self) -> &'static str {
+        "fk"
+    }
+
     async fn search(&self, _: &reqwest::Client, query: &str, _: &CancellationToken) -> anyhow::Result<Vec<TorrentSearchResult>> {
         let row = |title: String, hash: char, seeders| TorrentSearchResult {
             info_hash: hash.to_string().repeat(40),
@@ -193,6 +197,34 @@ async fn streams_a_search_to_the_connection_that_started_it() {
     let download = c.ok("downloads.start", json!({ "resultId": result_id, "folder": folder })).await;
     assert_eq!(download["name"], "Show S01E01 1080p");
     assert_eq!(download["source"], "Fake");
+}
+
+#[tokio::test]
+async fn a_source_is_named_by_its_name_or_its_short_id() {
+    let h = harness();
+    let mut c = Client::new(&h.app, true);
+    assert_eq!(c.ok("sources.list", json!({})).await, json!([{ "id": "fk", "name": "Fake", "enabled": true }]));
+    for source in ["fk", "FK", "Fake", "fake"] {
+        let started = c.ok("search.start", json!({ "query": "Show", "source": source })).await;
+        let results = c.event("search.results").await;
+        assert_eq!(results["searchId"], started["searchId"], "{source}");
+        c.event("search.done").await;
+    }
+    let error = c.call("search.start", json!({ "query": "Show", "source": "f" })).await.unwrap_err();
+    assert!(error.contains("Unknown source 'f'"), "{error}");
+}
+
+#[tokio::test]
+async fn a_device_name_is_one_the_website_can_use_as_an_address() {
+    let h = harness();
+    let mut c = Client::new(&h.app, true);
+    for bad in ["MacBook Pro", "login", "Paweł", "-x", "a--b", &"a".repeat(41), ""] {
+        let error = c.call("remote.rename", json!({ "deviceName": bad })).await.unwrap_err();
+        assert!(error.starts_with("bad_request") && error.contains("single hyphens"), "{bad:?}: {error}");
+    }
+    let renamed = c.ok("remote.rename", json!({ "deviceName": " MacBook-Pro " })).await;
+    assert_eq!(renamed["deviceName"], "MacBook-Pro");
+    assert_eq!(c.ok("remote.status", json!({})).await["deviceName"], "MacBook-Pro");
 }
 
 #[tokio::test]

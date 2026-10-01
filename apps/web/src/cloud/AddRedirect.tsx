@@ -25,10 +25,10 @@ export function AddRedirect() {
       .catch(() => setDevices([]))
   }, [])
 
-  const target = (id: string) => `${devicePath(id)}?add=${encodeURIComponent(magnet)}`
+  const target = (device: CloudDeviceDto) => `${devicePath(device.name)}?add=${encodeURIComponent(magnet)}`
   if (!magnet) return <Navigate to="/" replace />
   if (devices === null) return <Loading screen />
-  if (devices.length === 1) return <Navigate to={target(devices[0]!.id)} replace />
+  if (devices.length === 1) return <Navigate to={target(devices[0]!)} replace />
   return (
     <CloudFrame>
       <div className="surface mx-auto flex max-w-md flex-col gap-4 p-6">
@@ -38,7 +38,7 @@ export function AddRedirect() {
         </div>
         <p className="muted break-all font-mono text-xs">{magnet.slice(0, 160)}{magnet.length > 160 ? '…' : ''}</p>
         {devices.map(d => (
-          <Link key={d.id} to={target(d.id)} className="btn justify-start"><Laptop size={16} />{d.name}{!d.online && <span className="muted text-xs">({t('devices.offline')})</span>}</Link>
+          <Link key={d.id} to={target(d)} className="btn justify-start"><Laptop size={16} />{d.name}{!d.online && <span className="muted text-xs">({t('devices.offline')})</span>}</Link>
         ))}
         {devices.length === 0 && <Link to="/" className="btn btn-ghost">{t('devices.back')}</Link>}
       </div>

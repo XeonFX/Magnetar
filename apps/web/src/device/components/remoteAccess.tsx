@@ -1,4 +1,5 @@
 import { ExternalLink, Link2, Plus, QrCode, ShieldCheck, Unlink } from 'lucide-react'
+import { toDeviceName } from '@magnetar/protocol/device-name'
 import QRCode from 'qrcode'
 import { useEffect, useState } from 'react'
 import { useFormatRelative, useT } from '../../lib/i18n.tsx'
@@ -27,11 +28,19 @@ export function RemoteAccessSection() {
   useEffect(() => setName(remote?.deviceName ?? ''), [remote?.deviceName])
   if (!remote) return null
   const local = connection.kind === 'local'
+  // The name is the device's address on the website, so it is spelled as one: shown as typed, sent as spelled.
+  const spelled = name.trim() ? toDeviceName(name) : ''
+  const nameField = (
+    <Field label={t('remote.deviceName')} className="flex-1"
+      help={spelled && t('remote.address', `${remote.cloudUrl.replace(/^https?:\/\//, '')}/${spelled}`)}>
+      <input className="input w-full" maxLength={60} autoComplete="off" spellCheck={false} value={name} onChange={e => setName(e.target.value)} />
+    </Field>
+  )
 
   const pair = async () => {
     // Open the tab inside the click so popup blockers allow it, then point it at the link.
     const tab = window.open('about:blank', '_blank')
-    const status = await run(() => connection.call('remote.pair', { deviceName: name.trim() || undefined }), 'remote.pairFailed')
+    const status = await run(() => connection.call('remote.pair', { deviceName: spelled || undefined }), 'remote.pairFailed')
     if (!status?.pendingPairing) return tab?.close()
     if (tab) {
       tab.opener = null
@@ -65,11 +74,9 @@ export function RemoteAccessSection() {
               </div>
             </div>
           ) : (
-            <form className="flex flex-col gap-3 sm:flex-row sm:items-end" onSubmit={e => { e.preventDefault(); void pair() }}>
-              <Field label={t('remote.deviceName')} className="flex-1">
-                <input className="input w-full" maxLength={60} value={name} onChange={e => setName(e.target.value)} />
-              </Field>
-              <button type="submit" className="btn btn-primary"><Link2 size={16} />{t('remote.connect')}</button>
+            <form className="flex flex-col gap-3 sm:flex-row sm:items-start" onSubmit={e => { e.preventDefault(); void pair() }}>
+              {nameField}
+              <button type="submit" className="btn btn-primary sm:mt-7"><Link2 size={16} />{t('remote.connect')}</button>
             </form>
           )
         ) : (
@@ -78,14 +85,12 @@ export function RemoteAccessSection() {
               description={<a className="link link-primary" href={remote.cloudUrl} target="_blank" rel="noopener noreferrer">{t('remote.openDashboard')}</a>}>
               <ShieldCheck size={20} className="text-success" />
             </SettingRow>
-            <form className="flex flex-col gap-3 py-4 sm:flex-row sm:items-end" onSubmit={e => {
+            <form className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start" onSubmit={e => {
               e.preventDefault()
-              if (name.trim() && name.trim() !== remote.deviceName) void run(() => connection.call('remote.rename', { deviceName: name.trim() }))
+              if (spelled && spelled !== remote.deviceName) void run(() => connection.call('remote.rename', { deviceName: spelled }))
             }}>
-              <Field label={t('remote.deviceName')} className="flex-1">
-                <input className="input w-full" maxLength={60} value={name} onChange={e => setName(e.target.value)} />
-              </Field>
-              <button type="submit" className="btn" disabled={!name.trim() || name.trim() === remote.deviceName}>{t('remote.rename')}</button>
+              {nameField}
+              <button type="submit" className="btn sm:mt-7" disabled={!spelled || spelled === remote.deviceName}>{t('remote.rename')}</button>
             </form>
             <SettingRow layout="wide" title={t('remote.disconnect')} description={t('remote.disconnectHint')}>
               <button type="button" className="btn btn-sm text-error" onClick={() => setConfirm('unpair')}><Unlink size={14} />{t('remote.disconnect')}</button>

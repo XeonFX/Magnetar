@@ -51,6 +51,14 @@ pub fn is_real_info_hash(hash: &str) -> bool {
 pub trait Provider: Send + Sync {
     fn name(&self) -> &'static str;
 
+    /// A short lowercase id for addresses (`/search/dragon?source=tpb`): letters, digits and hyphens.
+    fn id(&self) -> &'static str;
+
+    /// Whether `wanted` names this site: its name or its id, in any case.
+    fn is_called(&self, wanted: &str) -> bool {
+        self.name().eq_ignore_ascii_case(wanted) || self.id().eq_ignore_ascii_case(wanted)
+    }
+
     async fn search(
         &self,
         http: &reqwest::Client,

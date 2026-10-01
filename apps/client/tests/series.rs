@@ -39,6 +39,10 @@ impl Provider for Releases {
         "Scripted"
     }
 
+    fn id(&self) -> &'static str {
+        "scripted"
+    }
+
     async fn search(&self, _: &reqwest::Client, _: &str, _: &CancellationToken) -> anyhow::Result<Vec<TorrentSearchResult>> {
         let aired = *self.aired.lock().unwrap();
         Ok((1..=aired)
