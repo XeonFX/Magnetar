@@ -1,3 +1,4 @@
+import { createExecutionContext } from 'cloudflare:test'
 import { env } from 'cloudflare:workers'
 import { describe, expect, test } from 'vitest'
 import worker from '../src/index.ts'
@@ -6,7 +7,7 @@ import { call, signIn } from './client.ts'
 
 const production = { ...env, APP_ENV: 'production', ORIGIN: 'https://magnetar.codefusion.cc' } as Env
 /** The Worker with other bindings than the dev environment's. */
-const fetchWith = (withEnv: Env, request: Request) => worker.fetch(request as Parameters<typeof worker.fetch>[0], withEnv)
+const fetchWith = (withEnv: Env, request: Request) => worker.fetch(request as Parameters<typeof worker.fetch>[0], withEnv, createExecutionContext())
 
 describe('the website API', () => {
   test('every answer is marked nosniff and sends no referrer; unknown paths are a JSON 404', async () => {
@@ -48,7 +49,7 @@ describe('the website API', () => {
     expect((await call('/api/me', { headers: user.headers })).status).toBe(401)
   })
 
-  test('failure reports are checked and bounded before they reach the console', async () => {
+  test("the desktop app's failure reports are checked and bounded before they reach the console", async () => {
     const reports: unknown[] = []
     const withConsole = { ...production, CONSOLE_TELEMETRY: { reportBrowserFailure: async (r: unknown) => void reports.push(r) } } as Env
     const report = (body: unknown) => fetchWith(withConsole, new Request('https://magnetar.codefusion.cc/api/telemetry/failure', {

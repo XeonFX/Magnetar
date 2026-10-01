@@ -1,15 +1,16 @@
 import { lazy, Suspense, type ReactNode } from 'react'
 import { Route, Routes } from 'react-router'
 import { I18nProvider } from '../lib/i18n.tsx'
+import { updates } from '../lib/updates.ts'
 import { Loading } from '../ui/Loading.tsx'
 import { useDevice } from './DeviceContext.tsx'
 import { DownloadsPage } from './pages/DownloadsPage.tsx'
 import { Shell, type DeviceMenu } from './Shell.tsx'
 
 // Downloads is where the dashboard opens; the other pages load when first visited.
-const SearchPage = lazy(() => import('./pages/SearchPage.tsx').then(m => ({ default: m.SearchPage })))
-const SeriesPage = lazy(() => import('./pages/SeriesPage.tsx').then(m => ({ default: m.SeriesPage })))
-const SettingsPage = lazy(() => import('./pages/SettingsPage.tsx').then(m => ({ default: m.SettingsPage })))
+const SearchPage = lazy(() => updates.importOrReload(() => import('./pages/SearchPage.tsx')).then(m => ({ default: m.SearchPage })))
+const SeriesPage = lazy(() => updates.importOrReload(() => import('./pages/SeriesPage.tsx')).then(m => ({ default: m.SeriesPage })))
+const SettingsPage = lazy(() => updates.importOrReload(() => import('./pages/SettingsPage.tsx')).then(m => ({ default: m.SettingsPage })))
 
 function Page({ children }: { children: ReactNode }) {
   return <Suspense fallback={<Loading />}>{children}</Suspense>

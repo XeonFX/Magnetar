@@ -4,6 +4,7 @@ import { DeviceProvider } from './device/DeviceContext.tsx'
 import { DeviceRoutes } from './device/DeviceRoutes.tsx'
 import { browserLanguage } from './lib/i18n.tsx'
 import { LocalConnection } from './lib/localConnection.ts'
+import { UpdatesOnNavigation } from './lib/updates.ts'
 
 /** The dashboard as served by the app itself on localhost: no account needed. */
 export function LocalApp() {
@@ -22,6 +23,7 @@ export function LocalApp() {
 
   return (
     <BrowserRouter>
+      <UpdatesOnNavigation />
       <DeviceProvider connection={connection} basePath="" deviceName={deviceName}>
         <DeviceRoutes fallbackLanguage={browserLanguage()} />
       </DeviceProvider>
