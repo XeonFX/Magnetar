@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers'
-import { randomId } from '@magnetar/protocol/base64'
+import { randomToken } from '@magnetar/protocol/base64'
 import {
   MAX_RELAY_FRAME, RELAY_CLOSE, RELAY_PING, RELAY_PONG, unwrapFromDevice, wrapForDevice, type DeviceToRelay, type RelayToBrowser,
   type RelayToDevice,
@@ -53,7 +53,8 @@ export class DeviceRelay extends DurableObject<Env> {
       await this.setOnline(deviceId, true)
     } else {
       if (this.ctx.getWebSockets('browser').length >= MAX_BROWSERS) return new Response('Too many open dashboards', { status: 429 })
-      const connectionId = randomId(16)
+      // Raw bytes on the wire (the frame prefix), so base64url rather than a base58 id.
+      const connectionId = randomToken(16)
       this.ctx.acceptWebSocket(server, ['browser', `b:${connectionId}`])
       server.serializeAttachment({ role: 'browser', connectionId } satisfies Attachment)
       const device = this.device()

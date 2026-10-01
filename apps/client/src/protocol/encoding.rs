@@ -33,8 +33,35 @@ pub fn random_bytes(length: usize) -> Vec<u8> {
     bytes
 }
 
-/// A random base64url id with `bytes` of entropy.
+/// Bitcoin's base58 alphabet: digits and letters without 0, O, I and l.
+const BASE58_ALPHABET: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+/// Bytes in base58 the way `@codefusion-cc/base58` spells them: one big-endian number, left-padded with `1` to
+/// the width every value of that many bytes fits in (17 characters for 12 bytes, 22 for 16).
+pub fn to_base58(bytes: &[u8]) -> String {
+    // 58^L >= 256^n never holds with equality (58 has the factor 29), so the ceiling is exact.
+    let width = (bytes.len() as f64 * 8.0 / 58f64.log2()).ceil() as usize;
+    let mut number = bytes.to_vec();
+    let mut digits = vec![0u8; width];
+    for digit in digits.iter_mut().rev() {
+        let mut remainder = 0u32;
+        for byte in number.iter_mut() {
+            let value = (remainder << 8) | u32::from(*byte);
+            *byte = (value / 58) as u8;
+            remainder = value % 58;
+        }
+        *digit = BASE58_ALPHABET[remainder as usize];
+    }
+    digits.into_iter().map(char::from).collect()
+}
+
+/// A random base58 id with `bytes` of entropy: no look-alikes, nothing a double-click stops at.
 pub fn random_id(bytes: usize) -> String {
+    to_base58(&random_bytes(bytes))
+}
+
+/// A random base64url secret with `bytes` of entropy.
+pub fn random_token(bytes: usize) -> String {
     to_base64url(&random_bytes(bytes))
 }
 
@@ -81,5 +108,33 @@ mod tests {
         assert_eq!(to_base64url(&bytes), "-_8AEA");
         assert_eq!(from_base64url("-_8AEA").unwrap(), bytes);
         assert!(from_base64url("+/==").is_err());
+    }
+
+    #[test]
+    fn base58_matches_the_shared_package() {
+        // The vectors of @codefusion-cc/base58: Bitcoin's spelling at full width, padded with 1 below it.
+        assert_eq!(to_base58(b"Hello World!"), "2NEpo7TZRRrLZSi2U");
+        assert_eq!(to_base58(&[255; 16]), "YcVfxkQb6JRzqk5kF2tNLv");
+        assert_eq!(to_base58(&[0; 16]), "1".repeat(22));
+        assert_eq!(to_base58(&[0, 0, 0x28, 0x7f, 0xb4, 0xcd]), "111233QC4");
+        assert_eq!(
+            to_base58(b"The quick brown fox jumps over the lazy dog."),
+            "1USm3fpXnKG5EUBx2ndxBDMPVciP5hGey2Jh4NDv6gmeo1LkMeiKrLJUUBk6Z"
+        );
+        assert_eq!(to_base58(&[255]), "5Q");
+        assert_eq!(to_base58(&[]), "");
+        let widths: Vec<_> = [0, 1, 2, 6, 8, 9, 12, 16, 24, 32].iter().map(|&n| to_base58(&vec![0; n]).len()).collect();
+        assert_eq!(widths, [0, 2, 3, 9, 11, 13, 17, 22, 33, 44]);
+    }
+
+    #[test]
+    fn random_ids_are_base58_at_their_width() {
+        let ids: std::collections::HashSet<_> = (0..2000).map(|_| random_id(9)).collect();
+        assert_eq!(ids.len(), 2000);
+        for id in &ids {
+            assert_eq!(id.len(), 13);
+            assert!(id.bytes().all(|b| BASE58_ALPHABET.contains(&b)), "{id}");
+        }
+        assert_eq!(random_token(32).len(), 43);
     }
 }

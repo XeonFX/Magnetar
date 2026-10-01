@@ -1,5 +1,6 @@
 import type { CloudDeviceDto, PairApproveResponse, PairingInfoDto, PairPollResponse, PairStartRequest, PairStartResponse } from '@magnetar/protocol/cloud'
-import { randomId } from '@magnetar/protocol/base64'
+import { randomId } from '@codefusion-cc/base58'
+import { randomToken } from '@magnetar/protocol/base64'
 import { RELAY_CLOSE } from '@magnetar/protocol/relay'
 import { requireUser } from './auth.ts'
 import type { Env } from './env.ts'
@@ -63,7 +64,7 @@ export async function handleDevices(request: Request, env: Env, path: string): P
     const platform = clean(body.platform, 20) || 'unknown'
     const version = clean(body.version, 40) || 'unknown'
     const pairingId = randomId(16)
-    const pollSecret = randomId(32)
+    const pollSecret = randomToken(32)
     const now = Date.now()
     await env.DB.prepare('INSERT INTO pairings (id, poll_secret_hash, name, platform, version, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .bind(pairingId, await sha256(pollSecret), name, platform, version, now, now + PAIRING_MS).run()
@@ -104,7 +105,7 @@ export async function handleDevices(request: Request, env: Env, path: string): P
       const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM devices WHERE user_id = ?').bind(user.id).first<{ n: number }>()
       if ((count?.n ?? 0) >= MAX_DEVICES_PER_USER) return error(409, 'Remove a device before adding another')
       const deviceId = `d_${randomId(12)}`
-      const token = randomId(32)
+      const token = randomToken(32)
       const now = Date.now()
       // Only the first approval wins, even if two tabs approve at once.
       const claimed = await env.DB.prepare('UPDATE pairings SET approved_by = ?, device_id = ?, device_token = ? WHERE id = ? AND device_id IS NULL AND expires_at > ?')

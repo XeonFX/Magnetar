@@ -10,6 +10,7 @@
     "typecheck": "tsc -p . && tsc -p test"
   },
   "dependencies": {
+    "@codefusion-cc/base58": "^1.0.0",
     "@codefusion-cc/console": "^0.10.0",
     "@codefusion-cc/web-push": "^1.1.0",
     "@magnetar/protocol": "*"

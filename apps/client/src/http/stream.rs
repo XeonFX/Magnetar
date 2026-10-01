@@ -14,7 +14,7 @@ use tokio_util::io::ReaderStream;
 
 use crate::app::App;
 use crate::downloads::media::{media_type, open_reader, plan_range};
-use crate::protocol::encoding::random_id;
+use crate::protocol::encoding::random_token;
 
 const GRANT_LIFETIME: Duration = Duration::from_secs(12 * 60 * 60);
 const MAX_GRANTS: usize = 256;
@@ -35,7 +35,7 @@ impl StreamGrants {
         {
             grants.remove(&oldest);
         }
-        let token = random_id(24);
+        let token = random_token(24);
         grants.insert(token.clone(), (download, index, now + GRANT_LIFETIME));
         token
     }

@@ -1,4 +1,4 @@
-import { randomId, toBase64Url } from '@magnetar/protocol/base64'
+import { randomToken, toBase64Url } from '@magnetar/protocol/base64'
 import { GOOGLE_CALLBACK_PATH } from '@magnetar/protocol/cloud'
 
 /**
@@ -15,7 +15,7 @@ export function startGoogleSignIn(clientId: string, nonce: string, returnPath: s
   if (!returnPath.startsWith('/') || returnPath.startsWith('//')) throw new Error('Sign-in must return to a same-origin path')
   // A random value plus where to come back to; the callback reads the destination from it and
   // this page accepts only the exact state it stored.
-  const state = `${randomId(24)}.${toBase64Url(new TextEncoder().encode(JSON.stringify([location.origin, `/login?next=${encodeURIComponent(returnPath)}`])))}`
+  const state = `${randomToken(24)}.${toBase64Url(new TextEncoder().encode(JSON.stringify([location.origin, `/login?next=${encodeURIComponent(returnPath)}`])))}`
   sessionStorage.setItem(PENDING_KEY, JSON.stringify({ state, createdAt: Date.now() }))
   const url = new URL(AUTHORIZATION_ENDPOINT)
   url.search = new URLSearchParams({

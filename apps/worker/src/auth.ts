@@ -1,5 +1,6 @@
 import type { AccountDto } from '@magnetar/protocol/cloud'
-import { randomId } from '@magnetar/protocol/base64'
+import { randomId } from '@codefusion-cc/base58'
+import { randomToken } from '@magnetar/protocol/base64'
 import { devLoginEnabled, type Env } from './env.ts'
 import { clientIp, cookie, error, HttpError, json, limit, readJson, requireSameOrigin, setCookie, sha256 } from './http.ts'
 import { verifyGoogleIdToken } from './oidc.ts'
@@ -43,7 +44,7 @@ async function signIn(env: Env, subject: string, email: string, name: string | n
   const user = await env.DB.prepare(`INSERT INTO users (id, subject, email, name, picture, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(subject) DO UPDATE SET email = excluded.email, name = excluded.name, picture = excluded.picture, last_login_at = excluded.last_login_at
     RETURNING id, email, name, picture`).bind(`u_${randomId(12)}`, subject, email, name, picture, now, now).first<UserRow>()
-  const token = randomId(32)
+  const token = randomToken(32)
   await env.DB.prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
     .bind(await sha256(token), user!.id, now, now + SESSION_DAYS * 86_400_000).run()
   // Opportunistic cleanup, bounded so a sign-in never does much work.
@@ -62,7 +63,7 @@ export async function handleAuth(request: Request, env: Env, path: string): Prom
     if (!env.GOOGLE_CLIENT_ID) return error(503, 'Google sign-in is not configured yet')
     // The nonce binds the ID token Google returns to this browser: a token obtained anywhere
     // else carries a different nonce and is refused.
-    const nonce = randomId(24)
+    const nonce = randomToken(24)
     return json({ nonce, clientId: env.GOOGLE_CLIENT_ID }, { headers: { 'set-cookie': setCookie(NONCE_COOKIE, nonce, NONCE_SECONDS) } })
   }
 

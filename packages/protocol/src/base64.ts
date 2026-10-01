@@ -16,7 +16,7 @@ export function randomBytes(length: number): Uint8Array<ArrayBuffer> {
   return crypto.getRandomValues(new Uint8Array(length))
 }
 
-/** A random base64url id with `bytes` of entropy. */
-export function randomId(bytes = 16): string {
+/** A random base64url secret with `bytes` of entropy. Ids people see come from `@codefusion-cc/base58`. */
+export function randomToken(bytes = 32): string {
   return toBase64Url(randomBytes(bytes))
 }
