@@ -1,19 +1,20 @@
+import { useTheme } from '@codefusion-cc/theme/react'
 import { MonitorDown, LogOut, Moon, Sun } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { useT } from '../lib/i18n.tsx'
 import { useInstallOffer } from '../lib/install.ts'
-import { useTheme } from '../ui/theme.ts'
+import { theme } from '../ui/theme.ts'
 import { useAccount } from './CloudApp.tsx'
 import { BrandMark } from '../ui/BrandMark.tsx'
 
 /** The website's own pages (sign-in, device list, pairing): a slim header over a centred column. */
 export function CloudFrame({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   const t = useT()
-  const { theme, setMode } = useTheme()
+  const { resolved } = useTheme(theme)
   const { account } = useAccount()
   const install = useInstallOffer()
-  const next = theme === 'dark' ? 'light' : 'dark'
+  const next = resolved === 'dark' ? 'light' : 'dark'
   return (
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-30 border-b border-base-300 bg-base-100/90 backdrop-blur">
@@ -28,8 +29,8 @@ export function CloudFrame({ children, wide = false }: { children: ReactNode; wi
             </button>
           )}
           {account && <AccountMenu />}
-          <button type="button" className="btn btn-ghost btn-square btn-sm" onClick={() => setMode(next)} aria-label={t(`theme.${next}`)} title={t(`theme.${next}`)}>
-            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+          <button type="button" className="btn btn-ghost btn-square btn-sm" onClick={theme.toggle} aria-label={t(`theme.${next}`)} title={t(`theme.${next}`)}>
+            {resolved === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
         </div>
       </header>

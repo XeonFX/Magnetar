@@ -1,6 +1,6 @@
+import { json, jsonError } from '@codefusion-cc/workers-http'
 import type { LatestReleaseDto, ReleaseArch, ReleasePlatform } from '@magnetar/protocol/cloud'
 import type { Env } from './env.ts'
-import { error, json } from './http.ts'
 
 /** `Magnetar-2.1.0-macos-arm64.zip`, `…-windows-x64.exe`, `…-linux-arm64`. */
 const ASSET = /^Magnetar-([\w.-]+?)-(macos|windows|linux)-(arm64|x64)(\.zip|\.exe)?$/
@@ -37,6 +37,6 @@ export async function handleReleases(request: Request, env: Env, path: string, s
     headers: { accept: 'application/vnd.github+json', 'user-agent': 'magnetar.codefusion.cc' },
     cf: { cacheTtl: CACHE_SECONDS, cacheEverything: true },
   } as RequestInit)
-  if (!answer.ok) return error(502, `GitHub answered HTTP ${answer.status}`)
+  if (!answer.ok) return jsonError(502, `GitHub answered HTTP ${answer.status}`)
   return json(toLatestRelease(await answer.json() as GitHubRelease), { headers: { 'cache-control': `public, max-age=${CACHE_SECONDS}` } })
 }

@@ -1,8 +1,10 @@
 import { buildIdentity, privateSourceMaps, versionFile } from '@codefusion-cc/console/vite'
+import { prePaintTheme } from '@codefusion-cc/theme/vite'
 import { join } from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
+import { themeConfig } from './src/ui/themeConfig.ts'
 
 /**
  * In development the dashboard talks either to a local client (`npm run dev:client`, port 47820, or
@@ -18,7 +20,8 @@ const target = process.env.MAGNETAR_WEB_TARGET === 'cloud' ? 'http://localhost:8
 export default defineConfig({
   // version.json for CodeFusion Console's Deployments page; source maps only the Worker reads (dist/_console/),
   // to show website failures with their own files and lines. The desktop app leaves the maps out (assets.rs).
-  plugins: [react(), tailwindcss(), versionFile({ root: repo }), privateSourceMaps()],
+  // prePaintTheme: /theme.js, first in <head>, shows the remembered theme before first paint.
+  plugins: [react(), tailwindcss(), versionFile({ root: repo }), privateSourceMaps(), prePaintTheme(themeConfig)],
   // The page compares it with /version.json to move onto a newer deploy (src/lib/updates.ts).
   define: { __APP_COMMIT__: JSON.stringify(build.commit) },
   server: {

@@ -9,8 +9,11 @@ import { SESSION_COOKIE } from '../src/auth.ts'
 
 export const ORIGIN = 'http://localhost:8790'
 
-/** A client address of its own, so one test's requests never count against another's rate limit. */
-export const freshIp = () => `2001:db8::${crypto.randomUUID().slice(0, 4)}:${crypto.randomUUID().slice(0, 4)}`
+/**
+ * A client network of its own, so one test's requests never count against another's rate limit. Limits count
+ * an IPv6 address's whole /64, so the random part is in the first four groups.
+ */
+export const freshIp = () => `2001:db8:${crypto.randomUUID().slice(0, 4)}:${crypto.randomUUID().slice(0, 4)}::1`
 
 export function call(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {
   const headers = new Headers(init.headers)
@@ -28,15 +31,19 @@ export interface User {
   headers: Record<string, string>
 }
 
+/** The value `response` sets for cookie `name` ('' when it clears it), or undefined when it does not set it. */
+export const cookieValue = (response: Response, name: string) =>
+  response.headers.getSetCookie().find(line => line.startsWith(`${name}=`))?.split(';')[0]?.slice(name.length + 1)
+
 let users = 0
 /** Signs a new user in through the dev sign-in. */
 export async function signIn(): Promise<User> {
   const email = `user${++users}.${crypto.randomUUID().slice(0, 8)}@example.com`
   const response = await call('/api/auth/dev', { method: 'POST', headers: { origin: ORIGIN }, json: { email } })
   if (response.status !== 200) throw new Error(`Sign-in failed: ${response.status}`)
-  const session = response.headers.get('set-cookie')?.split(';')[0]
-  if (!session?.startsWith(`${SESSION_COOKIE}=`)) throw new Error('No session cookie')
-  return { email, headers: { cookie: session, origin: ORIGIN } }
+  const session = cookieValue(response, SESSION_COOKIE)
+  if (!session) throw new Error('No session cookie')
+  return { email, headers: { cookie: `${SESSION_COOKIE}=${session}`, origin: ORIGIN } }
 }
 
 interface Pairing {

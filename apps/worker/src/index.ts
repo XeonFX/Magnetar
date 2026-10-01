@@ -1,13 +1,13 @@
+import { handleGoogleSignIn } from '@codefusion-cc/google-sign-in'
 import { consoleAdmin, createConsoleRoutes } from '@codefusion-cc/console/worker'
+import { clientNetwork, errorResponse, json, jsonError, rateLimit, readJson } from '@codefusion-cc/workers-http'
 import type { AppConfig, FailureReport } from '@magnetar/protocol/cloud'
 import { CONSOLE_PAGES } from '@magnetar/protocol/console-pages'
 import { handleAuth } from './auth.ts'
 import { consoleResources } from './console/admin.ts'
 import { manifest } from './console/manifest.ts'
 import { handleDevices } from './devices.ts'
-import { allowedOrigins, devLoginEnabled, type Env } from './env.ts'
-import { handleGoogleCallback } from './googleCallback.ts'
-import { clientIp, error, HttpError, json, limit, readJson } from './http.ts'
+import { allowedOrigins, devLoginEnabled, MAX_BODY, type Env } from './env.ts'
 import { handlePush } from './push.ts'
 import { handleReleases } from './releases.ts'
 
@@ -27,9 +27,9 @@ const text = (value: unknown, max: number) => (typeof value === 'string' ? value
  * bounds their size and rate. The website reports through createConsoleRoutes instead.
  */
 async function reportFailure(request: Request, env: Env): Promise<Response> {
-  await limit(env.TELEMETRY_LIMITER, clientIp(request))
-  const report = await readJson<Partial<FailureReport>>(request)
-  if (!SOURCES.has(String(report.source)) || !report.message) return error(400, 'Invalid report')
+  await rateLimit(env.TELEMETRY_LIMITER, clientNetwork(request))
+  const report = await readJson<Partial<FailureReport>>(request, { maxBytes: MAX_BODY })
+  if (!SOURCES.has(String(report.source)) || !report.message) return jsonError(400, 'Invalid report')
   await env.CONSOLE_TELEMETRY?.reportBrowserFailure({
     appId: env.APP_ID,
     env: env.APP_ENV,
@@ -43,6 +43,8 @@ async function reportFailure(request: Request, env: Env): Promise<Response> {
   })
   return new Response(null, { status: 204 })
 }
+
+const GOOGLE_CALLBACK_PAGE = { background: { light: '#f6f7fb', dark: '#0f1117' } }
 
 /**
  * The dashboard's pages. Every one is the same page (the app's router reads the path), served here rather than by
@@ -63,27 +65,24 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
     return json({ mode: 'cloud', googleClientId: env.GOOGLE_CLIENT_ID || undefined, devLogin: devLoginEnabled(env) || undefined } satisfies AppConfig)
   }
   if (path === '/api/telemetry/failure' && request.method === 'POST') return reportFailure(request, env)
-  return (await handleGoogleCallback(request, env, path))
+  // Google's redirect back: the page it lands on, in the dashboard's background so it never flashes white, and
+  // the hand-off that sends the token to /login on one of our origins.
+  return (await handleGoogleSignIn(request, { allowedOrigin: origin => allowedOrigins(env).includes(origin), page: GOOGLE_CALLBACK_PAGE }))
     ?? (await handleAuth(request, env, path))
     ?? (await handleDevices(request, env, path))
     ?? (await handlePush(request, env, path))
     ?? (await handleReleases(request, env, path))
-    ?? (path.startsWith('/api/') || path.startsWith('/_console/') ? error(404, 'Not found') : page(request, env, path))
+    ?? (path.startsWith('/api/') || path.startsWith('/_console/') ? jsonError(404, 'Not found') : page(request, env, path))
 }
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {
-    try {
-      const response = await route(request, env, ctx)
-      if (response.status === 101) return response
-      const headers = new Headers(response.headers)
-      headers.set('x-content-type-options', 'nosniff')
-      headers.set('referrer-policy', 'no-referrer')
-      return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
-    } catch (e) {
-      if (e instanceof HttpError) return error(e.status, e.message)
-      console.error('Unhandled error', e)
-      return error(500, 'Something went wrong')
-    }
+    // Refusals thrown on the way (403, 413, 429…) get the same headers as any other answer.
+    const response = await route(request, env, ctx).catch(e => errorResponse(e, { onError: error => console.error('Unhandled error', error) }))
+    if (response.status === 101) return response
+    const headers = new Headers(response.headers)
+    headers.set('x-content-type-options', 'nosniff')
+    headers.set('referrer-policy', 'no-referrer')
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
   },
 } satisfies ExportedHandler<Env>

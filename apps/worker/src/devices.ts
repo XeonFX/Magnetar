@@ -1,10 +1,10 @@
+import { clientNetwork, json, jsonError, rateLimit, readJson, requireSameOrigin, sha256 } from '@codefusion-cc/workers-http'
 import type { CloudDeviceDto, PairApproveResponse, PairingInfoDto, PairPollResponse, PairStartRequest, PairStartResponse } from '@magnetar/protocol/cloud'
 import { randomId } from '@magnetar/protocol/base64'
 import { toDeviceName, uniqueDeviceName } from '@magnetar/protocol/device-name'
 import { RELAY_CLOSE } from '@magnetar/protocol/relay'
 import { requireUser } from './auth.ts'
-import type { Env } from './env.ts'
-import { clientIp, error, json, limit, readJson, requireSameOrigin, sha256 } from './http.ts'
+import { allowedOrigins, MAX_BODY, type Env } from './env.ts'
 
 const PAIRING_MS = 10 * 60_000
 const MAX_DEVICES_PER_USER = 20
@@ -34,7 +34,7 @@ const toDto = (d: DeviceRow): CloudDeviceDto => ({
 export async function deviceFromToken(request: Request, env: Env): Promise<DeviceRow | null> {
   const match = /^Bearer\s+([A-Za-z0-9_-]{20,100})$/.exec(request.headers.get('authorization') ?? '')
   if (!match) return null
-  return env.DB.prepare('SELECT * FROM devices WHERE token_hash = ?').bind(await sha256(match[1]!)).first<DeviceRow>()
+  return env.DB.prepare('SELECT * FROM devices WHERE token_hash = ?').bind(await sha256(match[1]!, 'base64url')).first<DeviceRow>()
 }
 
 /** Completes a WebSocket upgrade only to close it with a code the other side acts on. */
@@ -61,8 +61,8 @@ export async function handleDevices(request: Request, env: Env, path: string): P
   // ---- Pairing: started by the device, approved by a signed-in user, collected by the device ----
 
   if (path === '/api/pair/start' && method === 'POST') {
-    await limit(env.PAIR_LIMITER, clientIp(request))
-    const body = await readJson<Partial<PairStartRequest>>(request)
+    await rateLimit(env.PAIR_LIMITER, clientNetwork(request))
+    const body = await readJson<Partial<PairStartRequest>>(request, { maxBytes: MAX_BODY })
     // Spelled as an address at once, so the approval page shows the name the device will have.
     const name = toDeviceName(clean(body.name, 60))
     const platform = clean(body.platform, 20) || 'unknown'
@@ -71,17 +71,17 @@ export async function handleDevices(request: Request, env: Env, path: string): P
     const pollSecret = randomId(32)
     const now = Date.now()
     await env.DB.prepare('INSERT INTO pairings (id, poll_secret_hash, name, platform, version, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .bind(pairingId, await sha256(pollSecret), name, platform, version, now, now + PAIRING_MS).run()
+      .bind(pairingId, await sha256(pollSecret, 'base64url'), name, platform, version, now, now + PAIRING_MS).run()
     await env.DB.prepare('DELETE FROM pairings WHERE rowid IN (SELECT rowid FROM pairings WHERE expires_at < ? LIMIT 50)').bind(now - PAIRING_MS).run()
     return json({ pairingId, pollSecret, expiresAt: new Date(now + PAIRING_MS).toISOString() } satisfies PairStartResponse)
   }
 
   if (path === '/api/pair/poll' && method === 'POST') {
-    const body = await readJson<{ pairingId?: string; pollSecret?: string }>(request)
+    const body = await readJson<{ pairingId?: string; pollSecret?: string }>(request, { maxBytes: MAX_BODY })
     const row = await env.DB.prepare('SELECT * FROM pairings WHERE id = ?').bind(String(body.pairingId ?? '')).first<{
       poll_secret_hash: string; name: string; expires_at: number; device_id: string | null; device_token: string | null; approved_by: string | null
     }>()
-    if (!row || row.poll_secret_hash !== (await sha256(String(body.pollSecret ?? '')))) return error(404, 'Unknown pairing')
+    if (!row || row.poll_secret_hash !== (await sha256(String(body.pollSecret ?? ''), 'base64url'))) return jsonError(404, 'Unknown pairing')
     if (row.device_id && row.device_token) {
       // Handed over exactly once: the plaintext token leaves the database with this answer.
       const account = await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(row.approved_by).first<{ email: string }>()
@@ -101,19 +101,19 @@ export async function handleDevices(request: Request, env: Env, path: string): P
     const row = await env.DB.prepare('SELECT * FROM pairings WHERE id = ?').bind(pairing[1]).first<{
       id: string; name: string; platform: string; version: string; expires_at: number; device_id: string | null
     }>()
-    if (!row) return error(404, 'This pairing link is not valid')
+    if (!row) return jsonError(404, 'This pairing link is not valid')
     const state = row.device_id ? 'approved' : row.expires_at < Date.now() ? 'expired' : 'pending'
     if (!pairing[2] && method === 'GET') {
       return json({ pairingId: row.id, name: row.name, platform: row.platform, version: row.version, expiresAt: new Date(row.expires_at).toISOString(), state } satisfies PairingInfoDto)
     }
     if (pairing[2] && method === 'POST') {
-      requireSameOrigin(request, env)
-      if (state !== 'pending') return error(409, state === 'expired' ? 'This pairing link has expired' : 'This device is already connected')
+      requireSameOrigin(request, allowedOrigins(env))
+      if (state !== 'pending') return jsonError(409, state === 'expired' ? 'This pairing link has expired' : 'This device is already connected')
       const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM devices WHERE user_id = ?').bind(user.id).first<{ n: number }>()
-      if ((count?.n ?? 0) >= MAX_DEVICES_PER_USER) return error(409, 'Remove a device before adding another')
+      if ((count?.n ?? 0) >= MAX_DEVICES_PER_USER) return jsonError(409, 'Remove a device before adding another')
       const deviceId = `d_${randomId(12)}`
       const token = randomId(32)
-      const tokenHash = await sha256(token)
+      const tokenHash = await sha256(token, 'base64url')
       // The claim and the device go in together. Only the first approval of a pairing claims it, even if two
       // tabs approve at once; a name another approval took meanwhile undoes both, and the next free one is tried.
       // Each lost try means another device joined the account, so an account's limit bounds the tries.
@@ -129,20 +129,20 @@ export async function handleDevices(request: Request, env: Env, path: string): P
               SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM pairings WHERE id = ? AND device_id = ?)`)
               .bind(deviceId, user.id, name, row.platform, row.version, tokenHash, now, row.id, deviceId),
           ])
-          if (!claimed!.meta.changes) return error(409, 'This device is already connected')
+          if (!claimed!.meta.changes) return jsonError(409, 'This device is already connected')
           return json({ deviceId, deviceName: name } satisfies PairApproveResponse)
         } catch (e) {
           if (!nameTaken(e) || attempt > MAX_DEVICES_PER_USER) throw e
         }
       }
     }
-    return error(405, 'Method not allowed')
+    return jsonError(405, 'Method not allowed')
   }
 
   // ---- The device itself, authenticated by its token ----
 
   if (path === '/api/device/connect') {
-    if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return error(426, 'WebSocket required')
+    if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return jsonError(426, 'WebSocket required')
     const device = await deviceFromToken(request, env)
     // A 401 on the upgrade looks like any network failure to the device, which would retry
     // forever; closing with 4001 tells it the pairing is gone.
@@ -152,25 +152,25 @@ export async function handleDevices(request: Request, env: Env, path: string): P
 
   if (path === '/api/device') {
     const device = await deviceFromToken(request, env)
-    if (!device) return error(401, 'Unknown device')
+    if (!device) return jsonError(401, 'Unknown device')
     if (method === 'DELETE') {
       await removeDevice(env, device.id)
       return json({ ok: true })
     }
     if (method === 'PATCH') {
-      const cleaned = clean((await readJson<{ name?: string }>(request)).name, 60)
-      if (!cleaned) return error(400, 'A name is required')
+      const cleaned = clean((await readJson<{ name?: string }>(request, { maxBytes: MAX_BODY })).name, 60)
+      if (!cleaned) return jsonError(400, 'A name is required')
       // Apps from before names were addresses send any text; it is spelled as one, and the app keeps what comes back.
       const name = toDeviceName(cleaned)
       try {
         await env.DB.prepare('UPDATE devices SET name = ? WHERE id = ?').bind(name, device.id).run()
       } catch (e) {
-        if (nameTaken(e)) return error(409, `Another device on this account is already called ${name}`)
+        if (nameTaken(e)) return jsonError(409, `Another device on this account is already called ${name}`)
         throw e
       }
       return json({ ok: true, name })
     }
-    return error(405, 'Method not allowed')
+    return jsonError(405, 'Method not allowed')
   }
 
   // ---- The signed-in user's devices ----
@@ -183,21 +183,21 @@ export async function handleDevices(request: Request, env: Env, path: string): P
 
   const deviceRoute = /^\/api\/devices\/([A-Za-z0-9_-]{3,40})(\/connect)?$/.exec(path)
   if (deviceRoute) {
-    requireSameOrigin(request, env)
+    requireSameOrigin(request, allowedOrigins(env))
     const user = await requireUser(request, env)
     const device = await env.DB.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').bind(deviceRoute[1], user.id).first<DeviceRow>()
     if (deviceRoute[2]) {
-      if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return error(426, 'WebSocket required')
+      if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return jsonError(426, 'WebSocket required')
       // Tell the page this device is gone for good, instead of letting it retry forever.
       if (!device) return closedSocket(RELAY_CLOSE.notOnAccount, 'Device not on this account')
       return relay(env, device.id).fetch(new Request('https://relay/browser', { headers: { upgrade: 'websocket', 'x-device-id': device.id } }))
     }
-    if (!device) return error(404, 'No such device')
+    if (!device) return jsonError(404, 'No such device')
     if (method === 'DELETE') {
       await removeDevice(env, device.id)
       return json({ ok: true })
     }
-    return error(405, 'Method not allowed')
+    return jsonError(405, 'Method not allowed')
   }
 
   return null
