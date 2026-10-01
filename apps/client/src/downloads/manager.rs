@@ -249,10 +249,6 @@ impl DownloadManager {
         events: EventBus,
         paths: &Paths,
     ) -> Arc<Self> {
-        let engine = match &source {
-            EngineSource::Fixed(engine) => Some(engine.clone()),
-            _ => None,
-        };
         let state = match source {
             EngineSource::Off => EngineState::Off,
             EngineSource::Fixed(_) => EngineState::Running,
@@ -261,7 +257,7 @@ impl DownloadManager {
         Arc::new(Self {
             db,
             source,
-            engine: RwLock::new(engine),
+            engine: RwLock::new(None),
             settings,
             notifications,
             events,
@@ -342,8 +338,8 @@ impl DownloadManager {
         tokio::spawn(async move { manager.tick_loop().await });
     }
 
-    /// Hands every download that should run to a (new) engine, and drops what the engine brought
-    /// back that the list no longer wants.
+    /// Makes a (new) engine the one in use: drops what it brought back that the list no longer
+    /// wants, and hands it every download that should run.
     fn engage_all(self: &Arc<Self>, engine: Arc<Engine>) {
         let mut items = self.items();
         let wanted: HashMap<String, bool> = items
@@ -351,7 +347,10 @@ impl DownloadManager {
             .filter(|i| !matches!(i.status, DownloadStatus::Completed | DownloadStatus::Error))
             .map(|i| (i.info_hash.to_lowercase(), i.status != DownloadStatus::Paused))
             .collect();
+        // Before anything can reach the engine, so nothing sees what it restored before that is
+        // marked as leaving.
         engine.reconcile(&wanted);
+        *self.engine.write().unwrap_or_else(|e| e.into_inner()) = Some(engine);
         let mut resumed = 0;
         for item in items.values_mut().filter(|i| i.wants_engine()) {
             self.attach(item);
@@ -414,12 +413,10 @@ impl DownloadManager {
                 self.set_transfer(|t| t.engine = EngineState::Starting);
                 match Engine::start(&paths, &network, limits).await {
                     Ok(engine) => {
-                        let engine = Arc::new(engine);
-                        *self.engine.write().unwrap_or_else(|e| e.into_inner()) = Some(engine.clone());
                         if self.stop.is_cancelled() {
                             return;
                         }
-                        self.engage_all(engine);
+                        self.engage_all(Arc::new(engine));
                         running = Some((network.clone(), index));
                         applied = Some(limits);
                         retry_at = None;
@@ -690,7 +687,7 @@ impl DownloadManager {
         let (mut item, removed) = {
             let mut items = self.items();
             let item = items.remove(&id).ok_or_else(|| not_found(id))?;
-            let removed = self.engine().map(|engine| engine.remove(&item.info_hash));
+            let removed = self.engine().map(|engine| engine.remove_by_hash(&item.info_hash));
             (item, removed)
         };
         self.changed();
@@ -818,8 +815,8 @@ impl DownloadManager {
     fn files_done(&self, item: &FilesOf, metadata: &Metadata) -> (Vec<u64>, bool) {
         if item.status == DownloadStatus::Completed {
             // Every chosen file is there. One left out may be too, if it was fetched before; its
-            // length has to do. Not the engine's count: it only has a finished download on its way
-            // out, restored with the pieces it had when the app last stopped, whatever went since.
+            // length has to do. Never the engine's count: a finished download is only in the engine
+            // on its way out, with the pieces it had when it was last checked.
             let chosen = |index: usize| item.selected_files.as_ref().is_none_or(|s| s.contains(&index));
             let folder = metadata.output_folder(&item.save_path);
             let done = (metadata.files.iter().zip(&metadata.file_sizes).enumerate())
@@ -947,7 +944,7 @@ impl DownloadManager {
         };
         self.on_metadata(id, attempt, &metadata, &cached);
         let only_files = only_files.filter(|files| files.iter().all(|&f| f < metadata.files.len()));
-        let handle = engine.add(hash, &metadata, save_path, only_files).await?;
+        let handle = engine.add(&metadata, save_path, only_files).await?;
         let shutting_down = self.shutting_down.load(Ordering::SeqCst);
         // Paused, failed or deleted while it was starting. On shutdown the engine keeps it as it is.
         let set_aside = {
@@ -966,7 +963,7 @@ impl DownloadManager {
                 }
                 Some(_) if shutting_down => return Ok(()),
                 Some(_) => engine.pause(handle),
-                None => engine.remove(&handle.info_hash().as_string()),
+                None => engine.remove(handle),
             }
         };
         let _ = set_aside.await;
@@ -1018,7 +1015,7 @@ impl DownloadManager {
                 item.clear_stats();
                 // Before the downloads are unlocked, so an attach right after waits for it to go.
                 if let (Some(handle), Some(engine)) = (item.detach(), self.engine()) {
-                    engine.remove(&handle.info_hash().as_string());
+                    engine.remove(handle);
                 }
             }
             self.persist(item);
@@ -1287,6 +1284,7 @@ mod tests {
 
     fn metadata(name: &str, files: &[&str]) -> Metadata {
         Metadata {
+            info_hash: librqbit::dht::Id20::new([0; 20]),
             torrent_bytes: Vec::new(),
             name: Some(name.into()),
             total_bytes: 0,

@@ -14,6 +14,16 @@ use magnetar::downloads::manager::{EngineSource, FileSource};
 use magnetar::paths::Paths;
 use magnetar::protocol::{DownloadStatus, PostDownloadAction};
 
+/// Engine calls return within seconds; one that doesn't fails the test, naming the call, instead
+/// of hanging it.
+macro_rules! bounded {
+    ($call:expr) => {
+        tokio::time::timeout(Duration::from_secs(30), $call)
+            .await
+            .unwrap_or_else(|_| panic!("{} never returned", stringify!($call)))
+    };
+}
+
 async fn start_app(paths: &Paths) -> Arc<App> {
     start_app_and_engine(paths).await.0
 }
@@ -60,7 +70,7 @@ async fn seed_file(folder: &Path, paths: &Paths) -> String {
     std::fs::create_dir_all(folder).unwrap();
     let file = folder.join("episode.mkv");
     std::fs::write(&file, (0..3 * 1024 * 1024).map(|i| (i % 251) as u8).collect::<Vec<u8>>()).unwrap();
-    let torrent = create_torrent(&file, CreateTorrentOptions::default(), &BlockingSpawner::new(2)).await.unwrap();
+    let torrent = bounded!(create_torrent(&file, CreateTorrentOptions::default(), &BlockingSpawner::new(2))).unwrap();
     let hash = torrent.info_hash().as_string();
     std::fs::create_dir_all(&paths.torrent_files).unwrap();
     std::fs::write(paths.torrent_files.join(format!("{hash}.torrent")), torrent.as_bytes().unwrap()).unwrap();
@@ -83,9 +93,9 @@ async fn a_torrent_file_starts_at_once_and_its_files_can_be_chosen() {
         piece_length: Some(64 * 1024),
         ..Default::default()
     };
-    let torrent = create_torrent(&pack, options, &BlockingSpawner::new(2)).await.unwrap();
+    let torrent = bounded!(create_torrent(&pack, options, &BlockingSpawner::new(2))).unwrap();
 
-    let app = start_app(&paths).await;
+    let app = bounded!(start_app(&paths));
     let added = app
         .downloads
         .add_torrent_file(torrent.as_bytes().unwrap().to_vec(), "Torrent file", Some(folder.display().to_string()))
@@ -99,24 +109,24 @@ async fn a_torrent_file_starts_at_once_and_its_files_can_be_chosen() {
     assert!(files.iter().all(|f| f.selected));
 
     // Finish it, so trimming and widening the choice can be seen not to restart it.
-    app.downloads.pause(added.id).await.unwrap();
-    app.stop().await;
-    let app = start_app(&paths).await;
+    bounded!(app.downloads.pause(added.id)).unwrap();
+    bounded!(app.stop());
+    let app = bounded!(start_app(&paths));
     wait_for(&app, added.id, DownloadStatus::Completed).await;
-    let partial = app.downloads.select_files(added.id, vec![0, 0]).await.unwrap();
+    let partial = bounded!(app.downloads.select_files(added.id, vec![0, 0])).unwrap();
     assert_eq!(partial.partial_files.map(|p| (p.selected, p.total)), Some((1, 2)));
     assert_eq!((partial.status, partial.total_bytes), (DownloadStatus::Completed, 600_000), "nothing new to fetch");
     assert!(!app.downloads.files(added.id).unwrap()[1].selected);
-    assert!(app.downloads.select_files(added.id, vec![]).await.is_err(), "at least one file");
-    assert!(app.downloads.select_files(added.id, vec![2]).await.is_err(), "no such file");
-    let all = app.downloads.select_files(added.id, vec![1, 0]).await.unwrap();
+    assert!(bounded!(app.downloads.select_files(added.id, vec![])).is_err(), "at least one file");
+    assert!(bounded!(app.downloads.select_files(added.id, vec![2])).is_err(), "no such file");
+    let all = bounded!(app.downloads.select_files(added.id, vec![1, 0])).unwrap();
     assert_eq!(all.partial_files, None, "every file chosen is not partial");
     assert_eq!(all.status, DownloadStatus::Completed, "the subtitle is already on disk");
-    // Straight after a start, the engine may still hold the torrent it restored, with every piece.
+    // Straight after a start, while the engine may still hold the torrent it restored (see `Engine::handle`).
     std::fs::remove_file(pack.join("e01.srt")).unwrap();
-    app.downloads.select_files(added.id, vec![0]).await.unwrap();
+    bounded!(app.downloads.select_files(added.id, vec![0])).unwrap();
     assert_eq!(app.downloads.files(added.id).unwrap()[1].done, 0, "a left-out file that is gone has nothing");
-    let widened = app.downloads.select_files(added.id, vec![0, 1]).await.unwrap();
+    let widened = bounded!(app.downloads.select_files(added.id, vec![0, 1])).unwrap();
     assert_ne!(widened.status, DownloadStatus::Completed, "a newly chosen missing file is fetched");
     // Nobody seeds the subtitle, so it waits for peers, in the engine.
     let subtitle_file = async {
@@ -148,9 +158,9 @@ async fn a_torrent_file_starts_at_once_and_its_files_can_be_chosen() {
     assert_eq!(app.downloads.location(added.id).unwrap(), pack);
 
     // Paused across a restart, what each file has comes from the pieces the engine saved.
-    app.downloads.pause(added.id).await.unwrap();
-    app.stop().await;
-    let app = start_app(&paths).await;
+    bounded!(app.downloads.pause(added.id)).unwrap();
+    bounded!(app.stop());
+    let app = bounded!(start_app(&paths));
     let paused = app.downloads.files(added.id).unwrap();
     assert_eq!(paused.iter().map(|f| f.done).collect::<Vec<_>>(), running.iter().map(|f| f.done).collect::<Vec<_>>());
     let refused = app.downloads.open_file(added.id, 1).err().map(|e| e.message);
@@ -160,7 +170,7 @@ async fn a_torrent_file_starts_at_once_and_its_files_can_be_chosen() {
     let again = app.downloads.add_torrent_file(torrent.as_bytes().unwrap().to_vec(), "Torrent file", None).unwrap();
     assert_eq!(again.id, added.id);
     assert!(app.downloads.add_torrent_file(b"d4:junke".to_vec(), "Torrent file", None).is_err());
-    app.stop().await;
+    bounded!(app.stop());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -168,28 +178,28 @@ async fn an_update_pauses_downloads_and_the_next_start_resumes_only_those() {
     let dir = tempfile::tempdir().unwrap();
     let folder = dir.path().join("Downloads");
     let paths = Paths::new(dir.path().join("data")).unwrap();
-    let hash = seed_file(&folder, &paths).await;
+    let hash = bounded!(seed_file(&folder, &paths));
     let bitv = paths.torrent_session.join(format!("{hash}.bitv"));
 
-    let app = start_app(&paths).await;
+    let app = bounded!(start_app(&paths));
     let added = app.downloads.add(magnet(&hash, &folder)).unwrap();
     wait_for(&app, added.id, DownloadStatus::Seeding).await;
     assert!(bitv.exists(), "the engine saves the pieces it verified");
 
-    app.downloads.pause_for_update().await;
+    bounded!(app.downloads.pause_for_update());
     assert_eq!(app.downloads.get(added.id).unwrap().status, DownloadStatus::Paused);
-    app.stop().await;
+    bounded!(app.stop());
 
     // The new version resumes what the update paused.
-    let app = start_app(&paths).await;
+    let app = bounded!(start_app(&paths));
     wait_for(&app, added.id, DownloadStatus::Seeding).await;
 
     // One the user paused is not resumed; being finished, it counts as completed and the engine
     // lets go of it, leaving the file.
-    app.downloads.pause(added.id).await.unwrap();
+    bounded!(app.downloads.pause(added.id)).unwrap();
     assert!(bitv.exists(), "a paused torrent keeps its saved pieces");
-    app.stop().await;
-    let app = start_app(&paths).await;
+    bounded!(app.stop());
+    let app = bounded!(start_app(&paths));
     wait_for(&app, added.id, DownloadStatus::Completed).await;
     for _ in 0..100 {
         if !bitv.exists() {
@@ -198,9 +208,9 @@ async fn an_update_pauses_downloads_and_the_next_start_resumes_only_those() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert!(!bitv.exists());
-    app.downloads.delete(added.id, false).await.unwrap();
+    bounded!(app.downloads.delete(added.id, false)).unwrap();
     assert!(folder.join("episode.mkv").exists());
-    app.stop().await;
+    bounded!(app.stop());
 }
 
 /// A double click: the resume lands while the engine still pauses the torrent, and must not take it
@@ -210,19 +220,20 @@ async fn a_download_resumed_while_it_pauses_runs() {
     let dir = tempfile::tempdir().unwrap();
     let folder = dir.path().join("Downloads");
     let paths = Paths::new(dir.path().join("data")).unwrap();
-    let hash = seed_file(&folder, &paths).await;
-    let (app, engine) = start_app_and_engine(&paths).await;
+    let hash = bounded!(seed_file(&folder, &paths));
+    let (app, engine) = bounded!(start_app_and_engine(&paths));
     let added = app.downloads.add(magnet(&hash, &folder)).unwrap();
     wait_for(&app, added.id, DownloadStatus::Seeding).await;
 
     // join! polls in order, so the pause has handed the torrent over before the resume starts.
-    let (paused, resumed) = tokio::join!(app.downloads.pause(added.id), async { app.downloads.resume(added.id) });
+    let (paused, resumed) =
+        bounded!(async { tokio::join!(app.downloads.pause(added.id), async { app.downloads.resume(added.id) }) });
     assert_eq!(paused.unwrap().status, DownloadStatus::Paused);
     assert_ne!(resumed.unwrap().status, DownloadStatus::Paused);
     wait_for(&app, added.id, DownloadStatus::Seeding).await;
     let torrent = engine.handle(&hash).expect("in the engine");
     assert!(!torrent.is_paused(), "seeding, not left paused");
-    app.stop().await;
+    bounded!(app.stop());
 }
 
 /// The kill switch: with an interface chosen, nothing runs until it exists, and everything stops
@@ -282,5 +293,5 @@ async fn downloads_wait_for_the_chosen_interface_and_stop_without_it() {
     app.settings.update(|s| s.network_interface = "magnetar-missing0".into());
     wait_engine(EngineState::WaitingForNetwork).await;
     wait_for(&app, added.id, DownloadStatus::Queued).await;
-    app.stop().await;
+    bounded!(app.stop());
 }
