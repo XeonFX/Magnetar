@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers'
-import { randomToken } from '@magnetar/protocol/base64'
+import { randomToken } from '@codefusion-cc/workers-crypto'
 import {
   MAX_RELAY_FRAME, RELAY_CLOSE, RELAY_PING, RELAY_PONG, unwrapFromDevice, wrapForDevice, type DeviceToRelay, type RelayToBrowser,
   type RelayToDevice,

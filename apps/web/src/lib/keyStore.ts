@@ -1,4 +1,4 @@
-import { fromBase64Url, toBase64Url } from '@magnetar/protocol/base64'
+import { base64UrlToBytes, bytesToBase64Url } from '@codefusion-cc/workers-crypto'
 import { importBrowserKey } from '@magnetar/protocol/e2e'
 
 /**
@@ -72,14 +72,15 @@ export interface PendingKey {
 }
 
 export function parkKey(kind: PendingKey['kind'], target: string, keyId: string, key: Uint8Array): void {
-  sessionStorage.setItem(PENDING, JSON.stringify({ kind, target, keyId, key: toBase64Url(key) } satisfies PendingKey))
+  sessionStorage.setItem(PENDING, JSON.stringify({ kind, target, keyId, key: bytesToBase64Url(key) } satisfies PendingKey))
 }
 
 export function parkedKey(kind: PendingKey['kind'], target: string): { keyId: string; key: Uint8Array<ArrayBuffer> } | null {
   try {
     const pending = JSON.parse(sessionStorage.getItem(PENDING) ?? 'null') as PendingKey | null
     if (!pending || pending.kind !== kind || pending.target !== target) return null
-    return { keyId: pending.keyId, key: fromBase64Url(pending.key) }
+    const key = base64UrlToBytes(pending.key)
+    return key && { keyId: pending.keyId, key }
   } catch {
     return null
   }
