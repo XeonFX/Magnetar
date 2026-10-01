@@ -110,6 +110,8 @@ builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the ser
   cached as a `.torrent` file; a torrent with no peers fails after 3 minutes. librqbit keeps its own torrent list in
   `session/` with each torrent's verified pieces (fast resume), so pausing and restarting never re-read the files; at
   start the manager reconciles that list with the database, which stays the source of truth (`Engine::reconcile`).
+  Pausing and removing run in the background; until one is done the torrent counts as leaving, so adding it again
+  waits for it and its piece counts, possibly from before the last stop, are not read.
   The peer port is forwarded with UPnP. Multi-file torrents get a folder of their own inside the save folder. Deleting files goes through the
   torrent's own file list and never removes the save folder itself. The DHT bootstraps from `dht.libtorrent.org`
   first (on some filtered networks the classic routers answer with one node repeated, which stalls the lookup) and its

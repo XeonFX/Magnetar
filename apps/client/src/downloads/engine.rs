@@ -6,13 +6,16 @@ use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
 
 use librqbit::dht::{DhtPersistenceConfig, Id20};
 use librqbit::{
     AddTorrent, AddTorrentOptions, AddTorrentResponse, DhtSessionConfig, ListenerMode, ListenerOptions, ManagedTorrent,
     ManagedTorrentState, Session, SessionOptions, SessionPersistenceConfig, TorrentStatsState,
 };
+use tokio::sync::Notify;
+use tokio::task::JoinHandle;
 
 use crate::config::VERSION;
 use crate::paths::Paths;
@@ -28,6 +31,7 @@ pub type TorrentHandle = Arc<ManagedTorrent>;
 
 /// What a torrent is, known once its metadata has been fetched (or read from the cache).
 pub struct Metadata {
+    pub info_hash: Id20,
     pub torrent_bytes: Vec<u8>,
     pub name: Option<String>,
     pub total_bytes: u64,
@@ -42,7 +46,8 @@ pub struct Metadata {
 impl Metadata {
     /// Parses a cached .torrent file.
     pub fn from_torrent(bytes: Vec<u8>) -> anyhow::Result<Self> {
-        let described = describe(&librqbit::torrent_from_bytes(&bytes)?.info.data.validate()?, Vec::new(), Vec::new());
+        let torrent = librqbit::torrent_from_bytes(&bytes)?;
+        let described = describe(torrent.info_hash, &torrent.info.data.validate()?, Vec::new(), Vec::new());
         Ok(Self { torrent_bytes: bytes, ..described })
     }
 
@@ -61,12 +66,14 @@ impl Metadata {
 }
 
 fn describe<B: AsRef<[u8]>>(
+    info_hash: Id20,
     info: &librqbit::ValidatedTorrentMetaV1Info<B>,
     torrent_bytes: Vec<u8>,
     seen_peers: Vec<SocketAddr>,
 ) -> Metadata {
     let (files, file_sizes) = info.iter_file_details().map(|f| (f.filename.to_pathbuf(), f.len)).unzip();
     Metadata {
+        info_hash,
         torrent_bytes,
         name: info.name().map(|n| n.into_owned()),
         total_bytes: info.lengths().total_length(),
@@ -140,6 +147,47 @@ fn to_bps(limit: u64) -> Option<NonZeroU32> {
 /// were. The download manager's database stays the source of truth: `reconcile` drops the rest.
 pub struct Engine {
     session: Arc<Session>,
+    /// Torrents being paused or removed in the background, counted by info hash. An add of one
+    /// waits for that instead of taking it up halfway, and `handle` leaves it out: one restored on
+    /// its way out still counts the pieces it had when the app last stopped, whatever went since.
+    leaving: Mutex<HashMap<Id20, usize>>,
+    /// Told each time a torrent is done leaving.
+    left: Notify,
+}
+
+/// What `set_aside` does with a torrent.
+enum Aside {
+    Pause,
+    Remove,
+}
+
+/// How long a pause or removal may take before adds of the torrent stop waiting for it.
+const SET_ASIDE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// A torrent on its way out of use, until dropped.
+struct Leaving {
+    engine: Arc<Engine>,
+    hash: Id20,
+}
+
+impl Leaving {
+    fn new(engine: &Arc<Engine>, hash: Id20) -> Self {
+        *engine.leaving().entry(hash).or_default() += 1;
+        Self { engine: engine.clone(), hash }
+    }
+}
+
+impl Drop for Leaving {
+    fn drop(&mut self) {
+        let mut leaving = self.engine.leaving();
+        let Some(count) = leaving.get_mut(&self.hash) else { return };
+        *count -= 1;
+        if *count == 0 {
+            leaving.remove(&self.hash);
+            drop(leaving);
+            self.engine.left.notify_waiters();
+        }
+    }
 }
 
 impl Engine {
@@ -168,14 +216,16 @@ impl Engine {
             ..Default::default()
         };
         let session = Session::new_with_opts(paths.data_dir.join("downloads"), options).await?;
-        Ok(Self { session })
+        Ok(Self { session, leaving: Mutex::default(), left: Notify::new() })
     }
 
     /// Fetches a magnet's metadata from peers. Can take minutes, or forever for a dead torrent.
     pub async fn resolve(&self, magnet: &str) -> anyhow::Result<Metadata> {
         let options = AddTorrentOptions { list_only: true, ..Default::default() };
         match self.session.add_torrent(AddTorrent::from_url(magnet), Some(options)).await? {
-            AddTorrentResponse::ListOnly(listed) => Ok(describe(&listed.info, listed.torrent_bytes.to_vec(), listed.seen_peers)),
+            AddTorrentResponse::ListOnly(listed) => {
+                Ok(describe(listed.info_hash, &listed.info, listed.torrent_bytes.to_vec(), listed.seen_peers))
+            }
             _ => anyhow::bail!("The engine did not return the torrent's metadata"),
         }
     }
@@ -189,6 +239,7 @@ impl Engine {
         save_path: &Path,
         only_files: Option<&[usize]>,
     ) -> anyhow::Result<TorrentHandle> {
+        self.wait_until_left(metadata.info_hash).await;
         let options = AddTorrentOptions {
             overwrite: true,
             only_files: only_files.map(<[usize]>::to_vec),
@@ -214,9 +265,28 @@ impl Engine {
         Ok(handle)
     }
 
-    /// The torrent the engine has for this info hash, running or paused.
+    /// The torrent the engine has for this info hash, running or paused, unless it is on its way out.
     pub fn handle(&self, info_hash: &str) -> Option<TorrentHandle> {
-        self.session.get(Id20::from_str(info_hash).ok()?.into())
+        let hash = Id20::from_str(info_hash).ok()?;
+        if self.leaving().contains_key(&hash) {
+            return None;
+        }
+        self.session.get(hash.into())
+    }
+
+    fn leaving(&self) -> MutexGuard<'_, HashMap<Id20, usize>> {
+        self.leaving.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    async fn wait_until_left(&self, hash: Id20) {
+        loop {
+            // Created before looking, so a torrent that leaves in between still wakes it.
+            let left = self.left.notified();
+            if !self.leaving().contains_key(&hash) {
+                return;
+            }
+            left.await;
+        }
     }
 
     /// Downloads only these files of a running torrent from now on.
@@ -261,43 +331,74 @@ impl Engine {
     }
 
     /// Pauses a torrent but keeps it, and the pieces it has verified, for a quick resume. A torrent
-    /// that has failed can't pause, so it is removed instead.
-    pub async fn pause(&self, handle: &TorrentHandle) {
-        if handle.is_paused() || handle.with_state(|s| matches!(s, ManagedTorrentState::Paused(_))) {
-            return;
-        }
-        if let Err(error) = self.session.pause(handle).await {
-            let hash = handle.info_hash().as_string();
-            tracing::warn!("Could not pause {hash} ({error:#}); removing it instead");
-            self.remove(&hash).await;
-        }
+    /// that has failed can't pause, so it is removed instead. Done in the background; the task ends
+    /// once it is.
+    pub fn pause(self: &Arc<Self>, handle: TorrentHandle) -> JoinHandle<()> {
+        self.set_aside([(handle, Aside::Pause)])
     }
 
     /// Stops and forgets a torrent, leaving its files. The engine's own file deletion also removes
     /// the output folder once empty, which can be the user's download folder, so files go through
-    /// `delete_files` instead.
-    pub async fn remove(&self, info_hash: &str) {
-        let Ok(hash) = Id20::from_str(info_hash) else { return };
-        if self.session.get(hash.into()).is_none() {
-            return;
-        }
-        if let Err(error) = self.session.delete(hash.into(), false).await {
-            tracing::warn!("Removing {info_hash} reported an error: {error:#}");
-        }
+    /// `delete_files` instead. Done in the background; the task ends once it is.
+    pub fn remove(self: &Arc<Self>, handle: TorrentHandle) -> JoinHandle<()> {
+        self.set_aside([(handle, Aside::Remove)])
+    }
+
+    /// `remove` by info hash, for a torrent the engine may or may not have.
+    pub fn remove_by_hash(self: &Arc<Self>, info_hash: &str) -> JoinHandle<()> {
+        let handle = Id20::from_str(info_hash).ok().and_then(|hash| self.session.get(hash.into()));
+        self.set_aside(handle.map(|handle| (handle, Aside::Remove)))
     }
 
     /// Brings the torrents the engine restored in line with the download list: `wanted` maps each
     /// info hash (lowercase hex) to whether it should run. The rest are removed, and those that
-    /// should not run are paused.
-    pub async fn reconcile(&self, wanted: &HashMap<String, bool>) {
+    /// should not run are paused, in the background.
+    pub fn reconcile(self: &Arc<Self>, wanted: &HashMap<String, bool>) {
         let handles: Vec<TorrentHandle> = self.session.with_torrents(|torrents| torrents.map(|(_, h)| h.clone()).collect());
-        for handle in handles {
-            let hash = handle.info_hash().as_string();
-            match wanted.get(&hash) {
-                None => self.remove(&hash).await,
-                Some(false) => self.pause(&handle).await,
-                Some(true) => {}
+        let aside = handles
+            .into_iter()
+            .filter_map(|handle| match wanted.get(&handle.info_hash().as_string()) {
+                None => Some((handle, Aside::Remove)),
+                Some(false) => Some((handle, Aside::Pause)),
+                Some(true) => None,
+            })
+            .collect::<Vec<_>>();
+        self.set_aside(aside);
+    }
+
+    /// Pauses or removes these torrents one after another, on a task of its own. Each counts as
+    /// leaving from this call until it is done, so an add started meanwhile never takes it up halfway.
+    fn set_aside(self: &Arc<Self>, torrents: impl IntoIterator<Item = (TorrentHandle, Aside)>) -> JoinHandle<()> {
+        let torrents: Vec<_> =
+            torrents.into_iter().map(|(handle, aside)| (Leaving::new(self, handle.info_hash()), handle, aside)).collect();
+        let engine = self.clone();
+        tokio::spawn(async move {
+            for (_leaving, handle, aside) in torrents {
+                let done = match aside {
+                    Aside::Pause => tokio::time::timeout(SET_ASIDE_TIMEOUT, engine.pause_now(&handle)).await,
+                    Aside::Remove => tokio::time::timeout(SET_ASIDE_TIMEOUT, engine.remove_now(&handle)).await,
+                };
+                if done.is_err() {
+                    let hash = handle.info_hash().as_string();
+                    tracing::warn!("The engine took over {SET_ASIDE_TIMEOUT:?} to set {hash} aside; going on");
+                }
             }
+        })
+    }
+
+    async fn pause_now(&self, handle: &TorrentHandle) {
+        if handle.is_paused() || handle.with_state(|s| matches!(s, ManagedTorrentState::Paused(_))) {
+            return;
+        }
+        if let Err(error) = self.session.pause(handle).await {
+            tracing::warn!("Could not pause {} ({error:#}); removing it instead", handle.info_hash().as_string());
+            self.remove_now(handle).await;
+        }
+    }
+
+    async fn remove_now(&self, handle: &TorrentHandle) {
+        if let Err(error) = self.session.delete(handle.id().into(), false).await {
+            tracing::warn!("Removing {} reported an error: {error:#}", handle.info_hash().as_string());
         }
     }
 
