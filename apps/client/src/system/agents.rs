@@ -581,6 +581,11 @@ mod tests {
 
         use super::*;
 
+        /// Linux won't run a file a process has open for writing, and a command one test starts
+        /// inherits another test's script while it is being written ("Text file busy"). So the tests
+        /// write and run their fake commands one at a time.
+        static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
         /// A stand-in for an agent's command that logs how it was run.
         fn fake(env: &Environment, dir: &Path, program: &str, script: &str) -> PathBuf {
             let log = dir.join(format!("{program}.log"));
@@ -592,6 +597,7 @@ mod tests {
 
         #[tokio::test]
         async fn each_command_agent_replaces_any_earlier_entry() {
+            let _turn = ONE_AT_A_TIME.lock().await;
             let (dir, env) = scratch();
             let expected = [
                 (
@@ -616,6 +622,7 @@ mod tests {
 
         #[tokio::test]
         async fn a_failing_command_reports_its_last_line() {
+            let _turn = ONE_AT_A_TIME.lock().await;
             let (dir, env) = scratch();
             fake(
                 &env,
@@ -629,6 +636,7 @@ mod tests {
 
         #[tokio::test]
         async fn a_command_that_hangs_is_given_up_on() {
+            let _turn = ONE_AT_A_TIME.lock().await;
             let (dir, env) = scratch();
             fake(&env, dir.path(), "gemini", "exec sleep 60");
             let started = std::time::Instant::now();
