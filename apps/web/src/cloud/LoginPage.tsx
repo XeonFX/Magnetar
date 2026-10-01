@@ -9,6 +9,11 @@ import { useAccount } from './CloudApp.tsx'
 import { CloudFrame } from './CloudFrame.tsx'
 import { DownloadApp } from './DownloadApp.tsx'
 
+/** What to say about a return from Google that brought no credential; a cancelled one says nothing. */
+const RETURN_ERRORS = { expired: 'cloud.signInExpired', failed: 'cloud.signInFailed' } as const
+/** What to say when the Worker refuses the credential: 503 when Google's keys could not be read. */
+const STATUS_ERRORS: Partial<Record<number, 'cloud.signInFailed' | 'cloud.signInUnavailable'>> = { 401: 'cloud.signInFailed', 503: 'cloud.signInUnavailable' }
+
 function safeNext(value: string | null): string {
   return value && value.startsWith('/') && !value.startsWith('//') ? value : '/'
 }
@@ -32,13 +37,13 @@ export function LoginPage() {
     if (!result) return
     // Closing Google's account chooser is a choice, not an error to report.
     if ('error' in result) {
-      if (result.error !== 'cancelled') setError(t(result.error === 'expired' ? 'cloud.signInExpired' : 'cloud.signInFailed'))
+      if (result.error !== 'cancelled') setError(t(RETURN_ERRORS[result.error]))
       return
     }
     setBusy(true)
     cloud.completeSignIn(result.credential).then(refresh, e => {
-      const status = e instanceof CloudError ? e.status : 0
-      setError(status === 401 ? t('cloud.signInFailed') : status === 503 ? t('cloud.signInUnavailable') : errorMessage(e))
+      const key = e instanceof CloudError ? STATUS_ERRORS[e.status] : undefined
+      setError(key ? t(key) : errorMessage(e))
     }).finally(() => setBusy(false))
   }, [refresh, t])
 
@@ -49,7 +54,8 @@ export function LoginPage() {
     setError(null)
     try {
       const { nonce, clientId } = await cloud.startSignIn()
-      if (!startGoogleSignIn({ clientId, nonce, returnPath: `/login?next=${encodeURIComponent(next)}`, locale: language })) {
+      // Google returns to this page, /login with its `next`.
+      if (!startGoogleSignIn({ clientId, nonce, locale: language })) {
         setError(t('cloud.signInFailed'))
         setBusy(false)
       }
