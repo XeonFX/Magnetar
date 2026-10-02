@@ -4,6 +4,8 @@ import { defineConfig } from 'vitest/config'
 // Playwright's specs end in .e2e.ts, so neither picks them up.
 export default defineConfig({
   test: {
+    // Two at a time on a developer's Mac, which other sessions share; CI keeps Vitest's default.
+    maxWorkers: process.env.CI ? undefined : 2,
     projects: [
       {
         test: {
