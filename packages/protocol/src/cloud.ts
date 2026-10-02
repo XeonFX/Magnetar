@@ -63,8 +63,11 @@ export type PairPollResponse =
   | { state: 'expired' }
   | { state: 'approved'; deviceId: string; deviceToken: string; deviceName: string; accountEmail: string }
 
-/** Where Magnetar is developed and released (GitHub owner/name). */
-export const MAGNETAR_REPO = 'XeonFX/Magnetar'
+/**
+ * Where Magnetar is developed and released (GitHub owner/name). Clients built before the move to codefusion-cc ask
+ * for XeonFX/Magnetar, which GitHub redirects here as long as no repository takes that name again.
+ */
+export const MAGNETAR_REPO = 'codefusion-cc/magnetar'
 
 export type ReleasePlatform = 'macos' | 'windows' | 'linux'
 export type ReleaseArch = 'arm64' | 'x64'

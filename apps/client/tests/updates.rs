@@ -45,7 +45,7 @@ async fn releases(axum::extract::State(github): axum::extract::State<Shared>, he
 /// A GitHub on a free port, and its address.
 async fn github() -> (Shared, String) {
     let shared = Shared::default();
-    let router = Router::new().route("/repos/XeonFX/Magnetar/releases", get(releases)).with_state(shared.clone());
+    let router = Router::new().route("/repos/codefusion-cc/magnetar/releases", get(releases)).with_state(shared.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
@@ -71,7 +71,7 @@ fn release(tag: &str, extra: Value) -> Value {
         "tag_name": tag,
         "name": format!("Magnetar {tag}"),
         "body": "## New\n\n- Build version in About (#30)\n- Changelog panel (#31)\n- Third thing (#32)",
-        "html_url": format!("https://github.com/XeonFX/Magnetar/releases/tag/{tag}"),
+        "html_url": format!("https://github.com/codefusion-cc/magnetar/releases/tag/{tag}"),
         "published_at": "2026-10-02T06:02:32Z",
         "draft": false,
         "prerelease": false,

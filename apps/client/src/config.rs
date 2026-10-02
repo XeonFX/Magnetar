@@ -43,8 +43,10 @@ pub static CLOUD_URL: LazyLock<String> = LazyLock::new(|| {
     std::env::var("MAGNETAR_CLOUD_URL").unwrap_or_else(|_| DEFAULT_CLOUD_URL.to_owned()).trim_end_matches('/').to_owned()
 });
 
+/// Where releases come from. Clients built before the move to codefusion-cc ask for XeonFX/Magnetar, which GitHub
+/// redirects here as long as no repository takes that name again.
 pub static GITHUB_REPO: LazyLock<String> =
-    LazyLock::new(|| std::env::var("MAGNETAR_GITHUB_REPO").unwrap_or_else(|_| "XeonFX/Magnetar".to_owned()));
+    LazyLock::new(|| std::env::var("MAGNETAR_GITHUB_REPO").unwrap_or_else(|_| "codefusion-cc/magnetar".to_owned()));
 
 pub static USER_AGENT: LazyLock<String> = LazyLock::new(|| format!("Magnetar/{VERSION}"));
 
