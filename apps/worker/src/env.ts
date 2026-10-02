@@ -1,3 +1,4 @@
+import type { AssetsBinding } from '@codefusion-cc/workers-http'
 import type { FailureReport } from '@magnetar/protocol/cloud'
 import type { DeviceRelay } from './relay.ts'
 
@@ -8,7 +9,7 @@ export interface ConsoleTelemetry {
 export interface Env {
   DB: D1Database
   RELAY: DurableObjectNamespace<DeviceRelay>
-  ASSETS: Fetcher
+  ASSETS: AssetsBinding
   PAIR_LIMITER: RateLimit
   AUTH_LIMITER: RateLimit
   TELEMETRY_LIMITER: RateLimit

@@ -1,9 +1,10 @@
 import { createExecutionContext } from 'cloudflare:test'
 import { env } from 'cloudflare:workers'
+import { testAssets } from '@codefusion-cc/workers-http/testing'
 import { describe, expect, test } from 'vitest'
 import worker from '../src/index.ts'
 import type { Env } from '../src/env.ts'
-import { call, signIn } from './client.ts'
+import { call, ORIGIN, signIn } from './client.ts'
 
 const production = { ...env, APP_ENV: 'production', ORIGIN: 'https://magnetar.codefusion.cc' } as Env
 /** The Worker with other bindings than the dev environment's. */
@@ -19,34 +20,39 @@ describe('the website API', () => {
   })
 
   test("pages are the dashboard's one page, at the address exactly as written", async () => {
-    // The assets redirect a path to their own spelling (a search's + becomes %2B, a plus), so the Worker asks them
-    // for the page itself and leaves the address alone.
-    const asked: string[] = []
-    const assets = { fetch: async (input: RequestInfo | URL) => {
-      asked.push(new URL(input instanceof Request ? input.url : input).pathname)
-      return new Response('asset', { headers: { 'content-type': 'text/html' } })
-    } } as unknown as Fetcher
-    const get = async (path: string) => {
-      asked.length = 0
-      const response = await fetchWith({ ...env, ASSETS: assets } as Env, new Request(`http://localhost:8790${path}`))
-      return { response, asked: [...asked] }
+    // The assets answer a path that is no file with a 404 (no not_found_handling in wrangler.jsonc), so the Worker
+    // answers it with the page and the address keeps a search's +, which single-page-application assets respell %2B.
+    const files = { '/index.html': '<!doctype html><title>Magnetar</title>', '/sw.js': 'self.skipWaiting()', '/icon-192.png': 'png' }
+    const get = async (path: string, init?: RequestInit) => {
+      const assets = testAssets({ files })
+      const response = await fetchWith({ ...env, ASSETS: assets }, new Request(`${ORIGIN}${path}`, init))
+      return { response, paths: assets.paths }
     }
-    for (const path of ['/', '/MacBook-Pro', '/MacBook-Pro/search/house+of+the+dragon?res=720p', '/MacBook-Pro/search/AC%2FDC+%2B:1', '/MacBook-Pro/search/s01e01+1080p.mkv', '/MacBook-Pro/search/...', '/MacBook-Pro/search?q=..&res=720p', '/d/d_x/settings']) {
-      const { response, asked } = await get(path)
-      expect([response.status, await response.text(), asked], path).toEqual([200, 'asset', ['/']])
+    for (const path of ['/MacBook-Pro', '/MacBook-Pro/search/house+of+the+dragon?res=720p', '/MacBook-Pro/search/AC%2FDC+%2B:1', '/MacBook-Pro/search/s01e01+1080p.mkv', '/MacBook-Pro/search/house.of.the.dragon', '/MacBook-Pro/search/...', '/MacBook-Pro/search?q=..&res=720p', '/d/d_x/settings']) {
+      const { response, paths } = await get(path)
+      expect([response.status, await response.text(), paths], path).toEqual([200, files['/index.html'], [path, '/']])
       expect(response.headers.get('x-content-type-options')).toBe('nosniff')
     }
-    // Only reading a page is a page; nothing goes to the assets for anything else.
-    asked.length = 0
-    const posted = await fetchWith({ ...env, ASSETS: assets } as Env, new Request('http://localhost:8790/MacBook-Pro', { method: 'POST' }))
-    expect([posted.status, await posted.json(), asked]).toEqual([405, { error: 'Method not allowed' }, []])
-    // Files are the assets' own; the API's and the console's unknown paths stay JSON 404s.
-    expect((await get('/sw.js')).asked).toEqual(['/sw.js'])
-    expect((await get('/icon-192.png')).asked).toEqual(['/icon-192.png'])
-    for (const path of ['/api/nope', '/_console/nope']) {
-      const { response, asked } = await get(path)
-      expect([response.status, await response.json(), asked], path).toEqual([404, { error: 'Not found' }, []])
+    // Files are the assets' own.
+    for (const [path, file] of [['/', '/index.html'], ['/sw.js', '/sw.js'], ['/icon-192.png', '/icon-192.png']] as const) {
+      const { response, paths } = await get(path)
+      expect([response.status, await response.text(), paths], path).toEqual([200, files[file], [path]])
     }
+    // Only reading a page is a page; nothing goes to the assets for anything else.
+    const posted = await get('/MacBook-Pro', { method: 'POST' })
+    expect([posted.response.status, await posted.response.json(), posted.paths])
+      .toEqual([405, { error: 'Method not allowed.', code: 'method_not_allowed' }, []])
+    // The API's and the console's unknown paths stay JSON 404s.
+    for (const path of ['/api/nope', '/_console/nope']) {
+      const { response, paths } = await get(path)
+      expect([response.status, await response.json(), paths], path).toEqual([404, { error: 'Not found' }, []])
+    }
+  })
+
+  test('a page the assets cannot serve is a 500 that reveals nothing', async () => {
+    const assets = testAssets({ fail: new Error('assets unreachable: /Volumes/secret') })
+    const response = await fetchWith({ ...env, ASSETS: assets }, new Request(`${ORIGIN}/MacBook-Pro`))
+    expect([response.status, await response.json()]).toEqual([500, { error: 'Something went wrong. Try again.', code: 'server_error' }])
   })
 
   test('app-config tells the page it is the cloud site, with dev sign-in only in development', async () => {
