@@ -16,6 +16,9 @@ anyhow = "1"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws"] }
 base64 = "0.22"
+# Deleting a torrent's files through a handle on its save folder (downloads::engine::delete_files).
+cap-fs-ext = "4"
+cap-std = "4"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 ed25519-dalek = "2"
 futures = "0.3"
