@@ -2,7 +2,7 @@ import { base58ToBytes } from '@codefusion-cc/base58'
 import { env } from 'cloudflare:workers'
 import { describe, expect, test } from 'vitest'
 import { handleDevices } from '../src/devices.ts'
-import { approve, call, deviceAuth, freshIp, listDevices, ORIGIN, pairDevice, poll, signIn, startPairing, type User, userId } from './client.ts'
+import { approve, call, deviceAuth, freshIp, insertDevice, listDevices, ORIGIN, pairDevice, poll, signIn, startPairing, type User, userId } from './client.ts'
 
 /** Whether `id` is `prefix` and then `bytes` random bytes in base58, as ids people see are. */
 const isBase58Id = (id: string, prefix: string, bytes: number) => id.startsWith(prefix) && base58ToBytes(id.slice(prefix.length), bytes) !== null
@@ -64,8 +64,7 @@ describe('pairing', () => {
   test('a device paired while ids were base64url keeps working', async () => {
     const user = await signIn()
     const legacyId = 'd_ZIZ0-ac6m_g2TvpD'
-    await env.DB.prepare('INSERT INTO devices (id, user_id, name, platform, version, token_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .bind(legacyId, await userId(user), 'Old Mac', 'macos', '1.0.0', 'x', Date.now()).run()
+    await insertDevice(legacyId, await userId(user), 'Old Mac', Date.now())
     expect(await listDevices(user)).toEqual([expect.objectContaining({ id: legacyId, name: 'Old Mac' })])
     const connect = await call(`/api/devices/${legacyId}/connect`, { headers: { ...user.headers, upgrade: 'websocket' } })
     expect(connect.status).toBe(101)

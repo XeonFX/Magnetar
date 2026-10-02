@@ -14,10 +14,8 @@
     "directory": "../web/dist",
     "binding": "ASSETS",
     // No not_found_handling: a path that is no file reaches the Worker, which answers it with the dashboard's page
-    // at the address as written (serveSinglePageApp from @codefusion-cc/workers-http). Files never invoke the Worker,
-    // except the console's source maps (dist/_console/): only the Worker reads them, and it answers 404 there.
-    // The default html_handling serves index.html at / (the page serveSinglePageApp asks for) and answers /index
-    // itself, a word device names may not take (packages/protocol/src/device-names.json).
+    // (docs/ARCHITECTURE.md). The default html_handling answers /index itself, a reserved device name. Only the
+    // Worker reads the console's source maps (dist/_console/), and it answers 404 there.
     "run_worker_first": ["/_console/*"]
   },
   "d1_databases": [

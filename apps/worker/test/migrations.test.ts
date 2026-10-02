@@ -2,7 +2,7 @@ import { env } from 'cloudflare:workers'
 import { describe, expect, test } from 'vitest'
 import { isDeviceName } from '@magnetar/protocol/device-name'
 import rules from '../../../packages/protocol/src/device-names.json'
-import { signIn, userId } from './client.ts'
+import { insertDevice, signIn, userId } from './client.ts'
 
 /** Runs a migration again over rows written as they were before it. */
 async function rerun(name: string) {
@@ -10,16 +10,11 @@ async function rerun(name: string) {
   for (const query of migration.queries) await env.DB.prepare(query).run()
 }
 
-/** A device row as it was written before a migration, bypassing the Worker's name rules. */
-const insertDevice = (id: string, owner: string, name: string, createdAt: number) =>
-  env.DB.prepare('INSERT INTO devices (id, user_id, name, platform, version, token_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .bind(id, owner, name, 'macos', '1.0.0', `hash-${id}`, createdAt).run()
-
 describe('0002: device names become addresses', () => {
   test('spells every existing name as an address, unique per account, oldest first', async () => {
     const [user, other] = await Promise.all([signIn().then(userId), signIn().then(userId)])
     await env.DB.prepare('DROP INDEX devices_user_name').run()
-    const rows: [string, string, string, number][] = [
+    const rows: Parameters<typeof insertDevice>[] = [
       ['d_m1', user, "Krystian's MacBook Pro", 1],
       ['d_m2', user, 'Studio Mac', 2],
       ['d_m3', user, 'studio   mac', 3],
@@ -56,7 +51,7 @@ describe('0002: device names become addresses', () => {
 describe('0003: index becomes the website\'s own word', () => {
   test('a device named index in any case gets -device, or the first free -2, -3… on its account', async () => {
     const [user, other] = await Promise.all([signIn().then(userId), signIn().then(userId)])
-    const rows: [string, string, string, number][] = [
+    const rows: Parameters<typeof insertDevice>[] = [
       ['d_i1', user, 'Index', 1],
       ['d_i2', user, 'index-DEVICE', 2],
       ['d_i3', user, 'Index-device-2', 3],

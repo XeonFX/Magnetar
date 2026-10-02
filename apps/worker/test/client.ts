@@ -47,7 +47,13 @@ export async function signIn(): Promise<User> {
 }
 
 /** The id of `user`'s account. */
-export const userId = async (user: User) => (await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(user.email).first<{ id: string }>())!.id
+export const userId = async (user: User) =>
+  (await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(user.email).first<{ id: string }>())!.id
+
+/** A device row written straight to D1, bypassing the Worker's name rules (as rows written before a migration). */
+export const insertDevice = (id: string, owner: string, name: string, createdAt: number) =>
+  env.DB.prepare('INSERT INTO devices (id, user_id, name, platform, version, token_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .bind(id, owner, name, 'macos', '1.0.0', `hash-${id}`, createdAt).run()
 
 interface Pairing {
   pairingId: string

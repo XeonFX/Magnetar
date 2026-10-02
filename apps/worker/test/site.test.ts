@@ -36,7 +36,7 @@ describe('the website API', () => {
     // Files are the assets' own.
     for (const [path, file] of [['/', '/index.html'], ['/sw.js', '/sw.js'], ['/icon-192.png', '/icon-192.png']] as const) {
       const { response, paths } = await get(path)
-      expect([response.status, new TextDecoder().decode(await response.arrayBuffer()), paths], path).toEqual([200, files[file], [path]])
+      expect([response.status, await response.text(), paths], path).toEqual([200, files[file], [path]])
     }
     // Only reading a page is a page; nothing goes to the assets for anything else.
     const posted = await get('/MacBook-Pro', { method: 'POST' })
