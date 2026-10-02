@@ -81,3 +81,58 @@ jobs:
         with:
           name: e2e-traces
           path: apps/e2e/test-results
+
+  # Every merge to main goes live on magnetar.codefusion.cc once every check above passed, so the website never runs
+  # an older build than main. CodeFusion Console reads what runs from the deployed version.json, and the outcome of
+  # each deploy from this job's GitHub deployment.
+  deploy:
+    name: Deploy magnetar.codefusion.cc
+    needs: [check, e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://magnetar.codefusion.cc
+    # One deploy at a time, never cancelled once started (it may have migrated the database). Merges that land
+    # meanwhile wait; only the newest of them runs.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    defaults:
+      run:
+        working-directory: apps/worker
+    steps:
+      - name: Require the deploy token
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::The production environment's CLOUDFLARE_API_TOKEN secret is not set; see docs/DEPLOY.md"
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+        working-directory: .
+      # Stamps apps/web/dist/version.json with this commit (GITHUB_SHA), which the console and open pages read.
+      - run: npm run build -w @magnetar/web
+        working-directory: .
+      # Before the Worker, so the new code never meets the old schema. Migrations only add, so the running Worker
+      # keeps working on the new one meanwhile.
+      - name: Apply D1 migrations
+        run: npx wrangler d1 migrations apply magnetar --remote
+      - name: Deploy the Worker
+        run: npx wrangler deploy --message "${GITHUB_SHA::7} ${GITHUB_EVENT_NAME} by ${GITHUB_ACTOR}"
+      - name: The website serves this commit
+        run: |
+          for attempt in $(seq 1 12); do
+            deployed="$(curl -sf -H 'cache-control: no-cache' "https://magnetar.codefusion.cc/version.json?$attempt" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).commit' || true)"
+            case "$GITHUB_SHA" in "$deployed"*) [ -n "$deployed" ] && echo "Live: $deployed" && exit 0 ;; esac
+            echo "Still serving ${deployed:-nothing}; waiting"
+            sleep 5
+          done
+          echo "::error::magnetar.codefusion.cc does not serve ${GITHUB_SHA::7} a minute after the deploy"
+          exit 1
