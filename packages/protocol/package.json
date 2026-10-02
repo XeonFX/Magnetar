@@ -20,7 +20,7 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
-    "@codefusion-cc/workers-crypto": "^1.0.0",
+    "@codefusion-cc/workers-crypto": "^0.1.0",
     "zod": "^4.6.5"
   }
 }
