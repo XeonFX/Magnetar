@@ -270,7 +270,7 @@ describe('the relay and the account session that opened a dashboard', () => {
     // And the signed-out browser cannot open a new one: it is told it is signed out, and the device hears nothing.
     expect(await (await openSocket(connectBrowser(user, device.deviceId))).closed).toMatchObject({ code: RELAY_CLOSE.signedOut })
     // Signing the account out everywhere then closes the other dashboard, and tells the device of it once.
-    await env.RELAY.getByName(device.deviceId).signOut(null)
+    await env.RELAY.getByName(device.deviceId).signOut()
     expect(await theirs.page.closed).toMatchObject({ code: RELAY_CLOSE.signedOut })
     expect(await app.nextJson()).toEqual({ t: 'close', c: theirs.connectionId })
     await settle()

@@ -20,14 +20,11 @@ interface UserRow {
 
 const toAccount = (u: UserRow): AccountDto => ({ id: u.id, email: u.email, name: u.name, picture: u.picture })
 
-/** The signed-in user and the session (its hash, as the sessions table keys it), or null. */
-export interface Session {
-  user: UserRow
-  tokenHash: string
-}
-
-/** The browser's session, or null. Sessions slide: each use within the last half extends them. */
-export async function currentSession(request: Request, env: Env): Promise<Session | null> {
+/**
+ * The signed-in user with the hash of the session (as the sessions table keys it), or null. Sessions slide: each use
+ * within the last half extends them.
+ */
+export async function currentUser(request: Request, env: Env): Promise<(UserRow & { tokenHash: string }) | null> {
   const token = getCookie(request, SESSION_COOKIE)
   if (!token || token.length > 100) return null
   const tokenHash = await sha256(token, 'base64url')
@@ -37,10 +34,8 @@ export async function currentSession(request: Request, env: Env): Promise<Sessio
   if (row.expires_at - Date.now() < (SESSION_DAYS / 2) * 86_400_000) {
     await env.DB.prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?').bind(Date.now() + SESSION_DAYS * 86_400_000, tokenHash).run()
   }
-  return { user: row, tokenHash }
+  return { id: row.id, email: row.email, name: row.name, picture: row.picture, tokenHash }
 }
-
-export const currentUser = async (request: Request, env: Env): Promise<UserRow | null> => (await currentSession(request, env))?.user ?? null
 
 export async function requireUser(request: Request, env: Env): Promise<UserRow> {
   const user = await currentUser(request, env)

@@ -4,7 +4,7 @@ import type { CloudDeviceDto, PairApproveResponse, PairingInfoDto, PairPollRespo
 import { randomToken } from '@codefusion-cc/workers-crypto'
 import { toDeviceName, uniqueDeviceName } from '@magnetar/protocol/device-name'
 import { RELAY_CLOSE } from '@magnetar/protocol/relay'
-import { currentSession, liveSessions, requireUser } from './auth.ts'
+import { currentUser, liveSessions, requireUser } from './auth.ts'
 import { allowedOrigins, marks, MAX_BODY, type Env } from './env.ts'
 
 const PAIRING_MS = 10 * 60_000
@@ -64,7 +64,7 @@ export async function deviceIds(env: Env, column: 'id' | 'user_id', values: stri
  */
 export async function signOutDashboards(env: Env, userIds: string[], sessions?: string[]): Promise<void> {
   try {
-    await Promise.all((await deviceIds(env, 'user_id', userIds)).map(id => relay(env, id).signOut(sessions ?? null)))
+    await Promise.all((await deviceIds(env, 'user_id', userIds)).map(id => relay(env, id).signOut(sessions)))
   } catch (e) {
     console.error('Could not close the signed-out dashboards', e)
   }
@@ -76,15 +76,15 @@ export async function signOutDashboards(env: Env, userIds: string[], sessions?: 
  */
 async function connectDashboard(request: Request, env: Env, deviceId: string): Promise<Response> {
   if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return jsonError(426, 'WebSocket required')
-  const session = await currentSession(request, env)
-  if (!session) return closedSocket(RELAY_CLOSE.signedOut, 'Signed out')
-  const device = await env.DB.prepare('SELECT id FROM devices WHERE id = ? AND user_id = ?').bind(deviceId, session.user.id).first<{ id: string }>()
+  const user = await currentUser(request, env)
+  if (!user) return closedSocket(RELAY_CLOSE.signedOut, 'Signed out')
+  const device = await env.DB.prepare('SELECT id FROM devices WHERE id = ? AND user_id = ?').bind(deviceId, user.id).first<{ id: string }>()
   if (!device) return closedSocket(RELAY_CLOSE.notOnAccount, 'Device not on this account')
   const relayStub = relay(env, device.id)
   // Signing out or the session's expiry closes the dashboard (DeviceRelay).
-  const response = await relayStub.fetch(new Request('https://relay/browser', { headers: { upgrade: 'websocket', 'x-device-id': device.id, 'x-session': session.tokenHash } }))
+  const response = await relayStub.fetch(new Request('https://relay/browser', { headers: { upgrade: 'websocket', 'x-device-id': device.id, 'x-session': user.tokenHash } }))
   // A sign-out between the check above and the relay taking the socket missed it: close it now.
-  if (response.webSocket && !(await liveSessions(env, [session.tokenHash])).has(session.tokenHash)) await relayStub.signOut([session.tokenHash])
+  if (response.webSocket && !(await liveSessions(env, [user.tokenHash])).has(user.tokenHash)) await relayStub.signOut([user.tokenHash])
   return response
 }
 

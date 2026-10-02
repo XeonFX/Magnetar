@@ -127,8 +127,7 @@ export class DeviceRelay extends DurableObject<Env> {
       const deviceId = await this.ctx.storage.get<string>('deviceId')
       if (deviceId) await this.setOnline(deviceId, false)
     } else if (!attachment.closed) {
-      const device = this.device()
-      if (device) this.sendJson(device, { t: 'close', c: attachment.connectionId })
+      this.notifyClosed(attachment.connectionId)
     }
   }
 
@@ -146,8 +145,8 @@ export class DeviceRelay extends DurableObject<Env> {
     await this.ctx.storage.deleteAll()
   }
 
-  /** The account signed out: closes its dashboards opened with one of `sessions` (every one, for null). */
-  async signOut(sessions: string[] | null): Promise<void> {
+  /** The account signed out: closes its dashboards opened with one of `sessions` (every one without). */
+  async signOut(sessions?: string[]): Promise<void> {
     for (const { ws, attachment } of this.openBrowsers()) {
       if (!sessions || sessions.includes(attachment.session)) this.closeSignedOut(ws, attachment)
     }
@@ -174,8 +173,13 @@ export class DeviceRelay extends DurableObject<Env> {
   private closeSignedOut(ws: WebSocket, attachment: BrowserAttachment): void {
     ws.serializeAttachment({ ...attachment, closed: true } satisfies Attachment)
     ws.close(RELAY_CLOSE.signedOut, 'Signed out')
+    this.notifyClosed(attachment.connectionId)
+  }
+
+  /** Tells the device a dashboard is gone. */
+  private notifyClosed(connectionId: string): void {
     const device = this.device()
-    if (device) this.sendJson(device, { t: 'close', c: attachment.connectionId })
+    if (device) this.sendJson(device, { t: 'close', c: connectionId })
   }
 
   private async setOnline(deviceId: string, online: boolean): Promise<void> {
