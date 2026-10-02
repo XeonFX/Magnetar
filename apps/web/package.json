@@ -9,9 +9,9 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
-    "@codefusion-cc/app-update": "^1.2.0",
+    "@codefusion-cc/app-update": "^0.1.0",
     "@codefusion-cc/console": "^0.10.0",
-    "@codefusion-cc/features-page": "^1.0.0",
+    "@codefusion-cc/features-page": "^0.1.0",
     "@codefusion-cc/google-sign-in": "^1.0.0",
     "@codefusion-cc/i18n": "^1.0.0",
     "@codefusion-cc/theme": "^1.0.0",

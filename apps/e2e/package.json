@@ -8,7 +8,7 @@
     "typecheck": "tsc -p ."
   },
   "devDependencies": {
-    "@codefusion-cc/features-page": "^1.0.0",
+    "@codefusion-cc/features-page": "^0.1.0",
     "@playwright/test": "^1.56.0"
   }
 }
