@@ -1,9 +1,9 @@
 //! Checks GitHub Releases every 6 hours, tells once per new version (an OS notification with an
 //! Install button, and the notification channels), and installs in place: the macOS .app bundle is
 //! swapped by a helper after this process exits (with rollback), the Windows/Linux executable is
-//! renamed aside and replaced. Every install needs the manifest signature to verify against the key
-//! built into this binary, so a swapped asset *and* manifest are still refused. The releases' notes
-//! are kept for the dashboard's changelog.
+//! renamed aside and replaced (put back if that or starting the new one fails). Every install needs
+//! the manifest signature to verify against the key built into this binary, so a swapped asset *and*
+//! manifest are still refused. The releases' notes are kept for the dashboard's changelog.
 
 mod version;
 
@@ -585,7 +585,8 @@ impl UpdateService {
         self.downloads.pause_for_update().await;
         let swapped = match mac_installer {
             Some(installer) => installer.launch(),
-            None => install_executable(&asset_path),
+            // Copies across volumes and waits for the new version to start: off the async workers.
+            None => tokio::task::spawn_blocking(move || install_executable(&asset_path)).await?,
         };
         if swapped.is_err() {
             self.downloads.resume_after_update();
@@ -677,37 +678,122 @@ impl MacInstaller {
 }
 
 fn previous_executable_path(current: &Path) -> PathBuf {
+    sibling_executable_path(current, "previous")
+}
+
+/// `Magnetar.<tag>.exe` / `magnetar.<tag>` beside the executable `current`.
+fn sibling_executable_path(current: &Path, tag: &str) -> PathBuf {
     let name = current.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let previous = match name.strip_suffix(".exe") {
-        Some(stem) => format!("{stem}.previous.exe"),
-        None => format!("{name}.previous"),
+    let sibling = match name.strip_suffix(".exe") {
+        Some(stem) => format!("{stem}.{tag}.exe"),
+        None => format!("{name}.{tag}"),
     };
-    current.with_file_name(previous)
+    current.with_file_name(sibling)
 }
 
-/// Windows and Linux: a running executable can be renamed but not overwritten. Move it aside, put
-/// the new one in its place, start it, and let it delete the old one on start-up.
-fn install_executable(new_path: &Path) -> anyhow::Result<()> {
-    let current = std::env::current_exe()?;
-    let previous = previous_executable_path(&current);
-    let _ = std::fs::remove_file(&previous);
-    std::fs::rename(&current, &previous)?;
-    // Staging may be on another volume: copy when a rename can't.
-    if std::fs::rename(new_path, &current).is_err() {
-        std::fs::copy(new_path, &current)?;
+/// The filesystem calls of an executable swap, so a test can fail any one of them.
+trait SwapFs {
+    fn rename(&self, from: &Path, to: &Path) -> std::io::Result<()>;
+    fn copy(&self, from: &Path, to: &Path) -> std::io::Result<()>;
+    fn make_executable(&self, path: &Path) -> std::io::Result<()>;
+    fn remove(&self, path: &Path) -> std::io::Result<()>;
+}
+
+struct RealFs;
+
+impl SwapFs for RealFs {
+    fn rename(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+        std::fs::rename(from, to)
     }
-    #[cfg(unix)]
-    std::fs::set_permissions(&current, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
-    crate::system::hidden_command(&current)
-        .env("MAGNETAR_WAIT_FOR_PID", std::process::id().to_string())
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()?;
-    Ok(())
+    fn copy(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+        std::fs::copy(from, to).map(|_| ())
+    }
+    fn make_executable(&self, _path: &Path) -> std::io::Result<()> {
+        #[cfg(unix)]
+        std::fs::set_permissions(_path, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
+        Ok(())
+    }
+    fn remove(&self, path: &Path) -> std::io::Result<()> {
+        std::fs::remove_file(path)
+    }
 }
 
-/// Removes the executable an update left behind, once we are the new one.
+/// Windows and Linux: a running executable can be renamed but not overwritten. Install the new one
+/// beside it, swap them, start the new one and let it delete the old one on start-up.
+fn install_executable(new_path: &Path) -> anyhow::Result<()> {
+    swap_executable(&RealFs, &std::env::current_exe()?, new_path, |installed| {
+        let mut child = crate::system::hidden_command(installed)
+            .env("MAGNETAR_WAIT_FOR_PID", std::process::id().to_string())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()?;
+        confirm_started(&mut child, STARTED_WITHIN)
+    })
+}
+
+/// How long a just-started new version must keep running for its start to count. It waits for this process to exit,
+/// so it only ends sooner when it cannot run at all (a library the loader can't find, a wrong architecture).
+const STARTED_WITHIN: Duration = Duration::from_secs(1);
+
+/// Fails if `child` ends unsuccessfully within `within`. Ending successfully is not a failure: that is a new version
+/// that found another Magnetar running and handed over to it.
+fn confirm_started(child: &mut std::process::Child, within: Duration) -> std::io::Result<()> {
+    let deadline = std::time::Instant::now() + within;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return if status.success() { Ok(()) } else { Err(std::io::Error::other(format!("it exited at once ({status})"))) };
+        }
+        if std::time::Instant::now() >= deadline {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Swaps the executable at `current` for `new_path` and starts it, so that launching Magnetar keeps working whatever
+/// fails: the new version is first put beside the installed one (on its volume) and made executable while nothing has
+/// moved; only then is the installed one moved aside to `.previous` and the new one renamed into its place. If that, or
+/// starting the new version, fails, the installed one is put back.
+fn swap_executable(
+    fs: &dyn SwapFs,
+    current: &Path,
+    new_path: &Path,
+    start: impl FnOnce(&Path) -> std::io::Result<()>,
+) -> anyhow::Result<()> {
+    let previous = previous_executable_path(current);
+    let staged = sibling_executable_path(current, "new");
+    let _ = fs.remove(&staged);
+    // Staging may be on another volume: copy when a rename can't.
+    let staging = fs.rename(new_path, &staged).or_else(|_| fs.copy(new_path, &staged)).and_then(|()| fs.make_executable(&staged));
+    if let Err(error) = staging {
+        let _ = fs.remove(&staged);
+        return Err(anyhow::Error::new(error).context(format!("Could not put the new version beside {}", current.display())));
+    }
+    let _ = fs.remove(&previous);
+    if let Err(error) = fs.rename(current, &previous) {
+        let _ = fs.remove(&staged);
+        return Err(anyhow::Error::new(error).context(format!("Could not move {} aside", current.display())));
+    }
+    let installed = fs
+        .rename(&staged, current)
+        .map_err(|e| anyhow::Error::new(e).context(format!("Could not put the new version at {}", current.display())))
+        .and_then(|()| start(current).map_err(|e| anyhow::Error::new(e).context("Could not start the new version")));
+    let Err(error) = installed else { return Ok(()) };
+    // Put the installed version back: what is at `current` now (if anything) is the new one that did not start.
+    let _ = fs.remove(&staged);
+    let _ = fs.remove(current);
+    if let Err(restore) = fs.rename(&previous, current) {
+        return Err(anyhow::anyhow!(
+            "{error:#}, and the installed version could not be put back ({restore}): it is at {}, rename it to {}",
+            previous.display(),
+            current.display()
+        ));
+    }
+    Err(error)
+}
+
+/// Removes the executables an update left behind (the old one, a copy a crash left mid-swap), once we are the new one.
 fn cleanup_previous_executable() {
     if PLATFORM == "macos" {
         return;
@@ -715,12 +801,15 @@ fn cleanup_previous_executable() {
     if let Ok(current) = std::env::current_exe() {
         // Still locked by the exiting process on Windows: the next start tries again.
         let _ = std::fs::remove_file(previous_executable_path(&current));
+        let _ = std::fs::remove_file(sibling_executable_path(&current, "new"));
     }
 }
 
 #[cfg(test)]
 mod tests {
     use ed25519_dalek::{Signer, SigningKey};
+
+    use std::collections::{BTreeMap, HashMap};
 
     use super::*;
     use crate::protocol::encoding::to_base64url;
@@ -766,6 +855,177 @@ mod tests {
         assert_eq!(find_checksum(manifest, "Magnetar-2.1.0-windows-x64.exe").as_deref(), Some("def456"));
         assert_eq!(find_checksum(manifest, "missing"), None);
         assert_eq!(previous_executable_path(Path::new("/x/Magnetar.exe")), Path::new("/x/Magnetar.previous.exe"));
+    }
+
+    /// The real filesystem, failing the `nth` (from 1) call of each listed `op`.
+    struct FailAt {
+        failures: Vec<(&'static str, usize)>,
+        calls: std::cell::RefCell<HashMap<&'static str, usize>>,
+    }
+
+    impl FailAt {
+        fn new(failures: &[(&'static str, usize)]) -> Self {
+            Self { failures: failures.to_vec(), calls: Default::default() }
+        }
+        fn check(&self, op: &'static str) -> std::io::Result<()> {
+            let mut calls = self.calls.borrow_mut();
+            let count = calls.entry(op).or_default();
+            *count += 1;
+            if self.failures.contains(&(op, *count)) {
+                return Err(std::io::Error::other(format!("{op} failed on purpose")));
+            }
+            Ok(())
+        }
+    }
+
+    impl SwapFs for FailAt {
+        fn rename(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+            self.check("rename")?;
+            RealFs.rename(from, to)
+        }
+        fn copy(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+            self.check("copy")?;
+            RealFs.copy(from, to)
+        }
+        fn make_executable(&self, path: &Path) -> std::io::Result<()> {
+            self.check("make_executable")?;
+            RealFs.make_executable(path)
+        }
+        fn remove(&self, path: &Path) -> std::io::Result<()> {
+            self.check("remove")?;
+            RealFs.remove(path)
+        }
+    }
+
+    /// An installed `Magnetar` ("old"), a downloaded new version ("new") in another folder, and what the folder holds.
+    struct Install {
+        _dir: tempfile::TempDir,
+        current: PathBuf,
+        new: PathBuf,
+    }
+
+    impl Install {
+        fn new() -> Self {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::create_dir_all(dir.path().join("bin")).unwrap();
+            std::fs::create_dir_all(dir.path().join("staging")).unwrap();
+            let current = dir.path().join("bin/Magnetar");
+            let new = dir.path().join("staging/Magnetar-2.0.0-linux-x64");
+            std::fs::write(&current, "old").unwrap();
+            std::fs::write(&new, "new").unwrap();
+            Self { _dir: dir, current, new }
+        }
+        /// The installed folder: file name → content.
+        fn installed(&self) -> BTreeMap<String, String> {
+            std::fs::read_dir(self.current.parent().unwrap())
+                .unwrap()
+                .map(|entry| {
+                    let entry = entry.unwrap();
+                    (entry.file_name().to_string_lossy().into_owned(), std::fs::read_to_string(entry.path()).unwrap())
+                })
+                .collect()
+        }
+        fn swap(&self, fs: &dyn SwapFs, start_fails: bool) -> (anyhow::Result<()>, Vec<String>) {
+            let mut started = Vec::new();
+            let result = swap_executable(fs, &self.current, &self.new, |exe| {
+                started.push(std::fs::read_to_string(exe).unwrap());
+                if start_fails { Err(std::io::Error::other("spawn failed on purpose")) } else { Ok(()) }
+            });
+            (result, started)
+        }
+    }
+
+    fn files(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs.iter().map(|(name, content)| (name.to_string(), content.to_string())).collect()
+    }
+
+    #[test]
+    fn an_update_puts_the_new_executable_in_place_starts_it_and_keeps_the_old_one_aside() {
+        let install = Install::new();
+        std::fs::write(install.current.with_file_name("Magnetar.previous"), "older").unwrap();
+        let (result, started) = install.swap(&RealFs, false);
+        result.unwrap();
+        assert_eq!(started, ["new"]);
+        assert_eq!(install.installed(), files(&[("Magnetar", "new"), ("Magnetar.previous", "old")]));
+        #[cfg(unix)]
+        assert_eq!(
+            std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&install.current).unwrap().permissions()) & 0o111,
+            0o111
+        );
+    }
+
+    #[test]
+    fn an_update_from_another_volume_is_copied_beside_the_installed_one_and_made_executable() {
+        let install = Install::new();
+        // The first rename (the download beside the installed one) fails as it does across volumes.
+        let (result, started) = install.swap(&FailAt::new(&[("rename", 1)]), false);
+        result.unwrap();
+        assert_eq!(started, ["new"]);
+        assert_eq!(install.installed(), files(&[("Magnetar", "new"), ("Magnetar.previous", "old")]));
+        #[cfg(unix)]
+        assert_eq!(
+            std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&install.current).unwrap().permissions()) & 0o111,
+            0o111
+        );
+    }
+
+    #[test]
+    fn a_failed_update_always_leaves_the_installed_executable_runnable_in_place() {
+        // Every step that can fail. Renames, in order: the download beside the installed one (fails across volumes, then
+        // it is copied), the installed one aside, the new one in place.
+        type Failures = &'static [(&'static str, usize)];
+        let cases: [(&str, Failures, bool); 5] = [
+            ("the new version cannot be put beside it", &[("rename", 1), ("copy", 1)], false),
+            ("the copied new version cannot be made executable", &[("rename", 1), ("make_executable", 1)], false),
+            ("moving the running version aside fails", &[("rename", 2)], false),
+            ("putting the new version in place fails", &[("rename", 3)], false),
+            ("the new version does not start", &[], true),
+        ];
+        for (what, failures, start_fails) in cases {
+            let install = Install::new();
+            let (result, _) = install.swap(&FailAt::new(failures), start_fails);
+            assert!(result.is_err(), "{what}: reported");
+            assert_eq!(install.installed(), files(&[("Magnetar", "old")]), "{what}: the installed folder is as before");
+        }
+    }
+
+    #[test]
+    fn when_even_putting_the_old_version_back_fails_it_is_kept_and_named() {
+        let install = Install::new();
+        // Starting fails, then the rename that would restore the old version (the fourth) fails too.
+        let fs = FailAt::new(&[("rename", 4)]);
+        let (result, started) = install.swap(&fs, true);
+        let error = format!("{:#}", result.unwrap_err());
+        assert_eq!(started, ["new"]);
+        assert!(error.starts_with("Could not start the new version"), "the message starts with what failed: {error}");
+        assert!(error.contains("rename failed on purpose"), "the message says why the old version stayed aside: {error}");
+        assert!(error.contains("Magnetar.previous"), "the message says where the old version is: {error}");
+        // The new version that did not start is gone, so nothing half-working is left at the installed path.
+        assert_eq!(install.installed(), files(&[("Magnetar.previous", "old")]));
+    }
+
+    #[cfg(unix)]
+    fn shell(script: &str) -> std::process::Child {
+        std::process::Command::new("/bin/sh").args(["-c", script]).spawn().unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_new_version_that_dies_at_once_is_a_failed_start() {
+        let error = confirm_started(&mut shell("exit 127"), Duration::from_secs(5)).unwrap_err();
+        assert!(error.to_string().contains("127"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_new_version_still_running_or_handing_over_has_started() {
+        let mut waiting = shell("sleep 5");
+        let begun = std::time::Instant::now();
+        confirm_started(&mut waiting, Duration::from_millis(200)).unwrap();
+        assert!(begun.elapsed() < Duration::from_secs(2), "returns once the window is over, not when the process ends");
+        let _ = waiting.kill();
+        let _ = waiting.wait();
+        confirm_started(&mut shell("exit 0"), Duration::from_secs(5)).unwrap();
     }
 
     #[test]
