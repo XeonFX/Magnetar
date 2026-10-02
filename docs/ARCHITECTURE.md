@@ -124,7 +124,8 @@ magnetar.codefusion.cc is one of CodeFusion Console's apps (`@codefusion-cc/cons
   same `scrub` as the app's, then by the package) and the desktop app's (`/api/telemetry/failure`, below).
 - **Visits**: page views by screen name (`packages/protocol/src/consolePages.ts`), without a visitor id: nobody is
   asked for statistics consent, so nothing is stored in the browser.
-- **Deployments**: the build's `version.json`. Open pages move onto a newer deploy through `@codefusion-cc/app-update`
+- **Deployments**: every merge to `main` deploys the Worker (docs/DEPLOY.md); the console reads the build's
+  `version.json` and the deploy job's GitHub deployment. Open pages move onto a newer deploy through `@codefusion-cc/app-update`
   (on a device's own dashboard, after the app updates), without cutting short anything being typed or saved.
 
 ## The app

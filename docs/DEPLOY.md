@@ -1,6 +1,7 @@
 # Deploying magnetar.codefusion.cc
 
-The Worker in `apps/worker` serves the website, sign-in, pairing and the relay. One-time setup, then `npm run deploy -w @magnetar/worker`.
+The Worker in `apps/worker` serves the website, sign-in, pairing and the relay. After the one-time setup below, every
+merge to `main` deploys it: the CI workflow's **Deploy magnetar.codefusion.cc** job runs once every check has passed.
 
 ## 1. Google OAuth client
 
@@ -15,11 +16,9 @@ The consent screen needs only the `openid`, `email` and `profile` scopes. Put th
 
 ## 2. D1 database
 
-The production database `magnetar` exists and its id is in `wrangler.jsonc`. A new migration goes out with:
-
-```bash
-npm run migrate:remote -w @magnetar/worker
-```
+The production database `magnetar` exists and its id is in `wrangler.jsonc`. A new migration in
+`apps/worker/migrations` goes out with the next deploy, which applies it before the new Worker starts. Migrations only
+add: the Worker still running meanwhile must keep working on the new schema.
 
 ## 3. CodeFusion Console
 
@@ -27,14 +26,29 @@ The console (XeonFX/codefusion-console) lists Magnetar in `config/apps.json` and
 Worker's `ConsoleAdmin` entrypoint. Deploy this Worker first, so the console's deploy binds a service that exists.
 Its Deployments page reads this repository with the console's GitHub token, which must include XeonFX/Magnetar.
 
-## 4. Deploy
+## 4. Deploy on merge
+
+The `deploy` job in `.github/workflows/ci.yml` runs on every push to `main` after the checks and the end-to-end tests
+pass. It builds the dashboard (its `version.json` names the commit), applies the D1 migrations, deploys the Worker, its
+assets and the `DeviceRelay` Durable Object, and waits until the website serves the new commit. Deploys run one at a
+time and are never cancelled midway; merges that land meanwhile wait, and only the newest of them deploys. The custom
+domain route creates the DNS record in the `codefusion.cc` zone.
+
+CodeFusion Console's Deployments page shows the commit the website serves, how far behind `main` it is, and the
+outcome of the newest deploy (the job's GitHub deployment in the `production` environment, linked to its run).
+
+It needs a Cloudflare API token, once. On dash.cloudflare.com, **My Profile → API Tokens → Create Token**, template
+**Edit Cloudflare Workers**, then add **Account · Workers · Editor** (the template's older "Workers Scripts: Edit" alone
+is refused) and **Account · D1 · Edit**. Keep the template's zone permissions (the custom domain needs nothing more) and
+limit the token to your account. Store it in the `production` environment, which only `main` may deploy to:
 
 ```bash
-npm run deploy -w @magnetar/worker
+cd /Users/xeon/Projects/mediadownloader-v2 && gh api -X PUT repos/XeonFX/Magnetar/environments/production --input - <<<'{"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}' && gh api -X POST repos/XeonFX/Magnetar/environments/production/deployment-branch-policies -f name=main -f type=branch && gh secret set CLOUDFLARE_API_TOKEN --env production --repo XeonFX/Magnetar
 ```
 
-This builds the dashboard and deploys the Worker, its assets and the `DeviceRelay` Durable Object. The custom domain
-route creates the DNS record in the `codefusion.cc` zone.
+A failed deploy leaves the website on the previous build: fix the cause and merge again, or re-run the job. In an
+emergency, `npm run deploy -w @magnetar/worker` (after `npm run migrate:remote -w @magnetar/worker` when a migration
+is new) deploys the checkout from this Mac with your own `wrangler login`.
 
 ## Release signing
 
