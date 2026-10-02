@@ -9,6 +9,8 @@ use crate::error::{ApiError, ApiResult};
 pub const TORRENT_UPLOAD_CHUNK: usize = 512 * 1024;
 /// Files one connection may have arriving at once; starting another drops the oldest.
 const MAX_UPLOADS: usize = 2;
+/// Longest `uploadId`, as `packages/protocol/src/rpc.ts` has it.
+const MAX_UPLOAD_ID: usize = 64;
 
 struct Upload {
     id: String,
@@ -25,6 +27,9 @@ impl TorrentUploads {
     /// have arrived. Offset 0 starts the file, again if it was under way. A piece that is out of
     /// order, of another size or past the end drops the file, so a broken one never starts.
     pub fn receive(&mut self, id: &str, offset: usize, size: usize, data: &[u8]) -> ApiResult<usize> {
+        if id.is_empty() || id.len() > MAX_UPLOAD_ID {
+            return Err(ApiError::bad(format!("uploadId: 1 to {MAX_UPLOAD_ID} characters")));
+        }
         if size > MAX_TORRENT_FILE {
             self.remove(id);
             return Err(torrent_too_large());

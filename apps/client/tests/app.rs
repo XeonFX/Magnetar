@@ -502,6 +502,15 @@ mod torrent_uploads {
         let empty = c.call("downloads.upload", json!({ "uploadId": "f", "offset": 0, "size": 10, "data": "" })).await;
         assert!(empty.unwrap_err().starts_with("bad_request"));
 
+        // An id the contract doesn't allow: empty, or longer than 64.
+        for id in [String::new(), "i".repeat(65)] {
+            let refused = c.call("downloads.upload", json!({ "uploadId": id, "offset": 0, "size": 10, "data": "AAAA" })).await;
+            assert_eq!(refused.unwrap_err(), "bad_request: uploadId: 1 to 64 characters");
+        }
+        let longest = "i".repeat(64);
+        let accepted = c.call("downloads.upload", json!({ "uploadId": longest, "offset": 0, "size": 10, "data": "AAAA" })).await;
+        assert_eq!(accepted.unwrap()["received"], 3);
+
         // None of it started anything; the whole file in order still does.
         assert_eq!(upload(&mut c, "g", &torrent).await.unwrap()["name"], "Ordered");
         assert_eq!(torrent_downloads(&mut c).await, ["Ordered"]);

@@ -38,7 +38,8 @@ class Device extends RpcClient {
     this.setState({ status: 'open' })
   }
 
-  protected transmit(message: ClientMessage, text: string): void {
+  protected transmit(text: string): void {
+    const message = JSON.parse(text) as ClientMessage
     const call = { method: message.method, params: message.params as Record<string, unknown> }
     this.largest = Math.max(this.largest, Buffer.byteLength(text))
     if (this.calls.push(call) - 1 === this.dropAt) {

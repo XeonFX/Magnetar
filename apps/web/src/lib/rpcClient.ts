@@ -49,10 +49,10 @@ export abstract class RpcClient {
   state: ConnectionState = { status: 'connecting' }
 
   /**
-   * Sends one call, already serialized as `text`. Throws, or rejects, when it cannot go out, which
-   * fails that call at once instead of leaving it to time out.
+   * Sends one call, serialized as `text`. Throws, or rejects, when it cannot go out, which fails
+   * that call at once instead of leaving it to time out.
    */
-  protected abstract transmit(message: ClientMessage, text: string): void | Promise<void>
+  protected abstract transmit(text: string): void | Promise<void>
   abstract close(): void
 
   call<M extends RpcMethod>(method: M, params?: RpcParams<M>): Promise<RpcResults[M]> {
@@ -65,7 +65,7 @@ export abstract class RpcClient {
       this.pending.set(message.id, { resolve: resolve as (value: unknown) => void, reject, timer })
       const failed = () => this.settle(message.id, new RpcError('offline', 'Could not send to the device'))
       try {
-        this.transmit(message, text)?.catch(failed)
+        this.transmit(text)?.catch(failed)
       } catch {
         failed()
       }

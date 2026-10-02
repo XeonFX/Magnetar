@@ -180,7 +180,7 @@ impl Actions {
         if let Some(torrent) = input.torrent.as_deref().filter(|t| !t.is_empty()) {
             let bytes = crate::protocol::encoding::from_base64(torrent)
                 .map_err(|_| ApiError::bad("`torrent` must be a base64-encoded .torrent file."))?;
-            return self.add_torrent(bytes, input.folder.as_deref());
+            return self.start_torrent(bytes, folder);
         }
         Err(ApiError::bad(
             "Provide `resultId` (from a search), `magnet` or `torrent`. For sources that resolve magnets lazily, only `resultId` works.",
@@ -189,8 +189,12 @@ impl Actions {
 
     /// Starts a download from a .torrent file's bytes, in `folder` or the default one.
     pub fn add_torrent(&self, bytes: Vec<u8>, folder: Option<&str>) -> ApiResult<DownloadDto> {
+        self.start_torrent(bytes, self.folder(folder)?)
+    }
+
+    fn start_torrent(&self, bytes: Vec<u8>, folder: Option<String>) -> ApiResult<DownloadDto> {
         let source = if self.caller == Caller::Agent { "Agent" } else { "Torrent file" };
-        let item = self.downloads.add_torrent_file(bytes, source, self.folder(folder)?)?;
+        let item = self.downloads.add_torrent_file(bytes, source, folder)?;
         tracing::info!("Started download from a .torrent file: {}", item.name);
         Ok(item)
     }

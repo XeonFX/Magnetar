@@ -14,10 +14,16 @@ import { FolderField } from './folders.tsx'
 const isTorrentFile = (file: File) => file.name.toLowerCase().endsWith('.torrent') || file.type === 'application/x-bittorrent'
 const fileKey = (file: File) => `${file.name}:${file.size}`
 
-/** The .torrent files among `list` that aren't in `current` yet, and those too large to take. */
-function sortFiles(list: Iterable<File>, current: File[]): { accepted: File[]; tooBig: File[] } {
-  const fresh = [...list].filter(isTorrentFile).filter(f => !current.some(c => fileKey(c) === fileKey(f)))
-  return { accepted: fresh.filter(f => f.size <= MAX_TORRENT_FILE), tooBig: fresh.filter(f => f.size > MAX_TORRENT_FILE) }
+/** `current` and the .torrent files among `list` it doesn't have yet, and those too large to take. */
+function withFiles(current: File[], list: Iterable<File>): { files: File[]; tooBig: File[] } {
+  const files = [...current]
+  const tooBig: File[] = []
+  for (const file of list) {
+    if (!isTorrentFile(file) || files.some(f => fileKey(f) === fileKey(file))) continue
+    if (file.size > MAX_TORRENT_FILE) tooBig.push(file)
+    else files.push(file)
+  }
+  return { files, tooBig }
 }
 
 /** What went wrong with one item, in the reader's language where the dashboard knows the case. */
@@ -55,30 +61,36 @@ export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; i
   /** Share sent so far (0–1) of each file going in pieces, by fileKey. */
   const [progress, setProgress] = useState<Record<string, number>>({})
   const picker = useRef<HTMLInputElement>(null)
+  /** Counts the times the dialog opened, so a run started before it closed leaves the new one alone. */
+  const opened = useRef(0)
 
   const refuse = (tooBig: File[]) => setError(tooBig.length ? t('add.tooBig', tooBig.map(f => f.name).join(', ')) : null)
 
   useEffect(() => {
     if (!open) return
-    const { accepted, tooBig } = sortFiles(initial?.files ?? [], [])
+    opened.current++
+    const { files, tooBig } = withFiles([], initial?.files ?? [])
     setText(initial?.magnets.join('\n') ?? '')
-    setFiles(accepted)
+    setFiles(files)
     setPaths(initial?.paths ?? [])
     setFolder(null)
     setProgress({})
+    setBusy(false)
     refuse(tooBig)
   }, [open, initial])
 
   const magnets = magnetsIn(text)
   const count = magnets.length + files.length + paths.length
   const addFiles = (list: FileList | File[]) => {
-    const { accepted, tooBig } = sortFiles(list, files)
-    setFiles(current => [...current, ...accepted])
-    refuse(tooBig)
+    const more = [...list]
+    setFiles(current => withFiles(current, more).files)
+    refuse(withFiles(files, more).tooBig)
   }
 
   const submit = async () => {
     if (count === 0) return setError(t('add.nothing'))
+    const run = opened.current
+    const stillOpen = () => opened.current === run
     setBusy(true)
     setError(null)
     const target = folder?.trim() || undefined
@@ -107,21 +119,23 @@ export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; i
       const key = fileKey(file)
       try {
         const bytes = new Uint8Array(await file.arrayBuffer())
-        await sendTorrent(connection, bytes, target, sent => setProgress(p => ({ ...p, [key]: sent / bytes.length })))
+        await sendTorrent(connection, bytes, target, sent => { if (stillOpen()) setProgress(p => ({ ...p, [key]: sent / bytes.length })) })
         started++
       } catch (e) {
         failures.push(`${file.name}: ${describe(t, e)}`)
         left.files.push(file)
       } finally {
-        setProgress(p => {
+        if (stillOpen()) setProgress(p => {
           const next = { ...p }
           delete next[key]
           return next
         })
       }
     }
-    setBusy(false)
     if (started > 0) toast(started === 1 ? t('add.startedOne') : t('add.started', started), 'success')
+    // Closed while this ran, and maybe opened again for something else: that is no longer this run's.
+    if (!stillOpen()) return
+    setBusy(false)
     if (!failures.length) return onClose()
     // What started is done with: a second try is only for what failed.
     if (started > 0) {
@@ -142,7 +156,7 @@ export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; i
       </>}>
       <label className="flex flex-col gap-1.5">
         <span className="text-sm font-medium">{t('add.magnets')}</span>
-        <textarea className="textarea h-28 w-full font-mono text-xs" placeholder="magnet:?xt=urn:btih:…" value={text}
+        <textarea className="textarea h-28 w-full font-mono text-xs" placeholder="magnet:?xt=urn:btih:…" value={text} readOnly={busy}
           onChange={e => setText(e.target.value)} data-autofocus spellCheck={false} />
         <span className="muted text-xs">{magnets.length === 1 ? t('add.magnetOne') : magnets.length > 1 ? t('add.magnetCount', magnets.length) : t('add.magnetsHint')}</span>
       </label>
