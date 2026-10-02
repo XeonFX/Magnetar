@@ -61,6 +61,14 @@ describe('the changelog (/api/releases)', () => {
     }
   })
 
+  test('sends at most 64 KiB of notes per release and 256 KiB in all, newest first', async () => {
+    const long = 'x'.repeat(70 * 1024)
+    const { send } = github(() => Response.json(Array.from({ length: 6 }, (_, i) => release(`v1.${i}.0`, { body: long }))))
+    const body = await (await ask('/api/releases', send))!.json() as ReleasesDto
+    expect(body.releases.map(r => r.notes.length)).toEqual([65536, 65536, 65536, 65536, 0, 0])
+    expect(body.releases[0]!.version).toBe('1.5.0')
+  })
+
   test('a repository without releases has an empty changelog, which is no problem', async () => {
     const response = (await ask('/api/releases', github(() => Response.json({ message: 'Not Found' }, { status: 404 })).send))!
     expect(await response.json()).toEqual({ releases: [], problem: null })

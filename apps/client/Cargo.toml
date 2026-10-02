@@ -35,6 +35,7 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 rust-embed = { version = "8", features = ["include-exclude"] }
 rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
 scraper = { version = "0.27", default-features = false, features = ["errors"] }
+semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"

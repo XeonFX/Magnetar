@@ -8,6 +8,9 @@ const ASSET = /^Magnetar-([\w.-]+?)-(macos|windows|linux)-(arm64|x64)(\.zip|\.ex
 const CACHE_SECONDS = 600
 /** The newest releases the changelog shows; the same list answers the download buttons. */
 const PER_PAGE = 20
+/** The notes the changelog sends: each release's at most (as much as a page reads), and all of them together. */
+const MAX_NOTES = 64 * 1024
+const MAX_CHANGELOG = 256 * 1024
 
 export function toLatestRelease(release: Release): LatestReleaseDto {
   return {
@@ -53,8 +56,13 @@ export async function handleReleases(request: Request, env: Env, path: string, s
     return result.ok || result.reason === 'not-found' ? jsonError(404, 'No release yet') : jsonError(502, `GitHub could not be read (${result.reason})`)
   }
   const problem = result.ok || result.reason === 'not-found' ? null : PROBLEMS[result.reason]
+  let budget = MAX_CHANGELOG
   const body: ReleasesDto = {
-    releases: releases.map(({ version, tag, name, notes, publishedAt, prerelease, url }) => ({ version, tag, name, notes, publishedAt, prerelease, url })),
+    releases: releases.map(({ version, tag, name, notes, publishedAt, prerelease, url }) => {
+      const kept = notes.slice(0, Math.min(MAX_NOTES, budget))
+      budget -= kept.length
+      return { version, tag, name, notes: kept, publishedAt, prerelease, url }
+    }),
     problem,
   }
   // A failure is asked about again at the next visit rather than kept for ten minutes.

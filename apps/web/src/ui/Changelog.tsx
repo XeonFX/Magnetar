@@ -4,7 +4,7 @@ import { ExternalLink, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useFormatDate, useT } from '../lib/i18n.tsx'
 import { releasesProblemText } from '../lib/releases.ts'
-import { REPO } from '../lib/updates.ts'
+import { MAGNETAR_REPO } from '@magnetar/protocol/cloud'
 
 /** Releases shown before "Older releases" when none is newer than the one running. */
 const SHOWN = 3
@@ -73,7 +73,7 @@ export function Changelog({ load, running }: { load: () => Promise<ReleasesDto>;
 function Release({ release, running }: { release: ReleaseDto; running?: string | null }) {
   const t = useT()
   const formatDate = useFormatDate()
-  const blocks = useMemo(() => parseReleaseNotes(release.notes, { repo: REPO }), [release.notes])
+  const blocks = useMemo(() => parseReleaseNotes(release.notes, { repo: MAGNETAR_REPO }), [release.notes])
   const order = running ? compareVersions(release.version, running) : null
   const title = release.name && release.name !== release.tag ? release.name : `Magnetar ${release.version}`
   return (

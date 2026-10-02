@@ -428,6 +428,20 @@ pub struct AvailableUpdateDto {
     pub published_at: Option<String>,
 }
 
+/// Why reading GitHub's releases, or installing one, failed; the dashboard says it in the person's language.
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum Problem {
+    /// No answer from GitHub: no network, DNS, a timeout.
+    Offline,
+    /// GitHub's rate limit for this network; `retry_at` says when it lifts.
+    RateLimited,
+    /// GitHub refused or answered something unreadable.
+    Unavailable,
+    /// The update could not be installed.
+    Install,
+}
+
 /// A published release, with its notes (Markdown) for the changelog.
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -446,8 +460,8 @@ pub struct ReleaseDto {
 pub struct ReleasesDto {
     /// Newest version first.
     pub releases: Vec<ReleaseDto>,
-    /// Why there are none, when GitHub could not be read: offline | rate-limited | unavailable.
-    pub problem: Option<&'static str>,
+    /// Why there are none, when GitHub could not be read.
+    pub problem: Option<Problem>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -462,8 +476,8 @@ pub struct UpdateStatusDto {
     pub installing: bool,
     pub last_checked_at: Option<String>,
     pub last_check_error: Option<String>,
-    /// Why the last check or install failed: offline | rate-limited | unavailable | install.
-    pub last_check_problem: Option<&'static str>,
+    /// Why the last check or install failed.
+    pub last_check_problem: Option<Problem>,
     /// When GitHub's rate limit lifts, after a rate-limited check.
     pub retry_at: Option<String>,
 }

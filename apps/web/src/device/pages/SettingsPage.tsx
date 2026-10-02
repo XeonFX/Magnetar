@@ -1,6 +1,6 @@
 import type { ThemeMode } from '@codefusion-cc/theme'
 import { useTheme } from '@codefusion-cc/theme/react'
-import type { AgentStatusDto, HandlerStatus, LoginStartupStatus, SettingsDto, SettingsPatch } from '@magnetar/protocol'
+import type { AgentStatusDto, HandlerStatus, LoginStartupStatus, SettingsDto, SettingsPatch, UpdateStatusDto } from '@magnetar/protocol'
 import {
   Bell, Bot, Cloud, Copy, Download, Eye, EyeOff, Info, Mail, RefreshCw, Send, Server, Smartphone, SlidersHorizontal, Upload,
 } from 'lucide-react'
@@ -419,16 +419,17 @@ function AboutSection() {
   const loadReleases = useCallback(() => (connection.kind === 'remote' ? cloud.releases() : connection.call('updates.releases')), [connection])
   if (!updates) return null
 
-  const problem = updates.lastCheckProblem
-    ? releasesProblemText(t, updates.lastCheckProblem, updates.retryAt, formatDate, updates.lastCheckError)
+  const problemText = (status: UpdateStatusDto) => status.lastCheckProblem
+    ? releasesProblemText(t, status.lastCheckProblem, status.retryAt, formatDate, status.lastCheckError)
     // An app from before problems had names says only what went wrong.
-    : updates.lastCheckError ? t('settings.lastCheckFailed', updates.lastCheckError) : null
+    : status.lastCheckError ? t('settings.lastCheckFailed', status.lastCheckError) : null
+  const problem = problemText(updates)
   const check = async () => {
     const status = await run(() => connection.call('updates.check'))
     if (!status) return
+    const failed = problemText(status)
     if (status.available) toast(t('settings.updateSnack', status.available.version), 'info')
-    else if (status.lastCheckProblem) toast(releasesProblemText(t, status.lastCheckProblem, status.retryAt, formatDate, status.lastCheckError), 'error')
-    else if (status.lastCheckError) toast(t('settings.lastCheckFailed', status.lastCheckError), 'error')
+    else if (failed) toast(failed, 'error')
     else toast(t('settings.upToDate', status.currentVersion), 'success')
   }
   const statusText = updates.checking ? t('settings.checking')

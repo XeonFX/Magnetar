@@ -4,8 +4,6 @@ import { useEffect, useState } from 'react'
 import { cloud } from './cloudApi.ts'
 import type { Translate } from './i18n.tsx'
 
-export { isOutdated }
-
 /** How long the website trusts what it last heard of the newest release (the Worker caches GitHub as long). */
 const LATEST_FOR_MS = 10 * 60_000
 /** How long it trusts not knowing: one failed request must not hide every update notice for ten minutes. */

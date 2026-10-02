@@ -17,7 +17,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 
-pub use self::version::{Version, is_outdated};
+use self::version::{is_outdated, parse as parse_version, precedence};
 use crate::config::{ARCH, COMMIT, DEFAULT_PORT, GITHUB_REPO, IS_DEV, PLATFORM, RELEASE_PUBLIC_KEY, VERSION};
 use crate::db::KeyValue;
 use crate::downloads::DownloadManager;
@@ -25,7 +25,7 @@ use crate::events::EventBus;
 use crate::notifications::NotificationDispatcher;
 use crate::paths::mac_app_bundle;
 use crate::protocol::encoding::{from_base64url, now_iso, random_id};
-use crate::protocol::{AvailableUpdateDto, ReleaseDto, ReleasesDto, UpdateStatusDto};
+use crate::protocol::{AvailableUpdateDto, Problem, ReleaseDto, ReleasesDto, UpdateStatusDto};
 use crate::system::notify::{self, Choice, Notice};
 use crate::system::open_in_browser;
 
@@ -43,58 +43,18 @@ const MAX_CHANGELOG: usize = 256 * 1024;
 /// The version people were last told about, so a restart doesn't tell them again.
 const NOTIFIED_KEY: &str = "updates.notified_version";
 
+/// A release as the changelog shows it, and where its files are.
 #[derive(Clone)]
 struct Release {
-    version: String,
-    tag: String,
-    name: String,
-    notes: String,
-    published_at: Option<String>,
-    prerelease: bool,
-    release_url: String,
+    info: ReleaseDto,
     asset_name: Option<String>,
     asset_url: Option<String>,
     manifest_url: Option<String>,
     signature_url: Option<String>,
 }
 
-impl Release {
-    fn dto(&self) -> ReleaseDto {
-        ReleaseDto {
-            version: self.version.clone(),
-            tag: self.tag.clone(),
-            name: self.name.clone(),
-            notes: self.notes.clone(),
-            published_at: self.published_at.clone(),
-            prerelease: self.prerelease,
-            url: self.release_url.clone(),
-        }
-    }
-}
-
-/// Why a check failed, for the dashboard to say in the person's language.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Problem {
-    /// No answer from GitHub: no network, DNS, a timeout.
-    Offline,
-    /// GitHub's rate limit for this network; `retry_at` says when it lifts.
-    RateLimited,
-    /// GitHub refused or answered something unreadable.
-    Unavailable,
-    /// The update could not be installed.
-    Install,
-}
-
-impl Problem {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Offline => "offline",
-            Self::RateLimited => "rate-limited",
-            Self::Unavailable => "unavailable",
-            Self::Install => "install",
-        }
-    }
-}
+/// The buttons an update notice may carry: install where this copy can, else download.
+const UPDATE_BUTTONS: [(&str, &str); 2] = [("install", "Install and Restart"), ("download", "Download")];
 
 #[derive(Debug)]
 struct CheckError {
@@ -184,43 +144,46 @@ fn cut(text: &str, max: usize) -> String {
 /// The releases GitHub listed, newest version first: drafts, tags that are not versions and
 /// entries that are not releases left out.
 fn read_releases(list: Vec<serde_json::Value>) -> Vec<Release> {
-    let mut releases: Vec<(Version, Release)> = list
+    let mut releases: Vec<(version::Version, Release)> = list
         .into_iter()
         .filter_map(|item| serde_json::from_value::<GithubRelease>(item).ok())
-        .filter(|release| !release.draft)
-        .filter_map(|release| {
-            let version = Version::parse(&release.tag_name)?;
-            let url_of = |name: &str| release.assets.iter().find(|a| a.name == name).map(|a| a.browser_download_url.clone());
-            let asset = release.assets.iter().find(|a| a.name.ends_with(&asset_suffix()));
-            let parsed = Release {
-                version: release.tag_name.trim().trim_start_matches(['v', 'V']).to_owned(),
-                name: release.name.as_deref().map(str::trim).filter(|n| !n.is_empty()).unwrap_or(&release.tag_name).to_owned(),
-                notes: cut(release.body.as_deref().unwrap_or_default(), MAX_NOTES),
-                published_at: release.published_at.clone(),
-                prerelease: release.prerelease || version.is_prerelease(),
-                release_url: release.html_url.clone(),
+        .filter(|github| !github.draft)
+        .filter_map(|github| {
+            let version = parse_version(&github.tag_name)?;
+            let url_of = |name: &str| github.assets.iter().find(|a| a.name == name).map(|a| a.browser_download_url.clone());
+            let asset = github.assets.iter().find(|a| a.name.ends_with(&asset_suffix()));
+            let release = Release {
                 asset_name: asset.map(|a| a.name.clone()),
                 asset_url: asset.map(|a| a.browser_download_url.clone()),
                 manifest_url: url_of(MANIFEST),
                 signature_url: url_of(SIGNATURE),
-                tag: release.tag_name,
+                info: ReleaseDto {
+                    version: github.tag_name.trim().trim_start_matches(['v', 'V']).to_owned(),
+                    name: github.name.as_deref().map(str::trim).filter(|n| !n.is_empty()).unwrap_or(&github.tag_name).to_owned(),
+                    notes: cut(github.body.as_deref().unwrap_or_default(), MAX_NOTES),
+                    published_at: github.published_at.clone(),
+                    prerelease: github.prerelease || !version.pre.is_empty(),
+                    url: github.html_url.clone(),
+                    tag: github.tag_name.clone(),
+                },
             };
-            Some((version, parsed))
+            Some((version, release))
         })
         .collect();
-    releases.sort_by(|(a, _), (b, _)| b.cmp(a));
+    releases.sort_by(|(a, _), (b, _)| precedence(b, a));
     releases.into_iter().map(|(_, release)| release).collect()
 }
 
 /// The release to offer someone running `running`: the newest that is not a pre-release, when newer.
 fn newer_release<'a>(releases: &'a [Release], running: &str) -> Option<&'a Release> {
-    releases.iter().find(|r| !r.prerelease).filter(|latest| is_outdated(running, &latest.version))
+    releases.iter().find(|r| !r.info.prerelease).filter(|latest| is_outdated(running, &latest.info.version))
 }
 
 /// What a notice about `release` says in a line: its first changes, from notes like the release
 /// workflow writes (`- Title (#12)`).
 fn summary(release: &Release) -> String {
     let changes: Vec<String> = release
+        .info
         .notes
         .lines()
         .filter_map(|line| line.trim().strip_prefix("- ").or_else(|| line.trim().strip_prefix("* ")))
@@ -307,7 +270,7 @@ impl UpdateService {
         let _ = self.runtime.set(tokio::runtime::Handle::current());
         // Before any notice: one left from the last run is answered too.
         let me = Arc::downgrade(self);
-        notify::listen("update", &[("install", "Install and Restart"), ("download", "Download")], move |choice| {
+        notify::listen("update", &UPDATE_BUTTONS, move |choice| {
             if let Some(service) = me.upgrade() {
                 service.chose(choice);
             }
@@ -345,18 +308,18 @@ impl UpdateService {
             current_version: VERSION.into(),
             current_commit: COMMIT.into(),
             available: state.available.as_ref().map(|r| AvailableUpdateDto {
-                version: r.version.clone(),
-                tag: r.tag.clone(),
-                name: r.name.clone(),
-                release_url: r.release_url.clone(),
-                published_at: r.published_at.clone(),
+                version: r.info.version.clone(),
+                tag: r.info.tag.clone(),
+                name: r.info.name.clone(),
+                release_url: r.info.url.clone(),
+                published_at: r.info.published_at.clone(),
             }),
             can_self_install: self.can_self_install(state.available.as_ref()),
             checking: state.checking,
             installing: state.installing,
             last_checked_at: state.last_checked_at.clone(),
             last_check_error: state.last_check_error.clone(),
-            last_check_problem: state.last_check_problem.map(Problem::as_str),
+            last_check_problem: state.last_check_problem,
             retry_at: state.retry_at.clone(),
         }
     }
@@ -406,8 +369,8 @@ impl UpdateService {
             }
             state.available = newer_release(&state.releases, VERSION).cloned();
             match state.available.clone() {
-                Some(release) if state.notified_version.as_deref() != Some(release.version.as_str()) => {
-                    state.notified_version = Some(release.version.clone());
+                Some(release) if state.notified_version.as_deref() != Some(release.info.version.as_str()) => {
+                    state.notified_version = Some(release.info.version.clone());
                     Some(release)
                 }
                 _ => None,
@@ -417,8 +380,8 @@ impl UpdateService {
             Err(error) => tracing::warn!("Update check failed: {}", error.message),
             Ok(()) => {
                 if let Some(release) = &news {
-                    tracing::info!("Update available: {} (running {VERSION})", release.tag);
-                    self.kv.set(NOTIFIED_KEY, Some(&release.version));
+                    tracing::info!("Update available: {} (running {VERSION})", release.info.tag);
+                    self.kv.set(NOTIFIED_KEY, Some(&release.info.version));
                 }
             }
         }
@@ -503,22 +466,31 @@ impl UpdateService {
             .releases
             .iter()
             .map(|release| {
-                let notes = cut(&release.notes, budget);
+                let ReleaseDto { version, tag, name, notes, published_at, prerelease, url } = &release.info;
+                let notes = cut(notes, budget);
                 budget -= notes.len();
-                ReleaseDto { notes, ..release.dto() }
+                ReleaseDto {
+                    version: version.clone(),
+                    tag: tag.clone(),
+                    name: name.clone(),
+                    notes,
+                    published_at: published_at.clone(),
+                    prerelease: *prerelease,
+                    url: url.clone(),
+                }
             })
             .collect::<Vec<_>>();
         let problem = if releases.is_empty() { problem.or(state.last_check_problem) } else { None };
-        ReleasesDto { releases, problem: problem.map(Problem::as_str) }
+        ReleasesDto { releases, problem }
     }
 
     fn notify_channels(&self, release: &Release) {
         self.notifications.notify(
             "update",
-            format!("Magnetar {} is available", release.tag),
+            format!("Magnetar {} is available", release.info.tag),
             format!(
                 "You are running {VERSION}. Install it from Settings or the menu-bar icon, or download it from {}",
-                release.release_url
+                release.info.url
             ),
         );
     }
@@ -528,10 +500,10 @@ impl UpdateService {
     fn tell(&self, release: &Release) {
         self.notify_channels(release);
         let installs = self.can_self_install(Some(release));
-        let (action, label) = if installs { ("install", "Install and Restart") } else { ("download", "Download") };
+        let (action, label) = UPDATE_BUTTONS[if installs { 0 } else { 1 }];
         notify::show(Notice {
             kind: "update",
-            title: format!("Magnetar {} is available", release.version),
+            title: format!("Magnetar {} is available", release.info.version),
             body: summary(release),
             actions: vec![(action, label.to_owned())],
         });
@@ -554,7 +526,7 @@ impl UpdateService {
                     }
                 });
             }
-            (Choice::Action(_), Some(release)) => open_in_browser(&release.release_url),
+            (Choice::Action(_), Some(release)) => open_in_browser(&release.info.url),
             _ => about(),
         }
     }
@@ -569,7 +541,7 @@ impl UpdateService {
                 return None;
             }
             if !self.can_self_install(Some(&update)) {
-                return Some(update.release_url);
+                return Some(update.info.url);
             }
             state.installing = true;
             update
@@ -578,7 +550,7 @@ impl UpdateService {
         let staging = std::env::temp_dir().join(format!("magnetar-update-{}", random_id(6)));
         match self.stage(&update, &staging).await {
             Ok(()) => {
-                tracing::info!("Update {} staged; restarting", update.tag);
+                tracing::info!("Update {} staged; restarting", update.info.tag);
                 if let Some(quit) = self.on_quit.get() {
                     quit().await;
                 }
@@ -630,7 +602,7 @@ impl UpdateService {
     /// The asset's SHA-256 must be in the manifest, and the manifest signed by the release key.
     async fn verify(&self, asset: &[u8], asset_name: &str, update: &Release) -> anyhow::Result<()> {
         let (Some(manifest_url), Some(signature_url)) = (&update.manifest_url, &update.signature_url) else {
-            anyhow::bail!("Release {} is not signed; update refused.", update.tag);
+            anyhow::bail!("Release {} is not signed; update refused.", update.info.tag);
         };
         let manifest = self.download(manifest_url, Duration::from_secs(30)).await?;
         let signature = self.download(signature_url, Duration::from_secs(30)).await?;
@@ -755,13 +727,15 @@ mod tests {
 
     fn release(notes: &str) -> Release {
         Release {
-            version: "9.0.0".into(),
-            tag: "v9.0.0".into(),
-            name: "Magnetar 9.0.0".into(),
-            notes: notes.into(),
-            published_at: None,
-            prerelease: false,
-            release_url: String::new(),
+            info: ReleaseDto {
+                version: "9.0.0".into(),
+                tag: "v9.0.0".into(),
+                name: "Magnetar 9.0.0".into(),
+                notes: notes.into(),
+                published_at: None,
+                prerelease: false,
+                url: String::new(),
+            },
             asset_name: None,
             asset_url: None,
             manifest_url: None,

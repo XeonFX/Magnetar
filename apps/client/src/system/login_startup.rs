@@ -95,7 +95,7 @@ fn set_mac(enabled: bool) -> ApiResult<()> {
         return Ok(());
     }
     let bundle = crate::paths::mac_app_bundle().expect("checked by status");
-    let xml = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    let xml = super::xml_escape;
     let contents = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

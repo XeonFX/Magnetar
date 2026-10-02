@@ -19,6 +19,7 @@ pub enum Choice {
 }
 
 /// A notice to show.
+#[derive(Clone)]
 pub struct Notice {
     /// Notices of one kind share it; a newer one replaces the older where the system can.
     pub kind: &'static str,
@@ -213,10 +214,8 @@ mod platform {
             return applescript(notice);
         }
         let center = UNUserNotificationCenter::currentNotificationCenter();
+        // Its button's category was registered by `prepare` (`listen`).
         let button = notice.actions.first().cloned();
-        if let Some((action, label)) = &button {
-            register_categories(&center, [(category(id, action), (*action, label.clone()))].into_iter());
-        }
         let (id, title, body) = (id.to_owned(), notice.title.clone(), notice.body.clone());
         // The first time, macOS asks the person whether Magnetar may notify; later this answers at once.
         let post = RcBlock::new(move |granted: Bool, error: *mut NSError| {
@@ -319,7 +318,7 @@ mod platform {
 
     /// A notice without buttons, for a build running outside Magnetar.app.
     fn applescript(notice: &Notice) {
-        let quote = |text: &str| format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""));
+        let quote = crate::system::applescript_string;
         let script = format!("display notification {} with title {}", quote(&notice.body), quote(&notice.title));
         if let Err(error) = crate::system::run_captured("/usr/bin/osascript", &["-e", &script]) {
             tracing::warn!("Notification not shown: {error}");
@@ -371,9 +370,7 @@ mod platform {
     /// The toasts on screen: Windows calls their handlers only while they live.
     static SHOWN: Mutex<Vec<(String, ToastNotification)>> = Mutex::new(Vec::new());
 
-    fn escape(text: &str) -> String {
-        text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
-    }
+    use crate::system::xml_escape as escape;
 
     /// Registers the app id now: Windows wants a process's id set before it shows any window or icon.
     pub fn prepare(_id: &str, _buttons: &[(&'static str, &str)]) {
@@ -442,10 +439,7 @@ mod platform {
     }
 
     pub fn show(id: &str, notice: &Notice) {
-        let (id, notice) = (
-            id.to_owned(),
-            Notice { kind: notice.kind, title: notice.title.clone(), body: notice.body.clone(), actions: notice.actions.clone() },
-        );
+        let (id, notice) = (id.to_owned(), notice.clone());
         // A thread of its own: it waits until the notice is chosen or goes away.
         std::thread::spawn(move || match send(&notice, true) {
             Ok(output) if output.status.success() => {

@@ -55,10 +55,10 @@ pub async fn pick_folder_natively(start: Option<&str>, prompt: &str) -> Option<S
     if !cfg!(target_os = "macos") {
         return None;
     }
-    let escape = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
-    let mut script = format!("POSIX path of (choose folder with prompt \"{}\"", escape(prompt));
+    let quote = super::applescript_string;
+    let mut script = format!("POSIX path of (choose folder with prompt {}", quote(prompt));
     if let Some(start) = start.filter(|s| Path::new(s).exists()) {
-        script.push_str(&format!(" default location POSIX file \"{}\"", escape(start)));
+        script.push_str(&format!(" default location POSIX file {}", quote(start)));
     }
     script.push(')');
     let output = tokio::process::Command::new("/usr/bin/osascript").args(["-e", &script]).output().await.ok()?;

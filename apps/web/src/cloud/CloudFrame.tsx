@@ -8,7 +8,8 @@ import { theme } from '../ui/theme.ts'
 import { useAccount } from './CloudApp.tsx'
 import { BrandMark } from '../ui/BrandMark.tsx'
 import { BuildVersion } from '../ui/BuildVersion.tsx'
-import { BUILD, REPO } from '../lib/updates.ts'
+import { BUILD } from '../lib/updates.ts'
+import { MAGNETAR_REPO } from '@magnetar/protocol/cloud'
 
 /** The website's own pages (sign-in, device list, pairing): a slim header over a centred column. */
 export function CloudFrame({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
@@ -37,7 +38,7 @@ export function CloudFrame({ children, wide = false }: { children: ReactNode; wi
         <div className={`muted mx-auto flex w-full flex-wrap items-center gap-x-4 gap-y-1 px-4 py-4 text-xs ${wide ? 'max-w-5xl' : 'max-w-3xl'}`}>
           <span>Magnetar <BuildVersion version={BUILD.version} commit={BUILD.commit} /></span>
           <Link to="/about" className="link link-hover">{t('footer.whatsNew')}</Link>
-          <a href={`https://github.com/${REPO}`} className="link link-hover" target="_blank" rel="noreferrer noopener">GitHub</a>
+          <a href={`https://github.com/${MAGNETAR_REPO}`} className="link link-hover" target="_blank" rel="noreferrer noopener">GitHub</a>
         </div>
       </footer>
     </div>
