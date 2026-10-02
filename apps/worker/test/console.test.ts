@@ -7,7 +7,7 @@ import worker from '../src/index.ts'
 import { consoleResources } from '../src/console/admin.ts'
 import { manifest } from '../src/console/manifest.ts'
 import type { Env } from '../src/env.ts'
-import { call, connectBrowser, connectDevice, eventually, listDevices, openSocket, ORIGIN, pairDevice, signIn, type User } from './client.ts'
+import { call, connectBrowser, connectDevice, eventually, listDevices, openSocket, ORIGIN, pairDevice, signIn, userId } from './client.ts'
 
 /** CodeFusion Console reaches the Worker the way these tests do: its ConsoleAdmin entrypoint, over a service binding. */
 const admin = exports.ConsoleAdmin as unknown as AppAdmin
@@ -16,9 +16,6 @@ const member = (permissions: Actor['permissions']): Actor => ({ memberId: `m-${p
 const OWNER = member(['records:read', 'records:moderate', 'records:manage', 'pii:read'])
 const MODERATOR = member(['records:read', 'records:moderate'])
 const READER = member(['records:read'])
-
-const accountId = async (user: User) =>
-  (await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(user.email).first<{ id: string }>())!.id
 
 const run = (resource: string, action: string, ids: string[], actor: Actor, reason?: string) =>
   admin.runAction({ resource, action, ids, input: {}, reason, actor })
@@ -36,7 +33,7 @@ describe('the console manifest', () => {
 describe('accounts in the console', () => {
   test('are found by email only by members who may read personal data, and by id by anyone', async () => {
     const user = await signIn()
-    const id = await accountId(user)
+    const id = await userId(user)
 
     const byEmail = await admin.list('accounts', { search: user.email, limit: 25 }, OWNER)
     expect(byEmail.items).toEqual([expect.objectContaining({ id, email: user.email, devices: 0, sessions: 1 })])
@@ -79,17 +76,17 @@ describe('accounts in the console', () => {
   test('signing out everywhere ends every browser session and keeps the devices', async () => {
     const user = await signIn()
     const device = await pairDevice(user)
-    expect((await run('accounts', 'sign-out', [await accountId(user)], MODERATOR)).ok).toBe(true)
+    expect((await run('accounts', 'sign-out', [await userId(user)], MODERATOR)).ok).toBe(true)
 
     expect((await call('/api/me', { headers: user.headers })).status).toBe(401)
     const left = await env.DB.prepare('SELECT id FROM devices WHERE id = ?').bind(device.deviceId).first()
     expect(left).not.toBeNull()
-    expect((await run('accounts', 'sign-out', [await accountId(user)], READER))).toEqual({ ok: false, message: 'Not allowed' })
+    expect((await run('accounts', 'sign-out', [await userId(user)], READER))).toEqual({ ok: false, message: 'Not allowed' })
   })
 
   test('deleting one needs records:manage and a reason, and disconnects its devices for good', async () => {
     const user = await signIn()
-    const id = await accountId(user)
+    const id = await userId(user)
     const device = await pairDevice(user)
     const app = await openSocket(connectDevice(device))
 
@@ -114,7 +111,7 @@ describe('devices in the console', () => {
     await eventually(async () => expect(await admin.get('devices', online.deviceId, OWNER)).toMatchObject({ online: true }))
 
     const record = await admin.get('devices', online.deviceId, OWNER)
-    expect(record).toMatchObject({ id: online.deviceId, name: 'Studio-Mac', platform: 'macos', version: '1.0.0', online: true, account: await accountId(user) })
+    expect(record).toMatchObject({ id: online.deviceId, name: 'Studio-Mac', platform: 'macos', version: '1.0.0', online: true, account: await userId(user) })
     expect(Date.parse(String(record!.created_at))).toBeGreaterThan(Date.now() - 60_000)
 
     const onlineIds = (await admin.list('devices', { filters: { online: 'yes' }, limit: 100 }, OWNER)).items.map(d => d.id)

@@ -1,4 +1,4 @@
-import { exports } from 'cloudflare:workers'
+import { env, exports } from 'cloudflare:workers'
 import type { CloudDeviceDto } from '@magnetar/protocol/cloud'
 import { SESSION_COOKIE } from '../src/auth.ts'
 
@@ -45,6 +45,9 @@ export async function signIn(): Promise<User> {
   if (!session) throw new Error('No session cookie')
   return { email, headers: { cookie: `${SESSION_COOKIE}=${session}`, origin: ORIGIN } }
 }
+
+/** The id of `user`'s account. */
+export const userId = async (user: User) => (await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(user.email).first<{ id: string }>())!.id
 
 interface Pairing {
   pairingId: string

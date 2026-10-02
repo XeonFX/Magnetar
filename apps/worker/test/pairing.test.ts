@@ -2,11 +2,10 @@ import { base58ToBytes } from '@codefusion-cc/base58'
 import { env } from 'cloudflare:workers'
 import { describe, expect, test } from 'vitest'
 import { handleDevices } from '../src/devices.ts'
-import { approve, call, deviceAuth, freshIp, listDevices, ORIGIN, pairDevice, poll, signIn, startPairing, type User } from './client.ts'
+import { approve, call, deviceAuth, freshIp, listDevices, ORIGIN, pairDevice, poll, signIn, startPairing, type User, userId } from './client.ts'
 
 /** Whether `id` is `prefix` and then `bytes` random bytes in base58, as ids people see are. */
 const isBase58Id = (id: string, prefix: string, bytes: number) => id.startsWith(prefix) && base58ToBytes(id.slice(prefix.length), bytes) !== null
-const userId = async (user: User) => (await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(user.email).first<{ id: string }>())!.id
 
 /**
  * D1 whose first `count` batches (an approval's claim and new device) wait until all of them are ready, so racing
