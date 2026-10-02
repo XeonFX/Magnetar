@@ -284,6 +284,7 @@
     "cloud.pointPrivate": "End-to-end encrypted",
     "cloud.pointApp": "Runs on your computer",
     "cloud.pointAppText": "The free app for macOS, Windows and Linux does the downloading; this site only connects you to it.",
+    "cloud.features": "See everything Magnetar does",
     "common.done": "Done",
     "common.edit": "Edit",
     "common.save": "Save",

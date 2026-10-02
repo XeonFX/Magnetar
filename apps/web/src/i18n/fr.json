@@ -281,6 +281,7 @@
     "cloud.pointPrivate": "Chiffré de bout en bout",
     "cloud.pointApp": "Fonctionne sur votre ordinateur",
     "cloud.pointAppText": "L'application gratuite pour macOS, Windows et Linux télécharge ; ce site vous y connecte seulement.",
+    "cloud.features": "Voir tout ce que fait Magnetar",
     "common.done": "Terminé",
     "common.edit": "Modifier",
     "common.save": "Enregistrer",

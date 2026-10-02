@@ -37,5 +37,14 @@ export default defineConfig({
   build: {
     target: 'es2023',
     chunkSizeWarningLimit: 800,
+    rolldownOptions: {
+      output: {
+        // The features page's screenshots in a folder of their own, which the desktop app leaves out (assets.rs):
+        // only the website shows that page.
+        assetFileNames: asset => asset.originalFileNames.some(file => file.includes('src/features/shots/'))
+          ? 'assets/features/[name]-[hash][extname]'
+          : 'assets/[name]-[hash][extname]',
+      },
+    },
   },
 })

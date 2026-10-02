@@ -62,7 +62,40 @@ describe('0002: device names become addresses', () => {
         .bind(`d_r${i}`, owner, word.toUpperCase(), 'macos', '1', `hash-r${i}`, i).run()
     }
     await rerun('0002')
+    // Words reserved later step aside in their own migration.
+    await rerun('0003')
     const names = await env.DB.prepare("SELECT name FROM devices WHERE id LIKE 'd_r%' ORDER BY created_at").all<{ name: string }>()
     expect(names.results.map(r => r.name)).toEqual(rules.reserved.map(word => `${word.toUpperCase()}-device`))
+  })
+})
+
+describe('0003: /features is the website\'s', () => {
+  test('renames a device called features in any case, around a name its account already has', async () => {
+    const [first, second] = await Promise.all([signIn(), signIn()])
+    const ids = await env.DB.prepare('SELECT id, email FROM users WHERE email IN (?, ?)').bind(first.email, second.email).all<{ id: string; email: string }>()
+    const owner = (email: string) => ids.results.find(r => r.email === email)!.id
+    const rows: [string, string, string][] = [
+      ['d_f1', owner(first.email), 'Features'],
+      ['d_f2', owner(second.email), 'features-device'],
+      ['d_f3', owner(second.email), 'FEATURES'],
+      ['d_f4', owner(second.email), 'features-2'],
+      ['d_f_5', owner(first.email), 'Featuresmac'],
+    ]
+    for (const [id, user, name] of rows) {
+      await env.DB.prepare('INSERT INTO devices (id, user_id, name, platform, version, token_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .bind(id, user, name, 'macos', '1.1.0', `hash-${id}`, 1).run()
+    }
+
+    await rerun('0003')
+
+    const names = await env.DB.prepare("SELECT id, name FROM devices WHERE id LIKE 'd_f%' ORDER BY id").all<{ id: string; name: string }>()
+    expect(Object.fromEntries(names.results.map(r => [r.id, r.name]))).toEqual({
+      d_f1: 'Features-device',
+      d_f2: 'features-device',
+      d_f3: 'FEATURES-device-f3',
+      d_f4: 'features-2',
+      d_f_5: 'Featuresmac',
+    })
+    expect(names.results.every(r => isDeviceName(r.name))).toBe(true)
   })
 })

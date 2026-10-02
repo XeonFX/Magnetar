@@ -21,6 +21,9 @@ See docs/ARCHITECTURE.md before touching the relay, pairing or either `e2e` impl
   `SettingsDto`/`SettingsPatch` in both protocol files. Schema changes to tables: append a migration in
   `apps/client/src/db.rs`, never edit a shipped one.
 - New user-facing strings: add the key to all eight `apps/web/src/i18n/*.json` catalogs.
+- A feature people can see, new or changed: describe it on the features page (`apps/web/src/features/outline.ts` and
+  the same feature in all eight `content/*.ts`; claims must match the code) and retake its shots
+  (`npm run screenshots -w @magnetar/e2e -- --only=<shot>`, README "Development").
 - Never let librqbit delete files (`Session::delete(.., true)` also removes an emptied output folder, which can be the
   user's download folder); `downloads::engine::delete_files` does it.
 - librqbit restores the torrents it had (`session/`) on start; the downloads table decides what runs
@@ -34,7 +37,7 @@ See docs/ARCHITECTURE.md before touching the relay, pairing or either `e2e` impl
 - Ids people see (devices, accounts, pairings, searches, streams) are base58: `randomId` from
   `@codefusion-cc/base58` in TypeScript, `encoding::random_id` in Rust. Secrets and values decoded back to bytes stay
   base64url (`randomToken` from `@codefusion-cc/workers-crypto`, `random_token`). Route patterns keep accepting `A-Za-z0-9_-` for older ids.
-- On the website a device's pages are `/<device name>/…`. A new top-level route there needs its word in
+- On the website a device's pages are `/<device name>/…`. A new top-level route there (like `/features`) needs its word in
   `packages/protocol/src/device-names.json` (`reserved`), and a D1 migration renaming any device that has it. Pages
   are served by the Worker (`page()` in `apps/worker/src/index.ts`) so the assets never respell an address.
 - Test and scratch runs: set `MAGNETAR_DATA_DIRECTORY` and `MAGNETAR_DOWNLOAD_FOLDER`, or they use the user's real folders.

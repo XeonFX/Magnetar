@@ -8,6 +8,8 @@ use rust_embed::RustEmbed;
 #[exclude = "_headers"]
 // Source maps for CodeFusion Console, which only the Worker reads.
 #[exclude = "_console/*"]
+// The features page's screenshots: the page is the website's (vite.config.ts).
+#[exclude = "assets/features/*"]
 #[allow_missing = true]
 struct Dashboard;
 
