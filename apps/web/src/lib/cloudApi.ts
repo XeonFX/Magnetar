@@ -1,4 +1,4 @@
-import type { AccountDto, AppConfig, CloudDeviceDto, LatestReleaseDto, PairApproveResponse, PairingInfoDto } from '@magnetar/protocol/cloud'
+import type { AccountDto, AppConfig, CloudDeviceDto, LatestReleaseDto, PairApproveResponse, PairingInfoDto, ReleasesDto } from '@magnetar/protocol/cloud'
 
 export type { AppConfig }
 
@@ -75,5 +75,7 @@ export const cloud = {
   removeDevice: (id: string) => api<void>(`/api/devices/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   pairing: (id: string) => api<PairingInfoDto>(`/api/pair/${encodeURIComponent(id)}`),
   latestRelease: () => api<LatestReleaseDto>('/api/releases/latest'),
+  /** The releases and what each brings, newest first; `problem` says why there are none when GitHub couldn't be read. */
+  releases: () => api<ReleasesDto>('/api/releases'),
   approvePairing: (id: string) => api<PairApproveResponse>(`/api/pair/${encodeURIComponent(id)}/approve`, { method: 'POST', body: '{}' }),
 }

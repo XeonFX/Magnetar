@@ -4,7 +4,7 @@ import { consolePage } from './consolePages.ts'
 test('names the screen a path shows, never the device in it', () => {
   expect(consolePage('/')).toBe('devices')
   expect(consolePage('')).toBe('devices')
-  for (const page of ['login', 'pair', 'link', 'add'] as const) expect(consolePage(`/${page}`)).toBe(page)
+  for (const page of ['about', 'login', 'pair', 'link', 'add'] as const) expect(consolePage(`/${page}`)).toBe(page)
   expect(consolePage('/pair/abc')).toBe('pair')
   expect(consolePage('/MacBook-Pro')).toBe('device-downloads')
   expect(consolePage('/MacBook-Pro/')).toBe('device-downloads')

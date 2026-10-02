@@ -1,9 +1,9 @@
-import type { LatestReleaseDto, ReleaseArch, ReleaseAssetDto, ReleasePlatform } from '@magnetar/protocol/cloud'
+import type { ReleaseArch, ReleaseAssetDto, ReleasePlatform } from '@magnetar/protocol/cloud'
 import { formatBytes } from '@magnetar/protocol/bytes'
 import { Download, ExternalLink, Laptop, Monitor, Terminal } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { cloud } from '../lib/cloudApi.ts'
 import { useT } from '../lib/i18n.tsx'
+import { useLatestRelease } from '../lib/releases.ts'
 
 const RELEASES_PAGE = 'https://github.com/XeonFX/Magnetar/releases/latest'
 const ICONS = { macos: Laptop, windows: Monitor, linux: Terminal }
@@ -51,12 +51,9 @@ function pick(assets: ReleaseAssetDto[], platform: ReleasePlatform, arch: Releas
  */
 export function DownloadApp() {
   const t = useT()
-  const [release, setRelease] = useState<LatestReleaseDto | null | undefined>(undefined)
+  const release = useLatestRelease()
   const [visitor, setVisitor] = useState<Visitor>({ platform: null, arch: null })
-  useEffect(() => {
-    void cloud.latestRelease().then(setRelease, () => setRelease(null))
-    void detectVisitor().then(setVisitor)
-  }, [])
+  useEffect(() => void detectVisitor().then(setVisitor), [])
 
   if (release === undefined) return <div className="flex justify-center py-6"><span className="loading loading-spinner text-primary" /></div>
   const main = release && visitor.platform && visitor.arch ? pick(release.assets, visitor.platform, visitor.arch) : undefined

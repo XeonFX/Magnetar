@@ -422,19 +422,50 @@ pub enum LoginStartupStatus {
 pub struct AvailableUpdateDto {
     pub version: String,
     pub tag: String,
+    /// The release's title on GitHub.
+    pub name: String,
     pub release_url: String,
+    pub published_at: Option<String>,
+}
+
+/// A published release, with its notes (Markdown) for the changelog.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseDto {
+    pub version: String,
+    pub tag: String,
+    pub name: String,
+    pub notes: String,
+    pub published_at: Option<String>,
+    pub prerelease: bool,
+    pub url: String,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleasesDto {
+    /// Newest version first.
+    pub releases: Vec<ReleaseDto>,
+    /// Why there are none, when GitHub could not be read: offline | rate-limited | unavailable.
+    pub problem: Option<&'static str>,
 }
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateStatusDto {
     pub current_version: String,
+    /// The commit this build came from, short; `dev` outside a packaged build.
+    pub current_commit: String,
     pub available: Option<AvailableUpdateDto>,
     pub can_self_install: bool,
     pub checking: bool,
     pub installing: bool,
     pub last_checked_at: Option<String>,
     pub last_check_error: Option<String>,
+    /// Why the last check or install failed: offline | rate-limited | unavailable | install.
+    pub last_check_problem: Option<&'static str>,
+    /// When GitHub's rate limit lifts, after a rate-limited check.
+    pub retry_at: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -509,6 +540,7 @@ pub struct LegacyImportResultDto {
 #[serde(rename_all = "camelCase")]
 pub struct AppInfoDto {
     pub version: &'static str,
+    pub commit: &'static str,
     pub platform: &'static str,
     pub arch: &'static str,
     pub data_directory: String,

@@ -1,12 +1,15 @@
 import { Check, ChevronsUpDown, CloudOff, Download, ExternalLink, Loader, Search, Settings, ShieldAlert, Tv, WifiOff } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
-import { NavLink, Outlet } from 'react-router'
+import { Link, NavLink, Outlet } from 'react-router'
 import { useT } from '../lib/i18n.tsx'
 import { Loading } from '../ui/Loading.tsx'
 import { useDevice, useDownloads, useSearchLink } from './DeviceContext.tsx'
 import { isActive } from './components/downloads.tsx'
 import { BrandMark } from '../ui/BrandMark.tsx'
 import { MenuButton } from '../ui/Menu.tsx'
+import { BuildVersion } from '../ui/BuildVersion.tsx'
+import { BUILD } from '../lib/updates.ts'
+import { UpdateBanner } from './UpdateBanner.tsx'
 
 /** Wraps the device's name in a way to reach the account's other devices; `placement` is where it opens. */
 export type DeviceMenu = (label: ReactNode, placement: 'up' | 'down') => ReactNode
@@ -50,7 +53,7 @@ export function Shell({ headerStart, headerEnd, deviceMenu }: { headerStart?: Re
         </nav>
         <div className="flex-1" />
         <DeviceStatus end={headerEnd} menu={menu} />
-        {info && <p className="muted px-3 text-xs">Magnetar {info.version}</p>}
+        {info && <Builds />}
       </aside>
 
       <div className="flex min-h-screen min-w-0 flex-col">
@@ -60,6 +63,7 @@ export function Shell({ headerStart, headerEnd, deviceMenu }: { headerStart?: Re
           {headerEnd}
         </header>
         <ConnectionBanner />
+        <UpdateBanner />
         <main className="pb-tabbar mx-auto w-full max-w-5xl flex-1 px-4 pt-5 sm:px-6 lg:px-10 lg:pt-10">
           {connectionState.status === 'open' || info ? <Outlet /> : <Loading />}
         </main>
@@ -77,6 +81,22 @@ export function Shell({ headerStart, headerEnd, deviceMenu }: { headerStart?: Re
           ))}
         </nav>
       </div>
+    </div>
+  )
+}
+
+/** Which builds this dashboard is: the app's (its About on a click) and, on the website, the website's. */
+function Builds() {
+  const t = useT()
+  const { info, basePath, connection } = useDevice()
+  if (!info) return null
+  return (
+    <div className="muted flex flex-col gap-0.5 px-3 text-xs">
+      <span>
+        <Link to={`${basePath}/settings/about`} className="link link-hover" title={t('settings.section.about')}>Magnetar</Link>
+        {' '}<BuildVersion version={info.version} commit={info.commit} />
+      </span>
+      {connection.kind === 'remote' && <span>{t('shell.website')} <BuildVersion version={BUILD.version} commit={BUILD.commit} /></span>}
     </div>
   )
 }

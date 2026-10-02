@@ -5,8 +5,17 @@ import { useLocation } from 'react-router'
 /** The commit this page was built from (vite.config.ts), compared with the deploy's /version.json. */
 declare const __APP_COMMIT__: string
 
+/** Where Magnetar is developed and released. */
+export const REPO = 'XeonFX/Magnetar'
+
+/** This page's build: the version it was released as and the commit it was built from. */
+export const BUILD = { version: import.meta.env.VITE_APP_VERSION ?? 'dev', commit: __APP_COMMIT__ }
+
 /** "v1.0.0 · abc1234": the build as CodeFusion Console's Failures page shows it. */
-export const BUILD_LABEL = `v${import.meta.env.VITE_APP_VERSION ?? 'dev'} · ${__APP_COMMIT__}`
+export const BUILD_LABEL = `v${BUILD.version} · ${BUILD.commit}`
+
+/** The commit's page on GitHub, or null for a build outside git (`dev`, `unknown`). */
+export const commitUrl = (commit: string) => (/^[0-9a-f]{7,40}$/.test(commit) ? `https://github.com/${REPO}/commit/${commit}` : null)
 
 /**
  * Keeps an open page on the build that is deployed (@codefusion-cc/app-update): on the website after a Worker

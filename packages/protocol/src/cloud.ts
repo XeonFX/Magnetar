@@ -75,6 +75,8 @@ export interface ReleaseAssetDto {
   arch: ReleaseArch
 }
 
+export type { ReleaseDto, ReleasesDto, ReleasesProblem } from './model.ts'
+
 /** `/api/releases/latest`: the app's newest release, for the website's download buttons. */
 export interface LatestReleaseDto {
   version: string

@@ -4,7 +4,7 @@ import type { AgentStatusDto, HandlerStatus, LoginStartupStatus, SettingsDto, Se
 import {
   Bell, Bot, Cloud, Copy, Download, Eye, EyeOff, Info, Mail, RefreshCw, Send, Server, Smartphone, SlidersHorizontal, Upload,
 } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, Navigate, useParams } from 'react-router'
 import { LANGUAGES, useFormatDate, useT } from '../../lib/i18n.tsx'
 import { askNotificationPermission } from '../../lib/notifications.ts'
@@ -23,6 +23,9 @@ import { NetworkSettings, SeedingRow, SpeedSettings } from '../components/transf
 import { AgentClients } from '../components/agentClients.tsx'
 import { useRun } from '../useRun.ts'
 import { Loading } from '../../ui/Loading.tsx'
+import { CommitLink } from '../../ui/BuildVersion.tsx'
+import { Changelog } from '../../ui/Changelog.tsx'
+import { releasesProblemText } from '../../lib/releases.ts'
 
 const SECTIONS = [
   { id: 'general', icon: SlidersHorizontal },
@@ -411,47 +414,58 @@ function AboutSection() {
   const run = useRun()
   const formatDate = useFormatDate()
   const { connection, updates, info } = useDevice()
+  const loadReleases = useCallback(() => connection.call('updates.releases'), [connection])
   if (!updates) return null
 
+  const problem = updates.lastCheckProblem
+    ? releasesProblemText(t, updates.lastCheckProblem, updates.retryAt, formatDate, updates.lastCheckError)
+    // An app from before problems had names says only what went wrong.
+    : updates.lastCheckError ? t('settings.lastCheckFailed', updates.lastCheckError) : null
   const check = async () => {
     const status = await run(() => connection.call('updates.check'))
     if (!status) return
-    if (status.available) toast(t('settings.updateSnack', status.available.tag), 'info')
+    if (status.available) toast(t('settings.updateSnack', status.available.version), 'info')
+    else if (status.lastCheckProblem) toast(releasesProblemText(t, status.lastCheckProblem, status.retryAt, formatDate, status.lastCheckError), 'error')
     else if (status.lastCheckError) toast(t('settings.lastCheckFailed', status.lastCheckError), 'error')
     else toast(t('settings.upToDate', status.currentVersion), 'success')
   }
   const statusText = updates.checking ? t('settings.checking')
-    : updates.lastCheckError ? t('settings.lastCheckFailed', updates.lastCheckError)
-    : updates.available ? t('settings.updateAvailable', updates.available.tag)
+    : problem ?? (updates.available ? t('settings.updateAvailable', updates.available.version)
     : updates.lastCheckedAt ? t('settings.checkedAt', formatDate(updates.lastCheckedAt, true))
-    : t('settings.checkAuto')
+    : t('settings.checkAuto'))
 
   return (
-    <SettingGroup>
-      <SettingRow layout="wide" title={t('settings.version', updates.currentVersion)}
-        description={<>
-          <span className={updates.available ? 'font-medium text-primary' : ''}>{statusText}</span>
-          {updates.available && <> · <a className="link" href={updates.available.releaseUrl} target="_blank" rel="noreferrer noopener">{t('settings.releaseNotes')}</a></>}
-        </>}>
-        <div className="flex flex-wrap gap-2">
-          {updates.available && (updates.canSelfInstall ? (
-            <button type="button" className="btn btn-primary btn-sm" disabled={updates.installing}
-              onClick={() => { toast(t('settings.installNote'), 'info'); void run(() => connection.call('updates.install')) }}>
-              {updates.installing ? t('settings.installing') : t('settings.install', updates.available.tag)}
+    <>
+      <SettingGroup>
+        <SettingRow layout="stack" title={t('settings.version', updates.currentVersion)}
+          description={<>
+            {updates.currentCommit && <span className="block">{t('settings.commit')} <CommitLink commit={updates.currentCommit} /></span>}
+            <span className={updates.available ? 'font-medium text-primary' : problem ? 'text-warning' : ''}>{statusText}</span>
+          </>}>
+          <div className="flex flex-wrap gap-2">
+            {updates.available && (updates.canSelfInstall ? (
+              <button type="button" className="btn btn-primary btn-sm" disabled={updates.installing}
+                onClick={() => { toast(t('settings.installNote'), 'info'); void run(() => connection.call('updates.install')) }}>
+                {updates.installing && <span className="loading loading-spinner loading-xs" />}
+                {updates.installing ? t('settings.installing') : t('settings.install', updates.available.version)}
+              </button>
+            ) : (
+              <a className="btn btn-primary btn-sm" href={updates.available.releaseUrl} target="_blank" rel="noreferrer noopener">{t('settings.openRelease')}</a>
+            ))}
+            <button type="button" className="btn btn-sm" disabled={updates.checking} onClick={() => void check()}>
+              <RefreshCw size={14} className={updates.checking ? 'animate-spin' : ''} />{t('settings.checkUpdates')}
             </button>
-          ) : (
-            <a className="btn btn-primary btn-sm" href={updates.available.releaseUrl} target="_blank" rel="noreferrer noopener">{t('settings.openRelease')}</a>
-          ))}
-          <button type="button" className="btn btn-sm" disabled={updates.checking} onClick={() => void check()}>
-            <RefreshCw size={14} className={updates.checking ? 'animate-spin' : ''} />{t('settings.checkUpdates')}
-          </button>
-        </div>
-      </SettingRow>
-      {info && (
-        <SettingRow layout="wide" title={t('settings.dataFolder')} description={<span className="break-release font-mono text-xs">{info.dataDirectory}</span>}>
-          <span className="muted text-sm">{info.platform} · {info.arch}</span>
+          </div>
         </SettingRow>
-      )}
-    </SettingGroup>
+        {info && (
+          <SettingRow layout="wide" title={t('settings.dataFolder')} description={<span className="break-release font-mono text-xs">{info.dataDirectory}</span>}>
+            <span className="muted text-sm">{info.platform} · {info.arch}</span>
+          </SettingRow>
+        )}
+      </SettingGroup>
+      <SettingGroup title={t('changelog.title')} description={t('changelog.hint')}>
+        <div className="pt-1"><Changelog load={loadReleases} running={updates.currentVersion} /></div>
+      </SettingGroup>
+    </>
   )
 }

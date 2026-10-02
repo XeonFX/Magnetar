@@ -2,6 +2,7 @@ pub mod agents;
 pub mod folders;
 pub mod handlers;
 pub mod login_startup;
+pub mod notify;
 
 use std::process::{Command, Stdio};
 

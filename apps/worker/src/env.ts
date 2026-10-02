@@ -24,6 +24,8 @@ export interface Env {
   GOOGLE_CLIENT_ID: string
   /** GitHub owner/name whose releases the website offers for download. */
   RELEASES_REPO?: string
+  /** Optional secret: a GitHub token (no scopes) for 5,000 release lookups an hour instead of 60 per shared address. */
+  GITHUB_TOKEN?: string
   /** Web Push (VAPID) key, a secret made by `codefusion-vapid` (@codefusion-cc/web-push). Unset: no browser push. */
   VAPID_PRIVATE_KEY?: string
   /** Contact for push services; the site's origin by default. */

@@ -365,14 +365,40 @@ export type HandlerStatus = 'unavailable' | 'default' | 'notDefault'
 
 export type LoginStartupStatus = 'unavailable' | 'disabled' | 'enabled' | 'requiresApproval'
 
+/** Why reading GitHub's releases failed: no answer, its rate limit, or a refusal or unreadable answer. */
+export type ReleasesProblem = 'offline' | 'rate-limited' | 'unavailable'
+
 export interface UpdateStatusDto {
   currentVersion: string
-  available: { version: string; tag: string; releaseUrl: string } | null
+  /** The commit the app was built from, short; `dev` outside a packaged build. */
+  currentCommit: string
+  available: { version: string; tag: string; name: string; releaseUrl: string; publishedAt: string | null } | null
   canSelfInstall: boolean
   checking: boolean
   installing: boolean
   lastCheckedAt: string | null
   lastCheckError: string | null
+  /** Why the last check, or an install, failed. */
+  lastCheckProblem: ReleasesProblem | 'install' | null
+  /** When GitHub's rate limit lifts, after a rate-limited check. */
+  retryAt: string | null
+}
+
+/** A published release, with its notes (Markdown) for the changelog. */
+export interface ReleaseDto {
+  version: string
+  tag: string
+  name: string
+  notes: string
+  publishedAt: string | null
+  prerelease: boolean
+  url: string
+}
+
+/** The releases, newest version first (`updates.releases`, `/api/releases`), or why there are none. */
+export interface ReleasesDto {
+  releases: ReleaseDto[]
+  problem: ReleasesProblem | null
 }
 
 export interface AgentStatusDto {
@@ -442,6 +468,8 @@ export interface LegacyImportResultDto {
 
 export interface AppInfoDto {
   version: string
+  /** The commit the app was built from, short; `dev` outside a packaged build. */
+  commit: string
   platform: 'macos' | 'windows' | 'linux'
   arch: string
   dataDirectory: string

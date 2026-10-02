@@ -15,7 +15,7 @@ use tray_icon::menu::{CheckMenuItem, IsMenuItem, Menu, MenuEvent, MenuId, MenuIt
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 use crate::app::App;
-use crate::config::VERSION;
+use crate::config::build_label;
 use crate::protocol::bytes::{format_bytes, format_rate};
 use crate::protocol::{
     AltSpeedMode, DownloadDto, DownloadStatus, EngineState, LoginStartupStatus, SettingsPatch, TransferStatusDto, UpdateStatusDto,
@@ -365,11 +365,12 @@ fn rows(s: &Snapshot) -> Vec<Row> {
     // Updates.
     let updates = &s.updates;
     rows.push(Row::Separator);
+    let build = format!("Magnetar {}", build_label());
     if updates.installing {
-        rows.push(Row::Label(format!("Magnetar v{VERSION}")));
+        rows.push(Row::Label(build));
         rows.push(Row::Label("Installing update…".into()));
     } else if let Some(available) = &updates.available {
-        rows.push(Row::Label(format!("Magnetar v{VERSION} — {} available", available.tag)));
+        rows.push(Row::Label(format!("{build} — {} available", available.tag)));
         let how = if updates.can_self_install { "(restarts the app)" } else { "(opens the release page)" };
         rows.push(item(format!("Update to {} {how}", available.tag), Command::InstallUpdate));
     } else {
@@ -380,13 +381,14 @@ fn rows(s: &Snapshot) -> Vec<Row> {
         } else {
             String::new()
         };
-        rows.push(Row::Label(format!("Magnetar v{VERSION}{suffix}")));
+        rows.push(Row::Label(format!("{build}{suffix}")));
         rows.push(Row::Item {
             text: if updates.checking { "Checking for Updates…".into() } else { "Check for Updates…".into() },
             command: Command::CheckForUpdates,
             enabled: !updates.checking,
         });
     }
+    rows.push(item("What's New…", Command::OpenSettings(Some("about"))));
     rows.push(item("Quit Magnetar", Command::Quit));
     rows
 }
@@ -539,7 +541,7 @@ fn perform(command: Command, app: &Arc<App>, dashboard_url: &str, runtime: &toki
     match command {
         Command::OpenDashboard => open_in_browser(dashboard_url),
         Command::OpenSettings(None) => open_in_browser(&format!("{dashboard_url}/settings")),
-        Command::OpenSettings(Some(section)) => open_in_browser(&format!("{dashboard_url}/settings?section={section}")),
+        Command::OpenSettings(Some(section)) => open_in_browser(&format!("{dashboard_url}/settings/{section}")),
         Command::OpenRemoteDashboard => off_thread(Box::new(|app| open_in_browser(&app.remote.status().cloud_url))),
         Command::OpenDownloadsFolder => off_thread(Box::new(|app| {
             // Before the first download it may not exist yet; show it empty rather than do nothing.
@@ -755,13 +757,16 @@ mod tests {
             open_at_login: LoginStartupStatus::Disabled,
             remote: None,
             updates: UpdateStatusDto {
-                current_version: VERSION.into(),
+                current_version: crate::config::VERSION.into(),
+                current_commit: "abc1234".into(),
                 available: None,
                 can_self_install: true,
                 checking: false,
                 installing: false,
                 last_checked_at: None,
                 last_check_error: None,
+                last_check_problem: None,
+                retry_at: None,
             },
             checked_at: Some("20:37".into()),
         }
@@ -927,13 +932,13 @@ mod tests {
     #[test]
     fn updates_offer_a_check_until_one_is_running() {
         let mut s = snapshot(vec![]);
-        assert!(labels(&rows(&s)).contains(&format!("Magnetar v{VERSION} — up to date, checked 20:37").as_str()));
+        assert!(labels(&rows(&s)).contains(&format!("Magnetar {} — up to date, checked 20:37", build_label()).as_str()));
         assert!(enabled(&rows(&s), Command::CheckForUpdates));
         s.updates.checking = true;
         assert!(!enabled(&rows(&s), Command::CheckForUpdates));
         s.updates.checking = false;
         s.updates.last_check_error = Some("offline".into());
-        assert!(labels(&rows(&s)).contains(&format!("Magnetar v{VERSION} — update check failed").as_str()));
+        assert!(labels(&rows(&s)).contains(&format!("Magnetar {} — update check failed", build_label()).as_str()));
     }
 
     #[test]
@@ -943,7 +948,9 @@ mod tests {
         s.updates.available = Some(crate::protocol::AvailableUpdateDto {
             version: "9.0.0".into(),
             tag: "v9.0.0".into(),
+            name: "Magnetar 9.0.0".into(),
             release_url: "https://github.com/XeonFX/Magnetar/releases/tag/v9.0.0".into(),
+            published_at: None,
         });
         let after = rows(&s);
         assert!(
