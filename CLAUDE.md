@@ -9,7 +9,9 @@ See docs/ARCHITECTURE.md before touching the relay, pairing or either `e2e` impl
 - Checks: `npm run check` (oxlint, clippy with `-D warnings`, `cargo fmt --check`, tsc for every package, Vitest,
   cargo test). Vitest runs the `packages/*` and `apps/web` tests in Node, and `apps/worker/test` in workerd with a local
   D1 and the real relay (`apps/worker/vitest.config.ts`, the dev environment's bindings, its own tsconfig). Cargo needs
-  `/opt/homebrew/opt/rustup/bin` on PATH on the maintainer's Mac.
+  `/opt/homebrew/opt/rustup/bin` on PATH on the maintainer's Mac, where sccache (`~/.cargo/config.toml`, README ›
+  Development) shares compiled crates between worktrees. Never give worktrees one `CARGO_TARGET_DIR`: Cargo's
+  file-time freshness then hands a worktree another worktree's binary.
 - Scripts (`scripts/`, `apps/client/package.ts`) are TypeScript that Node runs as is: erasable syntax only, relative
   imports with their `.ts` extension.
 - The wire contract lives twice: zod schemas and types in `packages/protocol/src/{model,rpc}.ts`, serde types in
