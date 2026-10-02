@@ -1,6 +1,6 @@
 import { handleGoogleSignIn } from '@codefusion-cc/google-sign-in'
 import { consoleAdmin, createConsoleRoutes } from '@codefusion-cc/console/worker'
-import { clientNetwork, errorResponse, json, jsonError, rateLimit, readJson } from '@codefusion-cc/workers-http'
+import { clientNetwork, errorResponse, json, jsonError, rateLimit, readJson, serveSinglePageApp } from '@codefusion-cc/workers-http'
 import type { AppConfig, FailureReport } from '@magnetar/protocol/cloud'
 import { CONSOLE_PAGES } from '@magnetar/protocol/console-pages'
 import { handleAuth } from './auth.ts'
@@ -46,19 +46,6 @@ async function reportFailure(request: Request, env: Env): Promise<Response> {
 
 const GOOGLE_CALLBACK_PAGE = { background: { light: '#f6f7fb', dark: '#0f1117' } }
 
-/**
- * The dashboard's pages. Every one is the same page (the app's router reads the path), served here rather than by
- * the assets, which redirect a path to their own spelling of it: `/MacBook-Pro/search/house+of+the+dragon` would
- * become `…/house%2Bof%2Bthe%2Bdragon`, a search for pluses. Files (`/sw.js`, the icons) are the assets' own;
- * `/assets/*` never reaches the Worker (wrangler.jsonc).
- */
-async function page(request: Request, env: Env, path: string): Promise<Response> {
-  if (request.method !== 'GET' && request.method !== 'HEAD') return jsonError(405, 'Method not allowed')
-  // The public files all sit at the root; a dot deeper in is search text (`/Mac/search/house.of.the.dragon`).
-  if (/^\/[^/]+\.[A-Za-z0-9]+$/.test(path)) return env.ASSETS.fetch(request)
-  return env.ASSETS.fetch(new Request(new URL('/', request.url), request))
-}
-
 async function route(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const path = new URL(request.url).pathname
   const consoleAnswer = await consoleRoutes.fetch(request, env, ctx, origin => allowedOrigins(env).includes(origin))
@@ -74,7 +61,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
     ?? (await handleDevices(request, env, path))
     ?? (await handlePush(request, env, path))
     ?? (await handleReleases(request, env, path))
-    ?? (path.startsWith('/api/') || path.startsWith('/_console/') ? jsonError(404, 'Not found') : page(request, env, path))
+    ?? (path.startsWith('/api/') || path.startsWith('/_console/') ? jsonError(404, 'Not found') : serveSinglePageApp(request, env.ASSETS))
 }
 
 export default {
