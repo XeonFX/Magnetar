@@ -22,9 +22,9 @@ add: the Worker still running meanwhile must keep working on the new schema.
 
 ## 3. CodeFusion Console
 
-The console (XeonFX/codefusion-console) lists Magnetar in `config/apps.json` and binds `MAGNETAR_ADMIN` to this
+The console (codefusion-cc/codefusion-console) lists Magnetar in `config/apps.json` and binds `MAGNETAR_ADMIN` to this
 Worker's `ConsoleAdmin` entrypoint. Deploy this Worker first, so the console's deploy binds a service that exists.
-Its Deployments page reads this repository with the console's GitHub token, which must include XeonFX/Magnetar.
+Its Deployments page reads this repository with the console's GitHub token, which must include codefusion-cc/magnetar.
 
 ## 4. Deploy on merge
 
@@ -43,7 +43,7 @@ is refused) and **Account · D1 · Edit**. Keep the template's zone permissions 
 limit the token to your account. Store it in the `production` environment, which only `main` may deploy to:
 
 ```bash
-cd /Users/xeon/Projects/mediadownloader-v2 && gh api -X PUT repos/XeonFX/Magnetar/environments/production --input - <<<'{"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}' && gh api -X POST repos/XeonFX/Magnetar/environments/production/deployment-branch-policies -f name=main -f type=branch && gh secret set CLOUDFLARE_API_TOKEN --env production --repo XeonFX/Magnetar
+cd /Users/xeon/Projects/mediadownloader-v2 && gh api -X PUT repos/codefusion-cc/magnetar/environments/production --input - <<<'{"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}' && gh api -X POST repos/codefusion-cc/magnetar/environments/production/deployment-branch-policies -f name=main -f type=branch && gh secret set CLOUDFLARE_API_TOKEN --env production --repo codefusion-cc/magnetar
 ```
 
 A failed deploy leaves the website on the previous build: fix the cause and merge again, or re-run the job. In an
@@ -90,7 +90,7 @@ key makes every browser subscribe again.
 ## Downloads on the website
 
 The sign-in page and an empty device list offer the app for the visitor's system, from the latest GitHub release of
-`RELEASES_REPO` (a Worker var, `XeonFX/Magnetar` by default). Asset names must stay
+`RELEASES_REPO` (a Worker var, `codefusion-cc/magnetar` by default). Asset names must stay
 `Magnetar-<version>-<macos|windows|linux>-<arm64|x64>[.zip|.exe]`. The same list answers `/about`'s changelog and the
 "your app is outdated" notice; GitHub is asked at most every ten minutes per data centre.
 

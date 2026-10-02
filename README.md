@@ -63,7 +63,7 @@ Every feature with screenshots of the app, in all eight languages: [magnetar.cod
 
 ## Install
 
-Download the file for your computer from the [latest release](https://github.com/XeonFX/Magnetar/releases/latest):
+Download the file for your computer from the [latest release](https://github.com/codefusion-cc/magnetar/releases/latest):
 
 | Platform | File |
 |---|---|

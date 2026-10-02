@@ -949,7 +949,7 @@ mod tests {
             version: "9.0.0".into(),
             tag: "v9.0.0".into(),
             name: "Magnetar 9.0.0".into(),
-            release_url: "https://github.com/XeonFX/Magnetar/releases/tag/v9.0.0".into(),
+            release_url: "https://github.com/codefusion-cc/magnetar/releases/tag/v9.0.0".into(),
             published_at: None,
         });
         let after = rows(&s);

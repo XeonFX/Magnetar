@@ -40,7 +40,7 @@ describe('the changelog (/api/releases)', () => {
       version: '1.1.0', tag: 'v1.1.0', name: 'Magnetar 1.1.0', notes: '## New\n\n- Something in v1.1.0 (#1)',
       publishedAt: '2026-09-29T10:00:00Z', prerelease: false, url: 'https://github.com/o/r/releases/tag/v1.1.0',
     })
-    expect(requests[0]!.url).toBe('https://api.github.com/repos/XeonFX/Magnetar/releases?per_page=20')
+    expect(requests[0]!.url).toBe('https://api.github.com/repos/codefusion-cc/magnetar/releases?per_page=20')
     expect(requests[0]!.headers.get('user-agent')).toBe('magnetar.codefusion.cc')
     expect(requests[0]!.headers.has('authorization')).toBe(false)
   })
