@@ -8,7 +8,9 @@ use rusqlite::{Row, params};
 use tokio::sync::{Notify, broadcast};
 use tokio_util::sync::CancellationToken;
 
-use super::engine::{Engine, Metadata, NetworkOptions, SpeedLimits, TorrentHandle, bytes_in_pieces, delete_files};
+use super::engine::{
+    Engine, Metadata, NetworkOptions, SpeedLimits, TorrentHandle, bytes_in_pieces, delete_files, remove_empty_tree,
+};
 use super::transfer::{current_limits, free_space, interface_index, wanted_interface};
 use crate::db::{Db, KeyValue};
 use crate::error::{ApiError, ApiResult};
@@ -692,8 +694,8 @@ impl DownloadManager {
         }
         if delete_files_too && let Some(metadata) = &metadata {
             delete_files(metadata, &save_path);
-            if let Some(content) = metadata.content_directory(&save_path) {
-                remove_empty_tree(&content, &save_path);
+            if let Some(folder) = metadata.content_folder() {
+                remove_empty_tree(&save_path, folder);
             }
         }
         self.db.lock().execute("DELETE FROM downloads WHERE id = ?", [id])?;
@@ -1241,36 +1243,6 @@ fn not_found(id: i64) -> ApiError {
     ApiError::not_found(format!("No download with id {id}."))
 }
 
-/// Removes a torrent's leftover folder once its files are gone — but only empty directories, only
-/// strictly inside the save root, never the root itself. A user may have put other files there, or
-/// another torrent may share it.
-pub fn remove_empty_tree(content_dir: &Path, save_root: &Path) {
-    let (Ok(content), Ok(root)) = (std::path::absolute(content_dir), std::path::absolute(save_root)) else { return };
-    if content == root || !content.starts_with(&root) {
-        return;
-    }
-    fn prune(dir: &Path) -> std::io::Result<bool> {
-        let mut empty = true;
-        for entry in std::fs::read_dir(dir)? {
-            let entry = entry?;
-            // file_type does not follow links: a symlink is content to keep, never a directory to walk into.
-            if entry.file_type()?.is_dir() && prune(&entry.path())? {
-                continue;
-            }
-            empty = false;
-        }
-        if empty {
-            std::fs::remove_dir(dir)?;
-        }
-        Ok(empty)
-    }
-    if content.exists()
-        && let Err(error) = prune(&content)
-    {
-        tracing::warn!("Could not remove leftover folder {}: {error}", content.display());
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1315,14 +1287,102 @@ mod tests {
         assert!(!root.join("single.iso").exists());
 
         let multi = metadata("Show", &["e01.mkv", "Subs/e01.srt", "../keep.txt"]);
-        let content = multi.content_directory(&root).unwrap();
         delete_files(&multi, &root);
-        remove_empty_tree(&content, &root);
+        remove_empty_tree(&root, multi.content_folder().unwrap());
         assert!(!root.join("Show").exists());
         assert!(root.join("keep.txt").exists(), "a path escaping the torrent's folder is ignored");
 
         std::fs::remove_file(root.join("keep.txt")).unwrap();
-        remove_empty_tree(&root, &root);
+        remove_empty_tree(&root, Path::new(""));
+        remove_empty_tree(&root, Path::new("."));
         assert!(root.exists(), "the save folder itself stays, even when empty");
+    }
+
+    /// A folder link, as someone without special rights can make one: a symlink, a junction on Windows.
+    fn link_folder(target: &Path, link: &Path) {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, link).unwrap();
+        #[cfg(windows)]
+        assert!(
+            std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(link).arg(target).status().unwrap().success(),
+            "mklink /J"
+        );
+    }
+
+    /// Someone's files outside the save folder, named like the torrent's.
+    fn outside_files(base: &Path) -> PathBuf {
+        let outside = base.join("Documents");
+        std::fs::create_dir_all(outside.join("Subs")).unwrap();
+        std::fs::create_dir_all(outside.join("Empty")).unwrap();
+        std::fs::write(outside.join("e01.mkv"), "mine").unwrap();
+        std::fs::write(outside.join("Subs/e01.srt"), "mine").unwrap();
+        outside
+    }
+
+    #[test]
+    fn deleting_files_never_follows_a_linked_torrent_folder_out_of_the_save_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("Downloads");
+        std::fs::create_dir_all(&root).unwrap();
+        let outside = outside_files(dir.path());
+        link_folder(&outside, &root.join("Show"));
+
+        let multi = metadata("Show", &["e01.mkv", "Subs/e01.srt", "Empty/.keep"]);
+        delete_files(&multi, &root);
+        remove_empty_tree(&root, multi.content_folder().unwrap());
+        assert!(outside.join("e01.mkv").exists(), "a file behind a linked torrent folder stays");
+        assert!(outside.join("Subs/e01.srt").exists());
+        assert!(outside.join("Empty").is_dir(), "an empty folder behind the link is not pruned");
+    }
+
+    #[test]
+    fn deleting_files_never_follows_a_linked_folder_inside_the_torrent() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("Downloads");
+        std::fs::create_dir_all(root.join("Show")).unwrap();
+        std::fs::write(root.join("Show/e01.mkv"), "x").unwrap();
+        let outside = outside_files(dir.path());
+        link_folder(&outside.join("Subs"), &root.join("Show/Subs"));
+
+        let multi = metadata("Show", &["e01.mkv", "Subs/e01.srt"]);
+        delete_files(&multi, &root);
+        remove_empty_tree(&root, multi.content_folder().unwrap());
+        assert!(!root.join("Show/e01.mkv").exists(), "the torrent's own file goes");
+        assert!(outside.join("Subs/e01.srt").exists(), "a file behind a linked subfolder stays");
+    }
+
+    #[test]
+    fn deleting_files_never_follows_a_link_to_another_folder_in_the_save_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("Downloads");
+        std::fs::create_dir_all(root.join("Other show")).unwrap();
+        std::fs::write(root.join("Other show/e01.mkv"), "theirs").unwrap();
+        // Relative where the system allows it: a link that stays inside the save folder (a junction is always absolute).
+        #[cfg(unix)]
+        link_folder(Path::new("Other show"), &root.join("Show"));
+        #[cfg(windows)]
+        link_folder(&root.join("Other show"), &root.join("Show"));
+
+        let multi = metadata("Show", &["e01.mkv", "e02.mkv"]);
+        delete_files(&multi, &root);
+        remove_empty_tree(&root, multi.content_folder().unwrap());
+        assert!(root.join("Other show/e01.mkv").exists(), "another download's file stays");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_in_place_of_a_file_is_removed_and_its_target_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("Downloads");
+        std::fs::create_dir_all(root.join("Show")).unwrap();
+        let outside = outside_files(dir.path());
+        std::os::unix::fs::symlink(outside.join("e01.mkv"), root.join("Show/e01.mkv")).unwrap();
+
+        let multi = metadata("Show", &["e01.mkv", "e02.mkv"]);
+        delete_files(&multi, &root);
+        remove_empty_tree(&root, multi.content_folder().unwrap());
+        assert!(std::fs::symlink_metadata(root.join("Show/e01.mkv")).is_err(), "the link goes");
+        assert_eq!(std::fs::read_to_string(outside.join("e01.mkv")).unwrap(), "mine");
+        assert!(!root.join("Show").exists(), "and the emptied folder with it");
     }
 }

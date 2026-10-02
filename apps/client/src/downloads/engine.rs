@@ -9,6 +9,9 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
+use cap_fs_ext::DirExt;
+use cap_std::ambient_authority;
+use cap_std::fs::Dir;
 use librqbit::dht::{DhtPersistenceConfig, Id20};
 use librqbit::{
     AddTorrent, AddTorrentOptions, AddTorrentResponse, DhtSessionConfig, ListenerMode, ListenerOptions, ManagedTorrent,
@@ -52,12 +55,15 @@ impl Metadata {
     }
 
     /// A multi-file torrent gets a folder of its own, named after it, inside the save folder;
-    /// a single file goes straight into the save folder (as every other client does).
+    /// a single file goes straight into the save folder (as every other client does). Relative to the save folder.
+    pub fn content_folder(&self) -> Option<&Path> {
+        let folder = Path::new(self.name.as_deref().filter(|n| !n.is_empty())?);
+        (self.files.len() > 1 && plain(folder)).then_some(folder)
+    }
+
+    /// The torrent's own folder inside `save_path` (`content_folder`).
     pub fn content_directory(&self, save_path: &Path) -> Option<PathBuf> {
-        let name = self.name.as_deref().filter(|n| !n.is_empty())?;
-        let folder = Path::new(name);
-        let safe = folder.components().all(|c| matches!(c, Component::Normal(_)));
-        (self.files.len() > 1 && safe).then(|| save_path.join(folder))
+        self.content_folder().map(|folder| save_path.join(folder))
     }
 
     pub fn output_folder(&self, save_path: &Path) -> PathBuf {
@@ -407,20 +413,73 @@ impl Engine {
     }
 }
 
-/// Deletes a stopped torrent's files, listed by its metadata, and only below its folder.
+/// Whether `path` is plain names only: no root, prefix, `.` or `..`.
+fn plain(path: &Path) -> bool {
+    path.components().all(|c| matches!(c, Component::Normal(_)))
+}
+
+/// Opens the folder `relative` (plain names) below `dir` a name at a time, never following a link (a symlink, or a
+/// junction on Windows): a linked folder on the way is an error, and folders swapped meanwhile cannot redirect it.
+fn open_folder(dir: &Dir, relative: &Path) -> std::io::Result<Dir> {
+    let mut current = dir.try_clone()?;
+    for name in relative.iter() {
+        current = current.open_dir_nofollow(name)?;
+    }
+    Ok(current)
+}
+
+/// Deletes a stopped torrent's files, listed by its metadata, and only inside its folder. Every path is walked from a
+/// handle on the save folder without following links: a file behind a linked folder (pointing anywhere, even at another
+/// folder of the save folder) stays. A link planted in place of a file is removed, never followed.
 pub fn delete_files(metadata: &Metadata, save_path: &Path) {
-    let folder = metadata.output_folder(save_path);
-    for relative in &metadata.files {
-        if !relative.components().all(|c| matches!(c, Component::Normal(_))) {
-            continue;
+    let Ok(root) = Dir::open_ambient_dir(save_path, ambient_authority()) else { return };
+    let base = metadata.content_folder().unwrap_or(Path::new(""));
+    // Files come grouped by folder: the folder of the previous file is usually the next one's too.
+    let mut open: Option<(PathBuf, Dir)> = None;
+    for relative in metadata.files.iter().filter(|f| plain(f)) {
+        let (Some(name), Some(parent)) = (relative.file_name(), relative.parent()) else { continue };
+        let folder = base.join(parent);
+        if open.as_ref().is_none_or(|(opened, _)| *opened != folder) {
+            open = open_folder(&root, &folder).ok().map(|dir| (folder.clone(), dir));
         }
-        let path = folder.join(relative);
-        // symlink_metadata: a link planted in place of a file is removed, never followed.
-        if std::fs::symlink_metadata(&path).is_ok_and(|m| !m.is_dir())
-            && let Err(error) = std::fs::remove_file(&path)
+        let Some((_, dir)) = &open else { continue };
+        if dir.symlink_metadata(name).is_ok_and(|m| !m.is_dir())
+            && let Err(error) = dir.remove_file(name)
         {
-            tracing::warn!("Could not delete {}: {error}", path.display());
+            tracing::warn!("Could not delete {}: {error}", save_path.join(&folder).join(name).display());
         }
+    }
+}
+
+/// Removes a torrent's leftover `folder` (relative to the save folder) once its files are gone, but only empty folders,
+/// only strictly inside the save folder, never the save folder itself: a user may have put other files there, or another
+/// torrent may share it. Walked through handles that never follow a link: a link is content to keep, never a folder to
+/// walk into.
+pub fn remove_empty_tree(save_path: &Path, folder: &Path) {
+    let (Some(name), Some(parent)) = (folder.file_name(), folder.parent()) else { return };
+    if !plain(folder) {
+        return;
+    }
+    fn prune(dir: &Dir) -> std::io::Result<bool> {
+        let mut empty = true;
+        for entry in dir.entries()? {
+            let entry = entry?;
+            // file_type does not follow links.
+            if entry.file_type()?.is_dir() && prune(&dir.open_dir_nofollow(entry.file_name())?)? {
+                dir.remove_dir(entry.file_name())?;
+                continue;
+            }
+            empty = false;
+        }
+        Ok(empty)
+    }
+    let pruned = Dir::open_ambient_dir(save_path, ambient_authority())
+        .and_then(|root| open_folder(&root, parent))
+        .and_then(|parent| if prune(&parent.open_dir_nofollow(name)?)? { parent.remove_dir(name) } else { Ok(()) });
+    if let Err(error) = pruned
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        tracing::warn!("Could not remove leftover folder {}: {error}", save_path.join(folder).display());
     }
 }
 
