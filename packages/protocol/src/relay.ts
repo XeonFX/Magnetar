@@ -24,6 +24,8 @@ export const RELAY_CLOSE = {
   closedByDevice: 4002,
   /** The device is not on this account: the browser stops retrying. */
   notOnAccount: 4003,
+  /** The browser's account session ended (sign-out, sign-out everywhere, expiry): it stops retrying until signed in again. */
+  signedOut: 4004,
 } as const
 
 /** Keepalive, answered by the relay without waking it. */

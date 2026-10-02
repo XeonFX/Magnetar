@@ -73,12 +73,20 @@ describe('accounts in the console', () => {
     expect(await admin.get('accounts', 'u_nobody', OWNER)).toBeNull()
   })
 
-  test('signing out everywhere ends every browser session and keeps the devices', async () => {
+  test('signing out everywhere ends every browser session, closes its open dashboards and keeps the devices', async () => {
     const user = await signIn()
     const device = await pairDevice(user)
+    const app = await openSocket(connectDevice(device))
+    const page = await openSocket(connectBrowser(user, device.deviceId))
+    expect(await page.nextJson()).toEqual({ t: 'device', online: true })
+    const { c: connection } = await app.nextJson<{ c: string }>()
     expect((await run('accounts', 'sign-out', [await userId(user)], MODERATOR)).ok).toBe(true)
 
     expect((await call('/api/me', { headers: user.headers })).status).toBe(401)
+    // The dashboard that was already open stops controlling the device; the device is told and stays connected.
+    expect(await page.closed).toMatchObject({ code: RELAY_CLOSE.signedOut })
+    expect(await app.nextJson()).toEqual({ t: 'close', c: connection })
+    expect(await (await openSocket(connectBrowser(user, device.deviceId))).closed).toMatchObject({ code: RELAY_CLOSE.signedOut })
     const left = await env.DB.prepare('SELECT id FROM devices WHERE id = ?').bind(device.deviceId).first()
     expect(left).not.toBeNull()
     expect((await run('accounts', 'sign-out', [await userId(user)], READER))).toEqual({ ok: false, message: 'Not allowed' })

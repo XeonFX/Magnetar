@@ -175,7 +175,7 @@ export const content: FeaturesContent = {
             'Deine Geräte mit ihrem Online-Status, alle 15 Sekunden aktualisiert',
             'Ein Handy bekommt unten eine Tab-Leiste, ein Computer eine Seitenleiste',
             'Was nur am Computer selbst Sinn ergibt (seine Ordnerauswahl, das Öffnen von Dateien), bleibt dort',
-            'Anmeldung mit Google; Sitzungen gelten 30 Tage ab deinem letzten Besuch',
+            'Anmeldung mit Google; Sitzungen gelten 30 Tage ab deinem letzten Besuch, und beim Abmelden trennt sich dieser Browser sofort von deinen Computern',
           ],
         },
         pairing: {

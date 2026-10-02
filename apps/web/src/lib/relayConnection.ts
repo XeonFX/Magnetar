@@ -7,6 +7,12 @@ import { RELAY_CLOSE, RELAY_PING, type RelayToBrowser } from '@magnetar/protocol
 import type { StoredDeviceKey } from './keyStore.ts'
 import { backoff, RpcClient } from './rpcClient.ts'
 
+/** Close codes after which retrying cannot help, with what the page says. */
+const FINAL_CLOSES: Record<number, string> = {
+  [RELAY_CLOSE.notOnAccount]: 'remote.removed',
+  [RELAY_CLOSE.signedOut]: 'remote.signedOut',
+}
+
 /**
  * A device reached through magnetar.codefusion.cc. The relay authenticates the account;
  * everything after the handshake is sealed with keys only this browser and the device can derive,
@@ -42,8 +48,9 @@ export class RelayConnection extends RpcClient {
       if (this.pingTimer) clearInterval(this.pingTimer)
       if (this.socket !== socket || this.closed) return
       this.session = null
-      if (event.code === RELAY_CLOSE.notOnAccount) {
-        this.setState({ status: 'rejected', reason: 'remote.removed' })
+      const final = FINAL_CLOSES[event.code]
+      if (final) {
+        this.setState({ status: 'rejected', reason: final })
         return
       }
       this.setState({ status: 'reconnecting' })

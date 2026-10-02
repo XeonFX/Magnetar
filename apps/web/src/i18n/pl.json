@@ -278,6 +278,7 @@
     "remote.rejectedKey": "Ta przeglądarka nie jest już połączona z urządzeniem.",
     "remote.rejectedRefused": "Urządzenie odrzuciło połączenie.",
     "remote.removed": "To urządzenie nie jest już przypisane do Twojego konta.",
+    "remote.signedOut": "Wylogowano Cię. Zaloguj się ponownie, aby połączyć się z tym urządzeniem.",
     "remote.handshakeFailed": "Urządzenie nie potwierdziło swojej tożsamości. Połączenie nie zostało otwarte.",
     "cloud.heroTitle": "Twoje pobierania z dowolnego miejsca",
     "cloud.heroText": "Wyszukuj, pobieraj i śledź seriale na własnym komputerze z dowolnej przeglądarki lub telefonu.",
