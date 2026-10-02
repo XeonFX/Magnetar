@@ -191,7 +191,8 @@ export interface RpcResults {
   'remote.cancelPairing': RemoteStatusDto
   'remote.unpair': RemoteStatusDto
   'remote.rename': RemoteStatusDto
-  'remote.linkBrowser': { url: string; keyId: string }
+  /** Unless a browser connects with the key within `expiresIn` seconds, the link stops working (absent from older apps). */
+  'remote.linkBrowser': { url: string; keyId: string; expiresIn?: number }
   'remote.revokeBrowser': RemoteStatusDto
   'legacy.status': LegacyImportStatusDto
   'legacy.import': LegacyImportResultDto
