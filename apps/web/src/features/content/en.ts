@@ -175,7 +175,7 @@ export const en: FeaturesContent = {
             'Your devices with their online state, refreshed every 15 seconds',
             'A phone gets a tab bar at the bottom, a computer a sidebar',
             'What only makes sense at the computer (its folder picker, opening files) stays there',
-            'Google sign-in; sessions last 30 days from your last visit',
+            'Google sign-in; sessions last 30 days from your last visit, and signing out disconnects that browser from your computers at once',
           ],
         },
         pairing: {

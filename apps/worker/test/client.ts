@@ -36,22 +36,13 @@ export const cookieValue = (response: Response, name: string) =>
   response.headers.getSetCookie().find(line => line.startsWith(`${name}=`))?.split(';')[0]?.slice(name.length + 1)
 
 let users = 0
-/** Signs a new user in through the dev sign-in. */
-export async function signIn(): Promise<User> {
-  const email = `user${++users}.${crypto.randomUUID().slice(0, 8)}@example.com`
+/** Signs a user in through the dev sign-in: a new one, or with `email` another session of that account, as a second browser would. */
+export async function signIn(email = `user${++users}.${crypto.randomUUID().slice(0, 8)}@example.com`): Promise<User> {
   const response = await call('/api/auth/dev', { method: 'POST', headers: { origin: ORIGIN }, json: { email } })
   if (response.status !== 200) throw new Error(`Sign-in failed: ${response.status}`)
   const session = cookieValue(response, SESSION_COOKIE)
   if (!session) throw new Error('No session cookie')
   return { email, headers: { cookie: `${SESSION_COOKIE}=${session}`, origin: ORIGIN } }
-}
-
-/** Signs `user` in again, as a second browser would: the same account, another session. */
-export async function signInAgain(user: User): Promise<User> {
-  const response = await call('/api/auth/dev', { method: 'POST', headers: { origin: ORIGIN }, json: { email: user.email } })
-  const session = cookieValue(response, SESSION_COOKIE)
-  if (!session) throw new Error('No session cookie')
-  return { email: user.email, headers: { cookie: `${SESSION_COOKIE}=${session}`, origin: ORIGIN } }
 }
 
 /** The id of `user`'s account. */

@@ -2,7 +2,7 @@ import { runDurableObjectAlarm } from 'cloudflare:test'
 import { env } from 'cloudflare:workers'
 import { CONNECTION_ID_BYTES, MAX_SEALED_FRAME, RELAY_CLOSE, RELAY_PING, RELAY_PONG, unwrapFromDevice, wrapForDevice } from '@magnetar/protocol/relay'
 import { describe, expect, test } from 'vitest'
-import { call, connectBrowser, connectDevice, deviceAuth, eventually, listDevices, openSocket, pairDevice, settle, signIn, signInAgain, type Device, type Socket, type User } from './client.ts'
+import { call, connectBrowser, connectDevice, deviceAuth, eventually, listDevices, openSocket, pairDevice, settle, signIn, type Device, type Socket, type User } from './client.ts'
 import { SESSION_COOKIE } from '../src/auth.ts'
 import { sha256 } from '@codefusion-cc/workers-http'
 
@@ -187,7 +187,9 @@ describe('reaching a device', () => {
     const own = await pairDevice(owner)
     // Cookies ride along on cross-site WebSocket upgrades; the origin check stops them.
     expect((await connectBrowser(owner, own.deviceId, { origin: 'https://evil.example' })).status).toBe(403)
-    expect((await call(`/api/devices/${own.deviceId}/connect`, { headers: { origin: owner.headers.origin!, upgrade: 'websocket' } })).status).toBe(401)
+    // Signed out: told so with a close code, so the page stops retrying.
+    const signedOut = await openSocket(call(`/api/devices/${own.deviceId}/connect`, { headers: { origin: owner.headers.origin!, upgrade: 'websocket' } }))
+    expect(await signedOut.closed).toEqual({ code: RELAY_CLOSE.signedOut, reason: 'Signed out' })
     expect((await call(`/api/devices/${own.deviceId}/connect`, { headers: owner.headers })).status).toBe(426)
   })
 
@@ -248,7 +250,7 @@ const stillOpen = async (socket: Socket) => (await Promise.race([socket.closed.t
 describe('the relay and the account session that opened a dashboard', () => {
   test('signing out closes the dashboards of that browser session only; the device is told and keeps working', async () => {
     const { user, device, app } = await onlineDevice()
-    const other = await signInAgain(user)
+    const other = await signIn(user.email)
     const mine = await openDashboard(user, device, app)
     const theirs = await openDashboard(other, device, app)
 
@@ -265,16 +267,22 @@ describe('the relay and the account session that opened a dashboard', () => {
     expect(unwrapFromDevice(await app.next() as Uint8Array).connectionId).toBe(theirs.connectionId)
     app.ws.send(wrapForDevice(theirs.connectionId, bytes(7)))
     expect([...(await theirs.page.next() as Uint8Array)]).toEqual([7])
-    // And the signed-out browser cannot open a new one.
-    expect((await connectBrowser(user, device.deviceId)).status).toBe(401)
+    // And the signed-out browser cannot open a new one: it is told it is signed out, and the device hears nothing.
+    expect(await (await openSocket(connectBrowser(user, device.deviceId))).closed).toMatchObject({ code: RELAY_CLOSE.signedOut })
+    // Signing the account out everywhere then closes the other dashboard, and tells the device of it once.
+    await env.RELAY.getByName(device.deviceId).signOut(null)
+    expect(await theirs.page.closed).toMatchObject({ code: RELAY_CLOSE.signedOut })
+    expect(await app.nextJson()).toEqual({ t: 'close', c: theirs.connectionId })
+    await settle()
+    expect(app.pending()).toEqual([])
   })
 
   test('a dashboard whose session expired or was deleted closes at the next session check; a live one stays', async () => {
     const { user, device, app } = await onlineDevice()
-    const other = await signInAgain(user)
+    const other = await signIn(user.email)
     const expiring = await openDashboard(user, device, app)
     const deleted = await openDashboard(other, device, app)
-    const third = await signInAgain(user)
+    const third = await signIn(user.email)
     const live = await openDashboard(third, device, app)
 
     await env.DB.prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?').bind(Date.now() - 1, await sessionHash(user)).run()

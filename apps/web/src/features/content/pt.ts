@@ -175,7 +175,7 @@ export const content: FeaturesContent = {
             'Os seus dispositivos com o estado online, atualizado a cada 15 segundos',
             'Num telemóvel aparece uma barra de separadores em baixo; num computador, uma barra lateral',
             'O que só faz sentido no computador (o seletor de pastas, abrir ficheiros) fica por lá',
-            'Início de sessão com o Google; as sessões duram 30 dias desde a última visita',
+            'Início de sessão com o Google; as sessões duram 30 dias desde a última visita, e ao terminar a sessão esse navegador desliga-se logo dos seus computadores',
           ],
         },
         pairing: {

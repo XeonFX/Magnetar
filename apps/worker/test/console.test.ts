@@ -86,7 +86,7 @@ describe('accounts in the console', () => {
     // The dashboard that was already open stops controlling the device; the device is told and stays connected.
     expect(await page.closed).toMatchObject({ code: RELAY_CLOSE.signedOut })
     expect(await app.nextJson()).toEqual({ t: 'close', c: connection })
-    expect((await openSocket(connectBrowser(user, device.deviceId)).catch((e: Error) => e.message))).toMatch(/401/)
+    expect(await (await openSocket(connectBrowser(user, device.deviceId))).closed).toMatchObject({ code: RELAY_CLOSE.signedOut })
     const left = await env.DB.prepare('SELECT id FROM devices WHERE id = ?').bind(device.deviceId).first()
     expect(left).not.toBeNull()
     expect((await run('accounts', 'sign-out', [await userId(user)], READER))).toEqual({ ok: false, message: 'Not allowed' })

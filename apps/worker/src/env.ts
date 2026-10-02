@@ -44,3 +44,6 @@ export function allowedOrigins(env: Env): string[] {
 
 /** The largest JSON body an API call takes; the biggest, a failure report, stays well under it. */
 export const MAX_BODY = 16 * 1024
+
+/** `?, ?, ?`: one SQL placeholder per value. */
+export const marks = (values: unknown[]) => values.map(() => '?').join(', ')

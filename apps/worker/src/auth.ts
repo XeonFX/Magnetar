@@ -4,7 +4,7 @@ import { clientNetwork, getCookie, HttpError, json, jsonError, rateLimit, readJs
 import type { AccountDto } from '@magnetar/protocol/cloud'
 import { randomToken } from '@codefusion-cc/workers-crypto'
 import { signOutDashboards } from './devices.ts'
-import { allowedOrigins, devLoginEnabled, MAX_BODY, type Env } from './env.ts'
+import { allowedOrigins, devLoginEnabled, marks, MAX_BODY, type Env } from './env.ts'
 
 export const SESSION_COOKIE = '__Host-md_session'
 export const NONCE_COOKIE = '__Host-md_nonce'
@@ -42,13 +42,19 @@ export async function currentSession(request: Request, env: Env): Promise<Sessio
 
 export const currentUser = async (request: Request, env: Env): Promise<UserRow | null> => (await currentSession(request, env))?.user ?? null
 
-export async function requireSession(request: Request, env: Env): Promise<Session> {
-  const session = await currentSession(request, env)
-  if (!session) throw new HttpError(401, 'Sign in first')
-  return session
+export async function requireUser(request: Request, env: Env): Promise<UserRow> {
+  const user = await currentUser(request, env)
+  if (!user) throw new HttpError(401, 'Sign in first')
+  return user
 }
 
-export const requireUser = async (request: Request, env: Env): Promise<UserRow> => (await requireSession(request, env)).user
+/** Which of `tokenHashes` are sessions that have not ended. */
+export async function liveSessions(env: Env, tokenHashes: string[]): Promise<Set<string>> {
+  if (!tokenHashes.length) return new Set()
+  const { results } = await env.DB.prepare(`SELECT token_hash FROM sessions WHERE token_hash IN (${marks(tokenHashes)}) AND expires_at > ?`)
+    .bind(...tokenHashes, Date.now()).all<{ token_hash: string }>()
+  return new Set(results.map(row => row.token_hash))
+}
 
 async function signIn(env: Env, subject: string, email: string, name: string | null, picture: string | null): Promise<{ user: UserRow; cookie: string }> {
   const now = Date.now()

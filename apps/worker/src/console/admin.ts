@@ -1,6 +1,6 @@
 import type { ActionCall, Actor, AppRecord, ListQuery, ListResult, ResourceHandlers } from '@codefusion-cc/console/worker'
-import { removeDevice, signOutDashboards } from '../devices.ts'
-import type { Env } from '../env.ts'
+import { deviceIds, removeDevice, signOutDashboards } from '../devices.ts'
+import { marks, type Env } from '../env.ts'
 
 /**
  * The handlers behind the manifest (./manifest.ts), reached only over the console's service binding. The
@@ -15,8 +15,6 @@ const MAX_PAGE = 100
 const may = (actor: Actor, permission: Actor['permissions'][number]) => actor.permissions.includes(permission)
 const iso = (ms: unknown) => (typeof ms === 'number' ? new Date(ms).toISOString() : null)
 const like = (text: string) => `%${text.replace(/[\\%_]/g, c => `\\${c}`)}%`
-/** `?, ?, ?`: one placeholder per value. */
-const marks = (values: unknown[]) => values.map(() => '?').join(', ')
 
 interface Spec {
   /** FROM, with joins. */
@@ -98,9 +96,9 @@ const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : 
 
 /** Unpairs the devices whose `column` is one of `values`, as their owners would, so open connections close too. */
 async function removeDevices(env: Env, column: 'id' | 'user_id', values: string[]): Promise<number> {
-  const { results } = await env.DB.prepare(`SELECT id FROM devices WHERE ${column} IN (${marks(values)})`).bind(...values).all<{ id: string }>()
-  await Promise.all(results.map(d => removeDevice(env, d.id)))
-  return results.length
+  const ids = await deviceIds(env, column, values)
+  await Promise.all(ids.map(id => removeDevice(env, id)))
+  return ids.length
 }
 
 export const consoleResources: Record<string, ResourceHandlers<Env>> = {
