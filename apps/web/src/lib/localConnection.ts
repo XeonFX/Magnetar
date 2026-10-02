@@ -35,8 +35,10 @@ export class LocalConnection extends RpcClient {
     }
   }
 
-  protected transmit(message: ClientMessage): void {
-    this.socket?.send(JSON.stringify(message))
+  protected transmit(_message: ClientMessage, text: string): void {
+    // A closing socket would drop the message without a word.
+    if (this.socket?.readyState !== WebSocket.OPEN) throw new Error('The socket is not open')
+    this.socket.send(text)
   }
 
   close(): void {

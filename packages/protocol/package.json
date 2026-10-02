@@ -11,6 +11,7 @@
     "./scrub": "./src/scrub.ts",
     "./merge": "./src/merge.ts",
     "./limits": "./src/limits.ts",
+    "./torrent-upload": "./src/torrentUpload.ts",
     "./console-pages": "./src/consolePages.ts",
     "./device-name": "./src/deviceName.ts"
   },

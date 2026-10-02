@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers'
 import { randomToken } from '@codefusion-cc/workers-crypto'
 import {
-  MAX_RELAY_FRAME, RELAY_CLOSE, RELAY_PING, RELAY_PONG, unwrapFromDevice, wrapForDevice, type DeviceToRelay, type RelayToBrowser,
+  MAX_SEALED_FRAME, RELAY_CLOSE, RELAY_PING, RELAY_PONG, unwrapFromDevice, wrapForDevice, type DeviceToRelay, type RelayToBrowser,
   type RelayToDevice,
 } from '@magnetar/protocol/relay'
 import type { Env } from './env.ts'
@@ -67,7 +67,7 @@ export class DeviceRelay extends DurableObject<Env> {
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     const attachment = ws.deserializeAttachment() as Attachment
     const size = typeof message === 'string' ? message.length : message.byteLength
-    if (size > MAX_RELAY_FRAME + 64) return ws.close(1009, 'Frame too large')
+    if (size > MAX_SEALED_FRAME) return ws.close(1009, 'Frame too large')
 
     if (attachment.role === 'browser') {
       if (typeof message === 'string') return

@@ -2,22 +2,32 @@ import { MAX_TORRENT_FILE } from '@magnetar/protocol/limits'
 import { FilePlus2, Link2, Upload } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { errorMessage } from '../../lib/errors.ts'
-import { useT } from '../../lib/i18n.tsx'
+import { useT, type Translate } from '../../lib/i18n.tsx'
 import { magnetsIn } from '../../lib/magnets.ts'
+import { RpcError } from '../../lib/rpcClient.ts'
+import { sendTorrent } from '../../lib/torrentUpload.ts'
 import { Modal } from '../../ui/Modal.tsx'
 import { useToast } from '../../ui/toast.tsx'
 import { useDevice } from '../DeviceContext.tsx'
 import { FolderField } from './folders.tsx'
 
 const isTorrentFile = (file: File) => file.name.toLowerCase().endsWith('.torrent') || file.type === 'application/x-bittorrent'
+const fileKey = (file: File) => `${file.name}:${file.size}`
 
-function toBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ''))
-    reader.onerror = () => reject(reader.error ?? new Error('Could not read the file'))
-    reader.readAsDataURL(file)
-  })
+/** The .torrent files among `list` that aren't in `current` yet, and those too large to take. */
+function sortFiles(list: Iterable<File>, current: File[]): { accepted: File[]; tooBig: File[] } {
+  const fresh = [...list].filter(isTorrentFile).filter(f => !current.some(c => fileKey(c) === fileKey(f)))
+  return { accepted: fresh.filter(f => f.size <= MAX_TORRENT_FILE), tooBig: fresh.filter(f => f.size > MAX_TORRENT_FILE) }
+}
+
+/** What went wrong with one item, in the reader's language where the dashboard knows the case. */
+function describe(t: Translate, error: unknown): string {
+  if (error instanceof RpcError) {
+    if (error.code === 'offline') return t('add.offline')
+    if (error.code === 'timeout') return t('add.timeout')
+    if (error.code === 'update_needed') return t('add.updateDevice')
+  }
+  return errorMessage(error)
 }
 
 export interface PendingAdd {
@@ -29,7 +39,8 @@ export interface PendingAdd {
 
 /**
  * Adds magnet links and .torrent files, pasted, dropped or picked. Each is started on its own, so
- * one bad link doesn't stop the rest; the result says how many started.
+ * one bad link doesn't stop the rest; the result says how many started, and what failed stays in
+ * the dialog to try again. Files over MAX_TORRENT_FILE never join the list.
  */
 export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; initial: PendingAdd | null; onClose: () => void }) {
   const t = useT()
@@ -41,36 +52,46 @@ export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; i
   const [folder, setFolder] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** Share sent so far (0–1) of each file going in pieces, by fileKey. */
+  const [progress, setProgress] = useState<Record<string, number>>({})
   const picker = useRef<HTMLInputElement>(null)
+
+  const refuse = (tooBig: File[]) => setError(tooBig.length ? t('add.tooBig', tooBig.map(f => f.name).join(', ')) : null)
 
   useEffect(() => {
     if (!open) return
+    const { accepted, tooBig } = sortFiles(initial?.files ?? [], [])
     setText(initial?.magnets.join('\n') ?? '')
-    setFiles(initial?.files ?? [])
+    setFiles(accepted)
     setPaths(initial?.paths ?? [])
     setFolder(null)
-    setError(null)
+    setProgress({})
+    refuse(tooBig)
   }, [open, initial])
 
   const magnets = magnetsIn(text)
-  const tooBig = files.filter(f => f.size > MAX_TORRENT_FILE)
   const count = magnets.length + files.length + paths.length
-  const addFiles = (list: FileList | File[]) => setFiles(current => [...current, ...[...list].filter(isTorrentFile).filter(f => !current.some(c => c.name === f.name && c.size === f.size))])
+  const addFiles = (list: FileList | File[]) => {
+    const { accepted, tooBig } = sortFiles(list, files)
+    setFiles(current => [...current, ...accepted])
+    refuse(tooBig)
+  }
 
   const submit = async () => {
     if (count === 0) return setError(t('add.nothing'))
-    if (tooBig.length) return setError(t('add.tooBig', tooBig.map(f => f.name).join(', ')))
     setBusy(true)
     setError(null)
     const target = folder?.trim() || undefined
     const failures: string[] = []
+    const left = { magnets: [] as string[], paths: [] as string[], files: [] as File[] }
     let started = 0
     for (const magnet of magnets) {
       try {
         await connection.call('downloads.start', { magnet, folder: target })
         started++
       } catch (e) {
-        failures.push(errorMessage(e))
+        failures.push(describe(t, e))
+        left.magnets.push(magnet)
       }
     }
     for (const path of paths) {
@@ -78,21 +99,37 @@ export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; i
         await connection.call('downloads.addTorrentPath', { path })
         started++
       } catch (e) {
-        failures.push(`${path.split(/[\\/]/).pop()}: ${errorMessage(e)}`)
+        failures.push(`${path.split(/[\\/]/).pop()}: ${describe(t, e)}`)
+        left.paths.push(path)
       }
     }
     for (const file of files) {
+      const key = fileKey(file)
       try {
-        await connection.call('downloads.start', { torrent: await toBase64(file), folder: target })
+        const bytes = new Uint8Array(await file.arrayBuffer())
+        await sendTorrent(connection, bytes, target, sent => setProgress(p => ({ ...p, [key]: sent / bytes.length })))
         started++
       } catch (e) {
-        failures.push(`${file.name}: ${errorMessage(e)}`)
+        failures.push(`${file.name}: ${describe(t, e)}`)
+        left.files.push(file)
+      } finally {
+        setProgress(p => {
+          const next = { ...p }
+          delete next[key]
+          return next
+        })
       }
     }
     setBusy(false)
     if (started > 0) toast(started === 1 ? t('add.startedOne') : t('add.started', started), 'success')
-    if (failures.length) setError(failures.join('\n'))
-    else onClose()
+    if (!failures.length) return onClose()
+    // What started is done with: a second try is only for what failed.
+    if (started > 0) {
+      setText(left.magnets.join('\n'))
+      setPaths(left.paths)
+      setFiles(left.files)
+    }
+    setError(failures.join('\n'))
   }
 
   return (
@@ -111,8 +148,8 @@ export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; i
       </label>
       <div className="my-4 flex items-center gap-3 text-xs"><span className="h-px flex-1 bg-base-300" /><span className="muted">{t('add.or')}</span><span className="h-px flex-1 bg-base-300" /></div>
       <input ref={picker} type="file" accept=".torrent,application/x-bittorrent" multiple hidden onChange={e => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }} />
-      <button type="button" className="flex w-full flex-col items-center gap-1 rounded-box border border-dashed border-base-content/25 px-4 py-5 text-sm transition-colors hover:border-primary hover:bg-primary/5"
-        onClick={() => picker.current?.click()} onDragOver={e => e.preventDefault()} onDrop={(e: DragEvent) => { e.preventDefault(); addFiles(e.dataTransfer.files) }}>
+      <button type="button" disabled={busy} className="flex w-full flex-col items-center gap-1 rounded-box border border-dashed border-base-content/25 px-4 py-5 text-sm transition-colors enabled:hover:border-primary enabled:hover:bg-primary/5 disabled:opacity-60"
+        onClick={() => picker.current?.click()} onDragOver={e => e.preventDefault()} onDrop={(e: DragEvent) => { e.preventDefault(); if (!busy) addFiles(e.dataTransfer.files) }}>
         <Upload size={20} className="text-primary" />
         <span className="font-medium">{t('add.chooseFiles')}</span>
         <span className="muted text-xs">{t('add.dropHint')}</span>
@@ -123,20 +160,31 @@ export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; i
             <li key={path} className="flex items-center gap-2 rounded-field bg-base-200 px-3 py-1.5 text-sm">
               <Link2 size={14} className="muted shrink-0" />
               <span className="break-release min-w-0 flex-1" title={path}>{path.split(/[\\/]/).pop()}</span>
-              <button type="button" className="btn btn-ghost btn-xs" onClick={() => setPaths(list => list.filter(x => x !== path))}>{t('common.remove')}</button>
+              <button type="button" className="btn btn-ghost btn-xs" disabled={busy} onClick={() => setPaths(list => list.filter(x => x !== path))}>{t('common.remove')}</button>
             </li>
           ))}
         </ul>
       )}
       {files.length > 0 && (
         <ul className="mt-3 flex flex-col gap-1">
-          {files.map(f => (
-            <li key={`${f.name}:${f.size}`} className="flex items-center gap-2 rounded-field bg-base-200 px-3 py-1.5 text-sm">
-              <Link2 size={14} className="muted shrink-0" />
-              <span className="break-release min-w-0 flex-1">{f.name}</span>
-              <button type="button" className="btn btn-ghost btn-xs" onClick={() => setFiles(list => list.filter(x => x !== f))}>{t('common.remove')}</button>
-            </li>
-          ))}
+          {files.map(f => {
+            const sent = progress[fileKey(f)]
+            return (
+              <li key={fileKey(f)} className="flex flex-col gap-1 rounded-field bg-base-200 px-3 py-1.5 text-sm">
+                <div className="flex items-center gap-2">
+                  <Link2 size={14} className="muted shrink-0" />
+                  <span className="break-release min-w-0 flex-1">{f.name}</span>
+                  <button type="button" className="btn btn-ghost btn-xs" disabled={busy} onClick={() => setFiles(list => list.filter(x => x !== f))}>{t('common.remove')}</button>
+                </div>
+                {sent !== undefined && (
+                  <div className="h-1 overflow-hidden rounded-full bg-base-300" role="progressbar" aria-label={t('add.sending', f.name)}
+                    aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(sent * 100)}>
+                    <div className="h-full rounded-full bg-primary transition-[width] duration-300" style={{ width: `${sent * 100}%` }} />
+                  </div>
+                )}
+              </li>
+            )
+          })}
         </ul>
       )}
       <div className="mt-4">

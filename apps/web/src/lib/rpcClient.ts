@@ -1,6 +1,7 @@
 import type {
   ClientMessage, RpcEventName, RpcEvents, RpcMethod, RpcParams, RpcResults, ServerMessage,
 } from '@magnetar/protocol'
+import { MAX_RELAY_FRAME } from '@magnetar/protocol/relay'
 
 export type ConnectionState =
   | { status: 'connecting' }
@@ -20,6 +21,15 @@ export class RpcError extends Error {
 }
 
 const CALL_TIMEOUT_MS = 120_000
+/**
+ * The largest message a call may be, in UTF-8: what the relay forwards, and what the app's own
+ * socket takes too, so the dashboard behaves the same on either.
+ */
+const MAX_MESSAGE = MAX_RELAY_FRAME
+const encoder = new TextEncoder()
+
+/** The size of `text` in UTF-8 bytes, without encoding text that can't be near the limit. */
+const tooLarge = (text: string) => text.length > MAX_MESSAGE || (text.length * 3 > MAX_MESSAGE && encoder.encode(text).length > MAX_MESSAGE)
 
 /**
  * Request/response and events over some message transport. The dashboard uses one of these per
@@ -38,19 +48,27 @@ export abstract class RpcClient {
   private readonly stateHandlers = new Set<(state: ConnectionState) => void>()
   state: ConnectionState = { status: 'connecting' }
 
-  protected abstract transmit(message: ClientMessage): void
+  /**
+   * Sends one call, already serialized as `text`. Throws, or rejects, when it cannot go out, which
+   * fails that call at once instead of leaving it to time out.
+   */
+  protected abstract transmit(message: ClientMessage, text: string): void | Promise<void>
   abstract close(): void
 
   call<M extends RpcMethod>(method: M, params?: RpcParams<M>): Promise<RpcResults[M]> {
     if (this.state.status !== 'open') return Promise.reject(new RpcError('offline', 'Not connected to the device'))
-    const id = this.nextId++
+    const message: ClientMessage = { id: this.nextId++, method, params: params ?? {} }
+    const text = JSON.stringify(message)
+    if (tooLarge(text)) return Promise.reject(new RpcError('too_large', 'Too large to send to the device in one message'))
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id)
-        reject(new RpcError('timeout', 'The device did not answer in time'))
-      }, CALL_TIMEOUT_MS)
-      this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer })
-      this.transmit({ id, method, params: params ?? {} })
+      const timer = setTimeout(() => this.settle(message.id, new RpcError('timeout', 'The device did not answer in time')), CALL_TIMEOUT_MS)
+      this.pending.set(message.id, { resolve: resolve as (value: unknown) => void, reject, timer })
+      const failed = () => this.settle(message.id, new RpcError('offline', 'Could not send to the device'))
+      try {
+        this.transmit(message, text)?.catch(failed)
+      } catch {
+        failed()
+      }
     })
   }
 
@@ -77,20 +95,22 @@ export abstract class RpcClient {
       for (const handler of this.eventHandlers.get(message.event) ?? []) handler(message.data)
       return
     }
-    const call = this.pending.get(message.id)
+    if ('error' in message) this.settle(message.id, new RpcError(message.error.code, message.error.message))
+    else this.settle(message.id, null, message.result)
+  }
+
+  /** Ends a pending call with its result, or with `error`; a call already ended stays as it was. */
+  private settle(id: number, error: Error | null, result?: unknown): void {
+    const call = this.pending.get(id)
     if (!call) return
-    this.pending.delete(message.id)
+    this.pending.delete(id)
     clearTimeout(call.timer)
-    if ('error' in message) call.reject(new RpcError(message.error.code, message.error.message))
-    else call.resolve(message.result)
+    if (error) call.reject(error)
+    else call.resolve(result)
   }
 
   private failPending(reason: string): void {
-    for (const [id, call] of this.pending) {
-      clearTimeout(call.timer)
-      call.reject(new RpcError('offline', reason))
-      this.pending.delete(id)
-    }
+    for (const id of this.pending.keys()) this.settle(id, new RpcError('offline', reason))
   }
 }
 
