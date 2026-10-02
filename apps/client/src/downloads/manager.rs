@@ -8,9 +8,7 @@ use rusqlite::{Row, params};
 use tokio::sync::{Notify, broadcast};
 use tokio_util::sync::CancellationToken;
 
-use super::engine::{
-    Engine, Metadata, NetworkOptions, SpeedLimits, TorrentHandle, bytes_in_pieces, delete_files, remove_empty_tree,
-};
+use super::engine::{Engine, Metadata, NetworkOptions, SpeedLimits, TorrentHandle, bytes_in_pieces, delete_files};
 use super::transfer::{current_limits, free_space, interface_index, wanted_interface};
 use crate::db::{Db, KeyValue};
 use crate::error::{ApiError, ApiResult};
@@ -694,13 +692,7 @@ impl DownloadManager {
         }
         if delete_files_too && let Some(metadata) = metadata {
             // Thousands of files, maybe on a network drive: off the async workers.
-            let _ = tokio::task::spawn_blocking(move || {
-                delete_files(&metadata, &save_path);
-                if let Some(folder) = metadata.content_folder() {
-                    remove_empty_tree(&save_path, folder);
-                }
-            })
-            .await;
+            let _ = tokio::task::spawn_blocking(move || delete_files(&metadata, &save_path)).await;
         }
         self.db.lock().execute("DELETE FROM downloads WHERE id = ?", [id])?;
         let _ = std::fs::remove_file(self.cached_torrent_path(&item.info_hash));
@@ -1292,13 +1284,14 @@ mod tests {
 
         let multi = metadata("Show", &["e01.mkv", "Subs/e01.srt", "../keep.txt"]);
         delete_files(&multi, &root);
-        remove_empty_tree(&root, multi.content_folder().unwrap());
         assert!(!root.join("Show").exists());
         assert!(root.join("keep.txt").exists(), "a path escaping the torrent's folder is ignored");
 
         std::fs::remove_file(root.join("keep.txt")).unwrap();
-        remove_empty_tree(&root, Path::new(""));
-        remove_empty_tree(&root, Path::new("."));
+        // Torrents whose name is no folder of their own never prune the save folder, or the folder above it.
+        for name in ["", ".", ".."] {
+            delete_files(&metadata(name, &["a.bin", "b.bin"]), &root);
+        }
         assert!(root.exists(), "the save folder itself stays, even when empty");
     }
 
@@ -1333,7 +1326,6 @@ mod tests {
 
         let multi = metadata("Show", &["e01.mkv", "Subs/e01.srt", "Empty/.keep"]);
         delete_files(&multi, &root);
-        remove_empty_tree(&root, multi.content_folder().unwrap());
         assert!(outside.join("e01.mkv").exists(), "a file behind a linked torrent folder stays");
         assert!(outside.join("Subs/e01.srt").exists());
         assert!(outside.join("Empty").is_dir(), "an empty folder behind the link is not pruned");
@@ -1350,7 +1342,6 @@ mod tests {
 
         let multi = metadata("Show", &["e01.mkv", "Subs/e01.srt"]);
         delete_files(&multi, &root);
-        remove_empty_tree(&root, multi.content_folder().unwrap());
         assert!(!root.join("Show/e01.mkv").exists(), "the torrent's own file goes");
         assert!(outside.join("Subs/e01.srt").exists(), "a file behind a linked subfolder stays");
     }
@@ -1369,7 +1360,6 @@ mod tests {
 
         let multi = metadata("Show", &["e01.mkv", "e02.mkv"]);
         delete_files(&multi, &root);
-        remove_empty_tree(&root, multi.content_folder().unwrap());
         assert!(root.join("Other show/e01.mkv").exists(), "another download's file stays");
     }
 
@@ -1384,7 +1374,6 @@ mod tests {
 
         let multi = metadata("Show", &["e01.mkv", "e02.mkv"]);
         delete_files(&multi, &root);
-        remove_empty_tree(&root, multi.content_folder().unwrap());
         assert!(std::fs::symlink_metadata(root.join("Show/e01.mkv")).is_err(), "the link goes");
         assert_eq!(std::fs::read_to_string(outside.join("e01.mkv")).unwrap(), "mine");
         assert!(!root.join("Show").exists(), "and the emptied folder with it");
@@ -1412,7 +1401,6 @@ mod tests {
             assert!(!root.join("Show").join(file).exists(), "{file} goes");
         }
         assert!(outside.join("1.mkv").exists() && outside.join("2.mkv").exists(), "files behind the link stay");
-        remove_empty_tree(&root, multi.content_folder().unwrap());
         assert!(!root.join("Show/A").exists() && !root.join("Show/B").exists(), "emptied folders go");
         assert!(root.join("Show").exists(), "the folder holding the link stays");
     }

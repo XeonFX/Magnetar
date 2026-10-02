@@ -424,9 +424,10 @@ fn open_folder(dir: &Dir, relative: &Path) -> std::io::Result<Dir> {
     Ok(current)
 }
 
-/// Deletes a stopped torrent's files, listed by its metadata, and only inside its folder. Every path is walked from a
-/// handle on the save folder without following links: a file behind a linked folder (pointing anywhere, even at another
-/// folder of the save folder) stays. A link planted in place of a file is removed, never followed.
+/// Deletes a stopped torrent's files, listed by its metadata, and only inside its folder, then the torrent's folder if
+/// that left it empty (`remove_empty_tree`). Every path is walked from a handle on the save folder without following
+/// links: a file behind a linked folder (pointing anywhere, even at another folder of the save folder) stays. A link
+/// planted in place of a file is removed, never followed.
 pub fn delete_files(metadata: &Metadata, save_path: &Path) {
     let root = match Dir::open_ambient_dir(save_path, ambient_authority()) {
         Ok(root) => root,
@@ -455,13 +456,16 @@ pub fn delete_files(metadata: &Metadata, save_path: &Path) {
             tracing::warn!("Could not delete {}: {error}", save_path.join(&folder).join(name).display());
         }
     }
+    if let Some(folder) = metadata.content_folder() {
+        remove_empty_tree(&root, folder, save_path);
+    }
 }
 
 /// Removes a torrent's leftover `folder` (relative to the save folder) once its files are gone, but only empty folders,
 /// only strictly inside the save folder, never the save folder itself: a user may have put other files there, or another
 /// torrent may share it. Walked through handles that never follow a link: a link is content to keep, never a folder to
-/// walk into.
-pub fn remove_empty_tree(save_path: &Path, folder: &Path) {
+/// walk into. `save_path`: the save folder's path, for the log.
+fn remove_empty_tree(root: &Dir, folder: &Path, save_path: &Path) {
     let (Some(name), Some(parent)) = (folder.file_name(), folder.parent()) else { return };
     if !plain(folder) {
         return;
@@ -479,8 +483,7 @@ pub fn remove_empty_tree(save_path: &Path, folder: &Path) {
         }
         Ok(empty)
     }
-    let pruned = Dir::open_ambient_dir(save_path, ambient_authority())
-        .and_then(|root| open_folder(&root, parent))
+    let pruned = open_folder(root, parent)
         .and_then(|parent| if prune(&parent.open_dir_nofollow(name)?)? { parent.remove_dir(name) } else { Ok(()) });
     if let Err(error) = pruned
         && error.kind() != std::io::ErrorKind::NotFound
