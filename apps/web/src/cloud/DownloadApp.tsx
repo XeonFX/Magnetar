@@ -4,8 +4,8 @@ import { Download, ExternalLink, Laptop, Monitor, Terminal } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useT } from '../lib/i18n.tsx'
 import { useLatestRelease } from '../lib/releases.ts'
+import { RELEASES_PAGE } from '../lib/updates.ts'
 
-const RELEASES_PAGE = 'https://github.com/XeonFX/Magnetar/releases/latest'
 const ICONS = { macos: Laptop, windows: Monitor, linux: Terminal }
 const NAMES: Record<ReleasePlatform, string> = { macos: 'macOS', windows: 'Windows', linux: 'Linux' }
 

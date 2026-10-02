@@ -8,6 +8,9 @@ declare const __APP_COMMIT__: string
 /** Where Magnetar is developed and released. */
 export const REPO = 'XeonFX/Magnetar'
 
+/** The newest release's page, where the app can always be downloaded. */
+export const RELEASES_PAGE = `https://github.com/${REPO}/releases/latest`
+
 /** This page's build: the version it was released as and the commit it was built from. */
 export const BUILD = { version: import.meta.env.VITE_APP_VERSION ?? 'dev', commit: __APP_COMMIT__ }
 

@@ -3,9 +3,13 @@ import { useState } from 'react'
 import { Link, useLocation } from 'react-router'
 import { useT } from '../lib/i18n.tsx'
 import { offeredVersion, useLatestRelease } from '../lib/releases.ts'
+import { RELEASES_PAGE } from '../lib/updates.ts'
 import { useToast } from '../ui/toast.tsx'
 import { useDevice } from './DeviceContext.tsx'
 import { useRun } from './useRun.ts'
+
+/** Where the release can be downloaded: an https page only, whoever said where. */
+const httpsOnly = (url: string | null | undefined) => (url?.startsWith('https://') ? url : RELEASES_PAGE)
 
 /** The version whose notice was hidden on this dashboard: hidden until the next one. */
 const dismissedKey = (keyId: string | null) => `magnetar-update-dismissed:${keyId ?? 'local'}`
@@ -39,7 +43,7 @@ export function UpdateBanner() {
   const running = updates?.currentVersion ?? info?.version
   const offered = offeredVersion(running, updates?.available?.version, latest?.version)
   if (!running || !offered || dismissed === offered || pathname.startsWith(`${basePath}/settings/about`)) return null
-  const releaseUrl = updates?.available?.releaseUrl ?? latest?.pageUrl
+  const releaseUrl = httpsOnly(updates?.available?.releaseUrl ?? latest?.pageUrl)
   // The app said it can't install itself (a copy outside Applications, Linux without a key): download instead.
   const downloadOnly = updates?.available ? !updates.canSelfInstall : false
   const installing = updates?.installing === true
@@ -58,7 +62,7 @@ export function UpdateBanner() {
       // The website heard of the release before the app did: let the app look, then install what it found.
       const status = updates?.available ? updates : await run(() => connection.call('updates.check'))
       if (!status?.available || !status.canSelfInstall) {
-        window.open(status?.available?.releaseUrl ?? releaseUrl, '_blank', 'noopener')
+        window.open(status?.available ? httpsOnly(status.available.releaseUrl) : releaseUrl, '_blank', 'noopener')
         return
       }
       toast(t('settings.installNote'), 'info')
