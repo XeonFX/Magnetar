@@ -1,0 +1,19 @@
+/* The features page in Magnetar's daisyUI theme (index.css): @codefusion-cc/features-page's tokens, light and dark at once. */
+.cf-fp {
+  --cf-fp-page: var(--color-base-200);
+  --cf-fp-surface: var(--color-base-100);
+  --cf-fp-raised: var(--color-base-200);
+  --cf-fp-ink: var(--color-base-content);
+  --cf-fp-muted: color-mix(in oklab, var(--color-base-content) 64%, var(--color-base-100));
+  --cf-fp-line: var(--color-base-300);
+  --cf-fp-accent: var(--color-primary);
+  --cf-fp-tint: color-mix(in oklab, var(--color-primary) 11%, var(--color-base-100));
+  --cf-fp-highlight: var(--color-primary);
+  --cf-fp-on-highlight: var(--color-primary-content);
+  --cf-fp-radius: var(--radius-box);
+  --cf-fp-radius-control: var(--radius-field);
+  --cf-fp-max-width: 76rem;
+  /* The sticky header (h-14). */
+  --cf-fp-top: 3.5rem;
+}
+

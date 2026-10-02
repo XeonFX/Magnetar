@@ -12,6 +12,6 @@
   "valid": ["MacBook-Pro", "Studio-Mac-2", "PC", "x", "1337", "a-b-c", "Krystians-MacBook-Pro", "Login-2", "dd", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],
   "invalid": [
     "", "-", "MacBook Pro", "MacBook--Pro", "-MacBook", "MacBook-", "MacBook_Pro", "MacBook.local", "Paweł", "Mac/Book",
-    "Mac%20Book", "login", "LOGIN", "Index", "D", "Api", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", " MacBook", "MacBook\n"
+    "Mac%20Book", "login", "LOGIN", "Index", "Features", "D", "Api", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", " MacBook", "MacBook\n"
   ]
 }

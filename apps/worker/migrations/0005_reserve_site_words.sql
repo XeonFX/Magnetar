@@ -1,6 +1,7 @@
 -- Words the website may use for its own pages next (/changelog, /pricing, /status…), reserved now so a new page
 -- never needs a migration or meets a device of that name (packages/protocol/src/device-names.json). A device named
--- one of them gets `-device` after its name, or the first free -2, -3… on its account, as 0003 did for `index`.
+-- one of them gets `-device` after its name, or the first free -2, -3… on its account, as 0003 and 0004 did for
+-- `index` and `features`.
 UPDATE devices SET name = (
   WITH RECURSIVE candidates(i, name) AS (
     SELECT 1, devices.name || '-device'
@@ -14,7 +15,7 @@ UPDATE devices SET name = (
 )
 WHERE lower(name) IN (
   'auth', 'billing', 'blog', 'callback', 'changelog', 'community', 'console', 'contact', 'cookies', 'dashboard',
-  'docs', 'faq', 'features', 'feedback', 'forum', 'get', 'guide', 'guides', 'health', 'home', 'imprint',
+  'docs', 'faq', 'feedback', 'forum', 'get', 'guide', 'guides', 'health', 'home', 'imprint',
   'install', 'invite', 'join', 'legal', 'me', 'news', 'oauth', 'press', 'pricing', 'privacy', 'profile',
   'register', 'releases', 'roadmap', 'security', 'share', 'signin', 'signup', 'sitemap', 'start', 'status',
   'support', 'team', 'terms', 'updates', 'user', 'users', 'version', 'welcome'

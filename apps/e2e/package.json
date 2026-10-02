@@ -4,9 +4,11 @@
   "type": "module",
   "scripts": {
     "test": "playwright test",
+    "screenshots": "node features/screenshots.ts",
     "typecheck": "tsc -p ."
   },
   "devDependencies": {
+    "@codefusion-cc/features-page": "^1.0.0",
     "@playwright/test": "^1.56.0"
   }
 }

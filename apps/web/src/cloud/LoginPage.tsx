@@ -1,6 +1,6 @@
-import { Download, KeyRound, MonitorSmartphone, ShieldCheck } from 'lucide-react'
+import { ArrowRight, Download, KeyRound, MonitorSmartphone, ShieldCheck } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Navigate, useSearchParams } from 'react-router'
+import { Link, Navigate, useSearchParams } from 'react-router'
 import { startGoogleSignIn, takeGoogleSignInResult } from '@codefusion-cc/google-sign-in/browser'
 import { cloud, CloudError } from '../lib/cloudApi.ts'
 import { errorMessage } from '../lib/errors.ts'
@@ -89,6 +89,7 @@ export function LoginPage() {
             <Point icon={<ShieldCheck size={20} />} title={t('cloud.pointPrivate')} text={t('cloud.e2eNote')} />
             <Point icon={<Download size={20} />} title={t('cloud.pointApp')} text={t('cloud.pointAppText')} />
           </ul>
+          <Link to="/features" className="link link-primary mt-6 inline-flex items-center gap-1.5 font-medium">{t('cloud.features')}<ArrowRight size={16} aria-hidden /></Link>
           <section className="surface mt-8 max-w-md p-5" aria-labelledby="magnetar-get-app">
             <h2 id="magnetar-get-app" className="mb-3 font-semibold">{t('get.title')}</h2>
             <DownloadApp />

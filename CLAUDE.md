@@ -23,6 +23,9 @@ See docs/ARCHITECTURE.md before touching the relay, pairing or either `e2e` impl
   `SettingsDto`/`SettingsPatch` in both protocol files. Schema changes to tables: append a migration in
   `apps/client/src/db.rs`, never edit a shipped one.
 - New user-facing strings: add the key to all eight `apps/web/src/i18n/*.json` catalogs.
+- A feature people can see, new or changed: describe it on the features page (`apps/web/src/features/outline.ts` and
+  the same feature in all eight `content/*.ts`; claims must match the code) and retake its shots
+  (`npm run screenshots -w @magnetar/e2e -- --only=<shot>`, README "Development").
 - Never let librqbit delete files (`Session::delete(.., true)` also removes an emptied output folder, which can be the
   user's download folder); `downloads::engine::delete_files` does it.
 - librqbit restores the torrents it had (`session/`) on start; the downloads table decides what runs
@@ -37,9 +40,9 @@ See docs/ARCHITECTURE.md before touching the relay, pairing or either `e2e` impl
   `@codefusion-cc/base58` in TypeScript, `encoding::random_id` in Rust. Secrets and values decoded back to bytes stay
   base64url (`randomToken` from `@codefusion-cc/workers-crypto`, `random_token`). Route patterns keep accepting `A-Za-z0-9_-` for older ids.
 - On the website a device's pages are `/<device name>/…`. The words the website uses or may use for its own pages
-  (`/about`, `/changelog`, `/pricing`…) are reserved in `packages/protocol/src/device-names.json`: a new page under a
+  (`/about`, `/features`, `/changelog`, `/pricing`…) are reserved in `packages/protocol/src/device-names.json`: a new page under a
   reserved word needs nothing else; any other word needs adding there, and a D1 migration renaming any device that has
-  it (as `0004_reserve_site_words.sql`). Pages are served by the Worker (`serveSinglePageApp` in
+  it (as `0005_reserve_site_words.sql`). Pages are served by the Worker (`serveSinglePageApp` in
   `apps/worker/src/index.ts`) so the assets never respell an address: keep `not_found_handling` out of
   `apps/worker/wrangler.jsonc`, and `run_worker_first` on `/_console/*` so the source maps stay private.
 - Test and scratch runs: set `MAGNETAR_DATA_DIRECTORY` and `MAGNETAR_DOWNLOAD_FOLDER`, or they use the user's real folders.

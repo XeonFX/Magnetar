@@ -13,10 +13,8 @@ import { BUILD, REPO } from '../lib/updates.ts'
 /** The website's own pages (sign-in, device list, pairing): a slim header over a centred column. */
 export function CloudFrame({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   const t = useT()
-  const { resolved } = useTheme(theme)
   const { account } = useAccount()
   const install = useInstallOffer()
-  const next = resolved === 'dark' ? 'light' : 'dark'
   return (
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-30 border-b border-base-300 bg-base-100/90 backdrop-blur">
@@ -31,9 +29,7 @@ export function CloudFrame({ children, wide = false }: { children: ReactNode; wi
             </button>
           )}
           {account && <AccountMenu />}
-          <button type="button" className="btn btn-ghost btn-square btn-sm" onClick={theme.toggle} aria-label={t(`theme.${next}`)} title={t(`theme.${next}`)}>
-            {resolved === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
+          <ThemeToggle />
         </div>
       </header>
       <main className={`mx-auto w-full flex-1 px-4 py-8 sm:py-12 ${wide ? 'max-w-5xl' : 'max-w-3xl'}`}>{children}</main>
@@ -45,6 +41,18 @@ export function CloudFrame({ children, wide = false }: { children: ReactNode; wi
         </div>
       </footer>
     </div>
+  )
+}
+
+/** Light or dark, the other one than shown, for this browser. */
+export function ThemeToggle() {
+  const t = useT()
+  const { resolved } = useTheme(theme)
+  const next = resolved === 'dark' ? 'light' : 'dark'
+  return (
+    <button type="button" className="btn btn-ghost btn-square btn-sm" onClick={theme.toggle} aria-label={t(`theme.${next}`)} title={t(`theme.${next}`)}>
+      {resolved === 'dark' ? <Sun size={18} aria-hidden /> : <Moon size={18} aria-hidden />}
+    </button>
   )
 }
 
