@@ -570,6 +570,7 @@
     "about.latestAppHint": "Versione {0}, pubblicata il {1}.",
     "about.download": "Scarica l'app",
     "footer.whatsNew": "Novità",
-    "devices.outdated": "Aggiornamento disponibile: {0}"
+    "devices.outdated": "Aggiornamento disponibile: {0}",
+    "remote.reservedName": "«{0}» è una pagina del sito stesso, quindi il suo indirizzo sarà {1}."
   }
 }

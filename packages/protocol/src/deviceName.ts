@@ -30,10 +30,24 @@ export function sameDeviceName(a: string, b: string): boolean {
  * gives `Magnetar`.
  */
 export function toDeviceName(text: string): string {
-  const ascii = text.normalize('NFKD').replace(/\p{M}/gu, '').replace(/[ßłŁøØæÆœŒđĐþÞ]/g, char => SPELLED_OUT[char]!)
-  const name = cut(ascii.replace(/['’]/g, '').replace(/[^A-Za-z0-9]+/g, '-'), DEVICE_NAME_MAX_LENGTH)
+  const name = spell(text)
   if (!name) return FALLBACK
   return RESERVED.has(name.toLowerCase()) ? `${name}-device` : name
+}
+
+/**
+ * The website's own word `text` spells (`Docs`, ` pricing `), which a device can't be named, or null. For saying so
+ * as someone types, before `toDeviceName` adds `-device`.
+ */
+export function reservedDeviceName(text: string): string | null {
+  const name = spell(text)
+  return name && RESERVED.has(name.toLowerCase()) ? name : null
+}
+
+/** `text` in the letters an address shows, at most as long as a name, or empty. */
+function spell(text: string): string {
+  const ascii = text.normalize('NFKD').replace(/\p{M}/gu, '').replace(/[ßłŁøØæÆœŒđĐþÞ]/g, char => SPELLED_OUT[char]!)
+  return cut(ascii.replace(/['’]/g, '').replace(/[^A-Za-z0-9]+/g, '-'), DEVICE_NAME_MAX_LENGTH)
 }
 
 /**

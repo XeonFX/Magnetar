@@ -570,6 +570,7 @@
     "about.latestAppHint": "Version {0}, released {1}.",
     "about.download": "Get the app",
     "footer.whatsNew": "What's new",
-    "devices.outdated": "Update available: {0}"
+    "devices.outdated": "Update available: {0}",
+    "remote.reservedName": "“{0}” is one of the website's own pages, so its address will be {1}."
   }
 }

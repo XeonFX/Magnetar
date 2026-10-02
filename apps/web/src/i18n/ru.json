@@ -570,6 +570,7 @@
     "about.latestAppHint": "Версия {0}, выпущена {1}.",
     "about.download": "Скачать приложение",
     "footer.whatsNew": "Что нового",
-    "devices.outdated": "Доступно обновление: {0}"
+    "devices.outdated": "Доступно обновление: {0}",
+    "remote.reservedName": "«{0}» — одна из страниц самого сайта, поэтому его адрес будет {1}."
   }
 }
