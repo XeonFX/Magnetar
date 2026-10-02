@@ -1,7 +1,7 @@
 {
   "name": "magnetar",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Magnetar — torrent search and download manager: a single-executable Rust client, a React dashboard, and a Cloudflare Worker for end-to-end encrypted remote access",
   "license": "MIT",
   "type": "module",

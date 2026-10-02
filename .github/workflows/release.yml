@@ -1,6 +1,7 @@
 name: Release
 
-# Tag after CI is green on main: git tag v2.1.0 && git push origin v2.1.0
+# Bump `version` in package.json and apps/client/Cargo.toml, merge, then tag the merge once CI is green on main:
+# git tag v1.2.0 && git push origin v1.2.0. Installed apps update to it within 6 hours.
 on:
   push:
     tags: ['v*']
@@ -13,8 +14,25 @@ env:
   HAS_MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE != '' }}
 
 jobs:
+  version:
+    name: Tag matches the version files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          base="${tag%%-*}"
+          package="$(node -p "require('./package.json').version")"
+          crate="$(sed -n 's/^version = "\(.*\)"/\1/p' apps/client/Cargo.toml)"
+          if [ "$package" != "$base" ] || [ "$crate" != "$base" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME, but package.json has $package and Cargo.toml has $crate"
+            exit 1
+          fi
+
   build:
     name: Build ${{ matrix.target }}
+    needs: version
     strategy:
       matrix:
         include:
