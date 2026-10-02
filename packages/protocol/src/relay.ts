@@ -9,8 +9,10 @@
 import { base64UrlToBytes, bytesToBase64Url } from '@codefusion-cc/workers-crypto'
 
 export const CONNECTION_ID_BYTES = 16
-/** Largest payload the relay forwards; bigger frames close the sender. */
+/** Largest message the dashboard sends, the same through the relay and on the app's own socket. */
 export const MAX_RELAY_FRAME = 1024 * 1024
+/** Largest payload the relay forwards: a message of MAX_RELAY_FRAME, sealed. Bigger frames close the sender. */
+export const MAX_SEALED_FRAME = MAX_RELAY_FRAME + 64
 
 /** WebSocket close codes each side acts on. */
 export const RELAY_CLOSE = {

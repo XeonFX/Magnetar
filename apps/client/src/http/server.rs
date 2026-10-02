@@ -17,7 +17,8 @@ use super::{assets, mcp, openapi, rest};
 use crate::app::App;
 use crate::config::IS_DEV;
 
-const MAX_WS_MESSAGE: usize = 256 * 1024;
+/// The dashboard's messages may be as large here as through the relay, so it behaves the same on both.
+const MAX_WS_MESSAGE: usize = crate::protocol::relay::MAX_RELAY_FRAME;
 const MAX_BODY: usize = 1024 * 1024;
 
 pub struct Server {

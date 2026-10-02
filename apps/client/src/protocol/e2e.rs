@@ -257,6 +257,30 @@ mod tests {
         assert_eq!(browser.open(&reply).unwrap()["id"], 1);
     }
 
+    /// The dashboard sends messages of up to MAX_RELAY_FRAME bytes; sealed and tagged with the
+    /// connection, they must still be frames the device reads, or a call would wait for nothing.
+    #[test]
+    fn the_largest_message_sealed_is_a_frame_the_device_reads() {
+        use crate::protocol::relay::{
+            CONNECTION_ID_BYTES, MAX_RELAY_FRAME, MAX_SEALED_FRAME, unwrap_from_device, wrap_for_device,
+        };
+        let key = random_bytes(32);
+        let (hello, own, nonce) = hello("k");
+        let (welcome, mut device) = accept_browser_handshake(&hello, &key).unwrap();
+        let mut browser = browser_finish("k", &key, &own, &nonce, &welcome).unwrap();
+        let message = serde_json::json!({ "id": 1, "method": "downloads.start", "params": { "magnet": "" } }).to_string();
+        let padded = message.replace(r#""magnet":"""#, &format!(r#""magnet":"{}""#, "a".repeat(MAX_RELAY_FRAME - message.len())));
+        assert_eq!(padded.len(), MAX_RELAY_FRAME);
+
+        let frame = wrap_for_device("AAECAwQFBgcICQoLDA0ODw", &browser.seal_bytes(padded.as_bytes())).unwrap();
+        let (_, payload) = unwrap_from_device(&frame).expect("within the device's limit");
+        assert_eq!(device.open(payload).unwrap()["id"], 1);
+
+        let mut too_large = frame.clone();
+        too_large.resize(CONNECTION_ID_BYTES + MAX_SEALED_FRAME + 1, 0);
+        assert!(unwrap_from_device(&too_large).is_none(), "larger than the relay passes");
+    }
+
     #[test]
     fn a_wrong_browser_key_fails_the_confirmation() {
         let (hello, own, nonce) = hello("kid1");

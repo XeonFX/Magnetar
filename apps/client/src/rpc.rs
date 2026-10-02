@@ -15,9 +15,10 @@ use crate::app::App;
 use crate::config::{ARCH, PLATFORM, VERSION};
 use crate::downloads::manager::{FileSource, media_kind};
 use crate::downloads::media::{MediaReader, media_type, open_reader, read_at};
+use crate::downloads::upload::TorrentUploads;
 use crate::error::{ApiError, ApiResult, ErrorCode};
 use crate::protocol::device_name::is_device_name;
-use crate::protocol::encoding::{random_id, to_base64};
+use crate::protocol::encoding::{from_base64, random_id, to_base64};
 use crate::protocol::{
     AgentConnectResultDto, AppInfoDto, NotificationEvent, SeriesTaskInput, SeriesTaskPatch, SettingsPatch, StartDownloadInput,
     WatchInput,
@@ -57,6 +58,8 @@ struct SessionInner {
     searches: Mutex<HashMap<String, CancellationToken>>,
     /// Files being played through this session, oldest first.
     streams: Mutex<Vec<(String, Arc<tokio::sync::Mutex<MediaReader>>)>>,
+    /// .torrent files arriving in pieces.
+    uploads: Mutex<TorrentUploads>,
 }
 
 impl SessionInner {
@@ -94,6 +97,7 @@ impl RpcServer {
             closed: CancellationToken::new(),
             searches: Mutex::default(),
             streams: Mutex::default(),
+            uploads: Mutex::default(),
         });
         if let Some(app) = self.app.upgrade() {
             let mut events = app.events.subscribe();
@@ -143,6 +147,7 @@ impl RpcSession {
     pub fn close(&self) {
         self.inner.closed.cancel();
         self.inner.streams.lock().unwrap().clear();
+        *self.inner.uploads.lock().unwrap() = TorrentUploads::default();
         for (_, search) in self.inner.searches.lock().unwrap().drain() {
             search.cancel();
         }
@@ -220,6 +225,22 @@ struct StreamRead {
     stream_id: String,
     offset: u64,
     length: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct UploadPiece {
+    upload_id: String,
+    offset: usize,
+    size: usize,
+    data: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct StartUpload {
+    upload_id: String,
+    folder: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -391,6 +412,17 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
             ok(a.list_downloads(None)?)
         }
         "downloads.start" => ok(a.start_download(parse::<StartDownloadInput>(params)?, &session.closed).await?),
+        "downloads.upload" => {
+            let UploadPiece { upload_id, offset, size, data } = parse(params)?;
+            let data = from_base64(&data).map_err(|_| ApiError::bad("data: must be base64"))?;
+            let received = session.uploads.lock().unwrap().receive(&upload_id, offset, size, &data)?;
+            ok(json!({ "received": received }))
+        }
+        "downloads.startUpload" => {
+            let StartUpload { upload_id, folder } = parse(params)?;
+            let bytes = session.uploads.lock().unwrap().take(&upload_id)?;
+            ok(a.add_torrent(bytes, folder.as_deref())?)
+        }
         "downloads.pause" => ok(a.pause(parse::<IdParams>(params)?.id).await?),
         "downloads.resume" => ok(a.resume(parse::<IdParams>(params)?.id)?),
         "downloads.delete" => {

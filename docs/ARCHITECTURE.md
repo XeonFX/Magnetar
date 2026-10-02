@@ -169,6 +169,13 @@ builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the ser
   sealed on the device for that subscription (RFC 8291, `protocol/webpush.rs`) and posted to the Worker, which adds
   the VAPID signature and forwards the ciphertext to the push service (`@codefusion-cc/web-push`). Both only send to the browsers' push
   services. A 404 or 410 drops the subscription.
+- **Adding .torrent files from the dashboard**: a call may be at most 1 MiB on either transport (the relay's frame,
+  `MAX_RELAY_FRAME`; the app's own socket takes the same), and the dashboard refuses a larger one before sending it.
+  A .torrent file of up to 512 KiB goes whole in `downloads.start`; a larger one, up to the 4 MiB limit, in 512 KiB
+  `downloads.upload` pieces, each its own sealed call, then `downloads.startUpload`
+  (`packages/protocol/src/torrentUpload.ts`). The app keeps pieces per connection (`downloads/upload.rs`), at most
+  two files at once, drops a file whose pieces arrive out of order or short, and lets them go when the connection
+  closes.
 - **Opening magnet links and .torrent files**: the macOS bundle declares both and becomes the default through Launch
   Services; Windows registers per-user classes, Linux a desktop entry set with xdg-mime (`system/handlers.rs`). The
   app, or the running instance, opens the dashboard at `/?add=…` or `/?torrent=…`, which fills in the add dialog.

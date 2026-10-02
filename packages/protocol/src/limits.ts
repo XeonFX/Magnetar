@@ -5,3 +5,9 @@ export const MIN_SPEED_LIMIT = 32 * 1024
 
 /** Largest .torrent file accepted, before base64. */
 export const MAX_TORRENT_FILE = 4 * 1024 * 1024
+
+/**
+ * A .torrent file larger than this goes to the device in pieces of this size (`downloads.upload`):
+ * base64 in JSON in a sealed frame stays well under the relay's 1 MiB (`MAX_RELAY_FRAME`).
+ */
+export const TORRENT_UPLOAD_CHUNK = 512 * 1024

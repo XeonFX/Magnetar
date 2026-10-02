@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { MAX_TORRENT_FILE, TORRENT_UPLOAD_CHUNK } from './limits.ts'
 import {
   SeriesTaskInput, SeriesTaskPatch, SettingsPatch, StartDownloadInput, WatchInput,
   AGENT_CLIENTS, type AgentClientDto, type AgentConnectResultDto, type AgentStatusDto, type AppInfoDto, type DownloadDto, type DownloadFileDto, type FolderListing, type LegacyImportResultDto,
@@ -26,6 +27,18 @@ export const RPC_PARAMS = {
 
   'downloads.list': none,
   'downloads.start': StartDownloadInput,
+  /**
+   * One piece of a .torrent file too large for one message (see torrentUpload.ts), at `offset` of
+   * `size` bytes; pieces come in order. They are kept for this connection only.
+   */
+  'downloads.upload': z.strictObject({
+    uploadId: z.string().min(1).max(64),
+    offset: z.number().int().min(0).max(MAX_TORRENT_FILE - 1),
+    size: z.number().int().min(1).max(MAX_TORRENT_FILE),
+    data: z.string().min(1).max(Math.ceil(TORRENT_UPLOAD_CHUNK / 3) * 4),
+  }),
+  /** Starts the .torrent file whose pieces all arrived through `downloads.upload`. */
+  'downloads.startUpload': z.strictObject({ uploadId: z.string().min(1).max(64), folder: z.string().optional() }),
   'downloads.pause': id,
   'downloads.resume': id,
   'downloads.delete': z.strictObject({ id: z.number().int(), deleteFiles: z.boolean().default(false) }),
@@ -122,6 +135,9 @@ export interface RpcResults {
   'search.details': TorrentDetailsDto
   'downloads.list': DownloadDto[]
   'downloads.start': DownloadDto
+  /** How many bytes of the file have arrived. */
+  'downloads.upload': { received: number }
+  'downloads.startUpload': DownloadDto
   'downloads.pause': DownloadDto
   'downloads.resume': DownloadDto
   'downloads.delete': null

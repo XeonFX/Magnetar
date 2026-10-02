@@ -1,5 +1,7 @@
 //! The local server: who may reach the dashboard and the agent API, and what the API answers.
 
+mod common;
+
 use std::sync::Arc;
 
 use magnetar::app::{App, AppOptions};
@@ -239,6 +241,104 @@ async fn a_stream_link_serves_byte_ranges_of_one_file_and_nothing_else() {
     assert_eq!(http.post(&url).send().await.unwrap().status(), 405);
     let rebound = http.get(&url).header("host", "evil.example").send().await.unwrap();
     assert_eq!(rebound.status(), 404, "only under a loopback name");
+}
+
+/// The dashboard's own socket, as the page uses it.
+mod dashboard_socket {
+    use futures::{SinkExt, StreamExt};
+    use magnetar::downloads::manager::MAX_TORRENT_FILE;
+    use magnetar::downloads::upload::TORRENT_UPLOAD_CHUNK as PIECE;
+    use magnetar::protocol::encoding::to_base64;
+    use magnetar::protocol::relay::MAX_RELAY_FRAME;
+    use tokio_tungstenite::tungstenite::Message;
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+
+    use super::common::torrent_of_size;
+    use super::*;
+
+    type Socket = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+    async fn open(base: &str) -> Socket {
+        let mut request = format!("{}/ws", base.replace("http://", "ws://")).into_client_request().unwrap();
+        request.headers_mut().insert("origin", base.parse().unwrap());
+        tokio_tungstenite::connect_async(request).await.unwrap().0
+    }
+
+    /// The answer to call `id`, skipping events; None once the socket has closed.
+    async fn answer(socket: &mut Socket, id: i64) -> Option<Value> {
+        loop {
+            let message =
+                tokio::time::timeout(std::time::Duration::from_secs(10), socket.next()).await.expect("an answer in time");
+            match message {
+                Some(Ok(Message::Text(text))) => {
+                    let value: Value = serde_json::from_str(&text).unwrap();
+                    if value["id"] == id {
+                        return Some(value);
+                    }
+                }
+                Some(Ok(Message::Close(_)) | Err(_)) | None => return None,
+                Some(Ok(_)) => {}
+            }
+        }
+    }
+
+    async fn call(socket: &mut Socket, id: i64, method: &str, params: Value) -> Option<Value> {
+        let text = json!({ "id": id, "method": method, "params": params }).to_string();
+        socket.send(Message::text(text)).await.ok()?;
+        answer(socket, id).await
+    }
+
+    /// Params whose message is exactly `size` bytes.
+    fn padded(size: usize) -> Value {
+        let envelope = json!({ "id": 1, "method": "downloads.start", "params": { "magnet": "" } }).to_string().len();
+        json!({ "magnet": "a".repeat(size - envelope) })
+    }
+
+    #[tokio::test]
+    async fn takes_messages_as_large_as_the_relay_does_and_closes_on_larger_ones() {
+        let (_app, base, _dir) = start().await;
+        let mut socket = open(&base).await;
+        let fits =
+            call(&mut socket, 1, "downloads.start", padded(MAX_RELAY_FRAME)).await.expect("an answer, not a closed socket");
+        assert_eq!(fits["error"]["code"], "bad_request", "read, and refused as not a magnet link");
+
+        let too_large = call(&mut socket, 1, "downloads.start", padded(MAX_RELAY_FRAME + 1)).await;
+        assert_eq!(too_large, None, "the socket closes");
+    }
+
+    #[tokio::test]
+    async fn a_4_mib_torrent_file_arrives_in_pieces_and_starts() {
+        let (_app, base, _dir) = start().await;
+        let mut socket = open(&base).await;
+        let torrent = torrent_of_size(MAX_TORRENT_FILE, "Season pack");
+        let mut id = 0;
+        for (i, piece) in torrent.chunks(PIECE).enumerate() {
+            id += 1;
+            let params = json!({ "uploadId": "s", "offset": i * PIECE, "size": torrent.len(), "data": to_base64(piece) });
+            let answer = call(&mut socket, id, "downloads.upload", params).await.unwrap();
+            assert_eq!(answer["result"]["received"], (i * PIECE + piece.len()) as u64);
+        }
+        let started = call(&mut socket, id + 1, "downloads.startUpload", json!({ "uploadId": "s" })).await.unwrap();
+        assert_eq!(started["result"]["name"], "Season pack");
+    }
+
+    #[tokio::test]
+    async fn a_socket_closed_mid_transfer_lets_the_pieces_go() {
+        let (_app, base, _dir) = start().await;
+        let torrent = torrent_of_size(700_000, "Dropped");
+        let first = json!({ "uploadId": "d", "offset": 0, "size": torrent.len(), "data": to_base64(&torrent[..PIECE]) });
+        let mut socket = open(&base).await;
+        call(&mut socket, 1, "downloads.upload", first).await.unwrap();
+        socket.close(None).await.unwrap();
+
+        let mut again = open(&base).await;
+        let rest = json!({ "uploadId": "d", "offset": PIECE, "size": torrent.len(), "data": to_base64(&torrent[PIECE..]) });
+        assert_eq!(call(&mut again, 1, "downloads.upload", rest).await.unwrap()["error"]["code"], "not_found");
+        assert_eq!(
+            call(&mut again, 2, "downloads.startUpload", json!({ "uploadId": "d" })).await.unwrap()["error"]["code"],
+            "not_found"
+        );
+    }
 }
 
 mod stdio_bridge {
