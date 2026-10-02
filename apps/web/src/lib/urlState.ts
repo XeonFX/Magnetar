@@ -89,8 +89,9 @@ export function searchTextFrom(segment: string): string {
 
 /**
  * Reads a search from what follows `/search/` in the path (as the address bar has it, still encoded) and the
- * query string. Older addresses (`?q=dragon&source=The+Pirate+Bay&sort=newest`) read the same; unknown choices
- * fall back to the defaults. A source stays as written until the device's sources are known.
+ * query string, whose `q` holds the text when the path has none: text of only dots, and older addresses
+ * (`?q=dragon&source=The+Pirate+Bay&sort=newest`). Unknown choices fall back to the defaults. A source stays as
+ * written until the device's sources are known.
  */
 export function readSearch<R extends string, S extends string>(segment: string, params: URLSearchParams, choices: SearchChoices<R, S>): SearchView<R, S> {
   const sortWord = params.get('sort')
@@ -105,16 +106,27 @@ export function readSearch<R extends string, S extends string>(segment: string, 
   }
 }
 
-/** The address of a search, from `/search` on: the text in the path, choices other than the defaults after it. */
+/**
+ * Text a path segment can't hold: browsers and URL parsers drop a `.` segment and climb out of the page at `..`,
+ * spelled `%2E` or not.
+ */
+const DOT_SEGMENT = /^\.\.?$/
+
+/**
+ * The address of a search, from `/search` on: the text in the path, choices other than the defaults after it.
+ * Text that is a dot segment (`.` or `..`) goes in the query instead (`/search?q=..`).
+ */
 export function searchAddress<R extends string, S extends string>(view: SearchView<R, S>, choices: SearchChoices<R, S>): string {
+  const query = view.query.trim()
+  const inPath = query !== '' && !DOT_SEGMENT.test(query)
   const params = new URLSearchParams()
+  if (query && !inPath) params.set('q', query)
   if (view.resolution !== choices.resolutions[0]) params.set('res', view.resolution)
   if (view.source) params.set('source', view.source)
   const sort = choices.sorts.find(([value]) => value === view.sort)
   if (sort && sort !== choices.sorts[0]) params.set('sort', sort[1])
-  const query = view.query.trim()
   const search = params.toString()
-  return `/search${query ? `/${searchTextSegment(query)}` : ''}${search ? `?${search}` : ''}`
+  return `/search${inPath ? `/${searchTextSegment(query)}` : ''}${search ? `?${search}` : ''}`
 }
 
 /** What makes two searches the same search: sorting is done here, so it isn't part of it. Null without a query. */
