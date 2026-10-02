@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { readVapidAuthorization, testPushService, testVapidKey } from '@codefusion-cc/web-push/testing'
-import { toBase64Url } from '@magnetar/protocol/base64'
+import { bytesToBase64Url } from '@codefusion-cc/workers-crypto'
 import type { Env } from '../src/env.ts'
 import { handlePush } from '../src/push.ts'
 
@@ -25,7 +25,7 @@ const post = (body: unknown, token = DEVICE_TOKEN) => new Request('https://magne
 describe('Web Push', () => {
   test('forwards the sealed body, signed for that push service, and reports its status', async () => {
     const service = testPushService(() => 410)
-    const body = toBase64Url(new Uint8Array(200).fill(7))
+    const body = bytesToBase64Url(new Uint8Array(200).fill(7))
     const response = await handlePush(post({ endpoint: ENDPOINT, body, ttl: 60, urgency: 'high' }), env(), '/api/device/push', service.fetch)
     expect(await response!.json()).toEqual({ status: 410 })
     expect(service.pushes).toHaveLength(1)
@@ -59,7 +59,7 @@ describe('Web Push', () => {
     ['an endpoint longer than any push service hands out', { endpoint: `${ENDPOINT}/${'a'.repeat(1100)}`, body: 'AAAA' }, 400],
     ['no endpoint', { body: 'AAAA' }, 400],
     ['an empty body', { endpoint: ENDPOINT, body: '' }, 400],
-    ['a body too big to be one', { endpoint: ENDPOINT, body: toBase64Url(new Uint8Array(5000)) }, 400],
+    ['a body too big to be one', { endpoint: ENDPOINT, body: bytesToBase64Url(new Uint8Array(5000)) }, 400],
     ['a body that is not base64url', { endpoint: ENDPOINT, body: 'a+b/' }, 400],
     ['a negative ttl', { endpoint: ENDPOINT, body: 'AAAA', ttl: -1 }, 400],
     ['a ttl past four weeks', { endpoint: ENDPOINT, body: 'AAAA', ttl: 28 * 24 * 3600 + 1 }, 400],

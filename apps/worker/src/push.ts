@@ -1,6 +1,6 @@
 import { isPushService, loadVapidKey, MAX_TTL_SECONDS, PUSH_TTL_SECONDS, sendPush, type PushUrgency, type VapidKey } from '@codefusion-cc/web-push'
 import { json, jsonError, rateLimit, readJson } from '@codefusion-cc/workers-http'
-import { fromBase64Url } from '@magnetar/protocol/base64'
+import { base64UrlToBytes } from '@codefusion-cc/workers-crypto'
 import { MAX_BODY, type Env } from './env.ts'
 import { deviceFromToken } from './devices.ts'
 
@@ -48,12 +48,8 @@ export async function handlePush(request: Request, env: Env, path: string, send:
   if (!isPushService(endpoint)) return jsonError(400, 'Not a push service this server sends to')
   if (!Number.isInteger(ttl) || ttl < 0 || ttl > MAX_TTL_SECONDS) return jsonError(400, 'ttl must be 0 to 28 days, in seconds')
   if (!URGENCIES.has(urgency)) return jsonError(400, 'Unknown urgency')
-  let bytes: Uint8Array<ArrayBuffer>
-  try {
-    bytes = fromBase64Url(String(body ?? ''))
-  } catch {
-    return jsonError(400, 'body must be base64url')
-  }
+  const bytes = base64UrlToBytes(String(body ?? ''))
+  if (!bytes) return jsonError(400, 'body must be base64url')
   if (bytes.length === 0 || bytes.length > MAX_BODY_BYTES) return jsonError(400, 'body is not a Web Push message')
   const result = await sendPush({
     vapid, subject: env.VAPID_SUBJECT || env.ORIGIN, subscription: { endpoint }, body: bytes, ttl, urgency: urgency as PushUrgency, fetcher: send,

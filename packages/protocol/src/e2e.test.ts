@@ -3,7 +3,7 @@ import {
   acceptBrowserHandshake, decodeHandshake, deriveKeys, E2ESession, encodeHandshake, importBrowserKey, linkFragment,
   newBrowserKey, parseLinkFragment, startBrowserHandshake,
 } from './e2e.ts'
-import { fromBase64Url, toBase64Url } from './base64.ts'
+import { base64UrlToBytes, bytesToBase64Url } from '@codefusion-cc/workers-crypto'
 import vector from './e2e-vector.json'
 
 async function pair(): Promise<{ browser: E2ESession; device: E2ESession }> {
@@ -36,6 +36,18 @@ describe('e2e handshake', () => {
     // A man in the middle answering with its own key pair, without K.
     const { welcome: forged } = await acceptBrowserHandshake(pending.hello, await importBrowserKey(newBrowserKey()))
     await expect(pending.finish({ ...welcome, epk: forged.epk })).rejects.toThrow()
+  })
+
+  test('a field that is not base64url fails the handshake on either side', async () => {
+    const raw = newBrowserKey()
+    const pending = await startBrowserHandshake('kid-1', await importBrowserKey(raw))
+    for (const hello of [{ ...pending.hello, epk: 'not base64url!' }, { ...pending.hello, n: `${pending.hello.n}=` }]) {
+      await expect(acceptBrowserHandshake(hello, await importBrowserKey(raw.slice()))).rejects.toThrow(/Invalid handshake encoding/)
+    }
+    const { welcome } = await acceptBrowserHandshake(pending.hello, await importBrowserKey(raw.slice()))
+    for (const field of ['epk', 'n', 'confirm'] as const) {
+      await expect(pending.finish({ ...welcome, [field]: `${welcome[field].slice(1)}+` })).rejects.toThrow(/Invalid handshake encoding/)
+    }
   })
 
   test('frames are rejected when replayed, reordered or tampered with', async () => {
@@ -84,21 +96,27 @@ describe('link fragments', () => {
     const fragment = linkFragment('dev_1', 'k_1', key)
     const parsed = parseLinkFragment('#' + fragment)
     expect(parsed?.deviceId).toBe('dev_1')
-    expect(toBase64Url(parsed!.key)).toBe(toBase64Url(key))
+    expect(bytesToBase64Url(parsed!.key)).toBe(bytesToBase64Url(key))
   })
 
   test('reject a key of the wrong length', () => {
     expect(parseLinkFragment('d=a&i=b&k=AAAA')).toBeNull()
   })
+
+  test('reject a key that is not base64url', () => {
+    const key = bytesToBase64Url(newBrowserKey())
+    expect(parseLinkFragment(`d=a&i=b&k=${key.slice(1)}%2F`)).toBeNull()
+    expect(parseLinkFragment(`d=a&i=b&k=${key}%3D`)).toBeNull()
+  })
 })
 
 /** The Rust device (apps/client/src/protocol/e2e.rs) checks the same vector. */
 describe('shared test vector', () => {
-  const b = (value: string) => fromBase64Url(value)
+  const b = (value: string) => base64UrlToBytes(value)!
   const curve = { name: 'ECDH', namedCurve: 'P-256' } as const
   const privateKey = (d: string, epk: string) => {
     const point = b(epk)
-    const jwk = { kty: 'EC', crv: 'P-256', d, x: toBase64Url(point.slice(1, 33)), y: toBase64Url(point.slice(33)), ext: true }
+    const jwk = { kty: 'EC', crv: 'P-256', d, x: bytesToBase64Url(point.slice(1, 33)), y: bytesToBase64Url(point.slice(33)), ext: true }
     return crypto.subtle.importKey('jwk', jwk, curve, false, ['deriveBits'])
   }
   const publicKey = (epk: string) => crypto.subtle.importKey('raw', b(epk), curve, false, [])
@@ -109,10 +127,10 @@ describe('shared test vector', () => {
       await privateKey(vector.browserPrivate, vector.browserEpk), await publicKey(vector.deviceEpk), ...transcript)
     const deviceKeys = await deriveKeys('device', await importBrowserKey(b(vector.browserKey)),
       await privateKey(vector.devicePrivate, vector.deviceEpk), await publicKey(vector.browserEpk), ...transcript)
-    expect(toBase64Url(deviceKeys.transcriptHash)).toBe(vector.transcriptHash)
+    expect(bytesToBase64Url(deviceKeys.transcriptHash)).toBe(vector.transcriptHash)
     const confirmed = new Uint8Array([...new TextEncoder().encode('device'), ...deviceKeys.transcriptHash])
-    expect(toBase64Url(new Uint8Array(await crypto.subtle.sign('HMAC', deviceKeys.confirm, confirmed)))).toBe(vector.confirm)
-    expect(toBase64Url(await new E2ESession('browser', browserKeys).seal(vector.browserMessage))).toBe(vector.browserFrame)
-    expect(toBase64Url(await new E2ESession('device', deviceKeys).seal(JSON.parse(vector.deviceMessageJson)))).toBe(vector.deviceFrame)
+    expect(bytesToBase64Url(new Uint8Array(await crypto.subtle.sign('HMAC', deviceKeys.confirm, confirmed)))).toBe(vector.confirm)
+    expect(bytesToBase64Url(await new E2ESession('browser', browserKeys).seal(vector.browserMessage))).toBe(vector.browserFrame)
+    expect(bytesToBase64Url(await new E2ESession('device', deviceKeys).seal(JSON.parse(vector.deviceMessageJson)))).toBe(vector.deviceFrame)
   })
 })

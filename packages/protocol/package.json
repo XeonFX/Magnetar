@@ -8,7 +8,6 @@
     "./relay": "./src/relay.ts",
     "./cloud": "./src/cloud.ts",
     "./bytes": "./src/bytes.ts",
-    "./base64": "./src/base64.ts",
     "./scrub": "./src/scrub.ts",
     "./merge": "./src/merge.ts",
     "./limits": "./src/limits.ts",
@@ -19,6 +18,7 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
+    "@codefusion-cc/workers-crypto": "^1.0.0",
     "zod": "^4.6.5"
   }
 }
