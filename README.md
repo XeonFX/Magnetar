@@ -149,6 +149,23 @@ remote access locally, run the client with `MAGNETAR_CLOUD_URL=http://localhost:
 `MAGNETAR_LIVE_TESTS=1 cargo test --test providers live_providers` checks every provider against the real sites (also run
 weekly in CI).
 
+Worktrees share compiled crates through [sccache](https://github.com/mozilla/sccache), set up once per machine rather
+than in the repository, so CI and other machines build without it: `brew install sccache` (or `cargo install sccache`),
+then in `~/.cargo/config.toml`:
+
+```toml
+[build]
+rustc-wrapper = "sccache"
+```
+
+A new worktree then takes its dependencies (Rust, and aws-lc's and SQLite's C) from the cache instead of compiling
+them: 88% of its compiler calls hit, and `cargo test` plus `cargo clippy` finish about a third sooner. Only the
+`magnetar` crate, the links and the build scripts run again. `sccache --show-stats` shows the hits; the cache keeps
+10 GB by default (`SCCACHE_DIR` and `SCCACHE_CACHE_SIZE` move and resize it). Don't point worktrees at one shared
+`CARGO_TARGET_DIR` instead: Cargo then treats every worktree's `magnetar` as the same unit and decides freshness by
+file times, so a worktree whose sources are older than another's last build silently gets that build's binary, and
+parallel builds wait on one lock.
+
 | Path | What it is |
 |---|---|
 | `packages/protocol` | The RPC contract shared by dashboard and device, the end-to-end encryption, relay framing, Worker API types |
