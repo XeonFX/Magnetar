@@ -17,7 +17,7 @@
  * 64-bit counter, and the receiver insists on exactly the next counter, which rejects replays,
  * drops and reordering within a connection. The transcript hash is the associated data.
  */
-import { fromBase64Url, randomBytes, toBase64Url } from './base64.ts'
+import { base64UrlToBytes, bytesToBase64Url } from '@codefusion-cc/workers-crypto'
 
 export const E2E_VERSION = 1
 const LABEL = 'magnetar-e2e-v1'
@@ -39,7 +39,7 @@ const subtle = crypto.subtle
 
 /** A new browser key: 32 random bytes, to be carried in a link fragment. */
 export function newBrowserKey(): Uint8Array<ArrayBuffer> {
-  return randomBytes(KEY_BYTES)
+  return crypto.getRandomValues(new Uint8Array(KEY_BYTES))
 }
 
 /** Imports K as a non-extractable HMAC key, safe to keep in IndexedDB. */
@@ -60,6 +60,13 @@ function concat(...parts: Uint8Array[]): Uint8Array<ArrayBuffer> {
 
 function lengthPrefixed(bytes: Uint8Array): Uint8Array {
   return concat(new Uint8Array([bytes.length >> 8, bytes.length & 0xff]), bytes)
+}
+
+/** The bytes a handshake field spells in base64url; a field that is not base64url fails the handshake. */
+function handshakeBytes(text: string): Uint8Array<ArrayBuffer> {
+  const bytes = base64UrlToBytes(text)
+  if (!bytes) throw new Error('Invalid handshake encoding')
+  return bytes
 }
 
 function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
@@ -196,19 +203,19 @@ export interface PendingBrowserHandshake {
 /** Browser side, step 1: the hello to send, and how to finish once the device answers. */
 export async function startBrowserHandshake(kid: string, browserKey: CryptoKey): Promise<PendingBrowserHandshake> {
   const own = await newEphemeral()
-  const nonce = randomBytes(NONCE_BYTES)
-  const hello: HelloMessage = { t: 'hello', v: E2E_VERSION, kid, epk: toBase64Url(own.publicRaw), n: toBase64Url(nonce) }
+  const nonce = crypto.getRandomValues(new Uint8Array(NONCE_BYTES))
+  const hello: HelloMessage = { t: 'hello', v: E2E_VERSION, kid, epk: bytesToBase64Url(own.publicRaw), n: bytesToBase64Url(nonce) }
   return {
     hello,
     async finish(welcome) {
       if (welcome.v !== E2E_VERSION) throw new Error('Unsupported protocol version')
-      const deviceEpk = fromBase64Url(welcome.epk)
-      const deviceNonce = fromBase64Url(welcome.n)
+      const deviceEpk = handshakeBytes(welcome.epk)
+      const deviceNonce = handshakeBytes(welcome.n)
       if (deviceNonce.length !== NONCE_BYTES) throw new Error('Invalid device nonce')
       const keys = await deriveKeys('browser', browserKey, own.pair.privateKey, await importPeer(deviceEpk),
         kid, own.publicRaw, nonce, deviceEpk, deviceNonce)
       const expected = await hmac(keys.confirm, concat(encoder.encode('device'), keys.transcriptHash))
-      if (!equalBytes(expected, fromBase64Url(welcome.confirm))) {
+      if (!equalBytes(expected, handshakeBytes(welcome.confirm))) {
         throw new Error('The device could not prove it holds this browser’s key')
       }
       return new E2ESession('browser', keys)
@@ -221,23 +228,23 @@ export async function acceptBrowserHandshake(
   hello: HelloMessage, browserKey: CryptoKey,
 ): Promise<{ welcome: WelcomeMessage; session: E2ESession }> {
   if (hello.v !== E2E_VERSION) throw new Error('Unsupported protocol version')
-  const browserEpk = fromBase64Url(hello.epk)
-  const browserNonce = fromBase64Url(hello.n)
+  const browserEpk = handshakeBytes(hello.epk)
+  const browserNonce = handshakeBytes(hello.n)
   if (browserNonce.length !== NONCE_BYTES) throw new Error('Invalid browser nonce')
   const own = await newEphemeral()
-  const nonce = randomBytes(NONCE_BYTES)
+  const nonce = crypto.getRandomValues(new Uint8Array(NONCE_BYTES))
   const keys = await deriveKeys('device', browserKey, own.pair.privateKey, await importPeer(browserEpk),
     hello.kid, browserEpk, browserNonce, own.publicRaw, nonce)
   const confirm = await hmac(keys.confirm, concat(encoder.encode('device'), keys.transcriptHash))
   return {
-    welcome: { t: 'welcome', v: E2E_VERSION, epk: toBase64Url(own.publicRaw), n: toBase64Url(nonce), confirm: toBase64Url(confirm) },
+    welcome: { t: 'welcome', v: E2E_VERSION, epk: bytesToBase64Url(own.publicRaw), n: bytesToBase64Url(nonce), confirm: bytesToBase64Url(confirm) },
     session: new E2ESession('device', keys),
   }
 }
 
 /** The fragment that carries a browser key: `#d=<deviceId>&i=<keyId>&k=<key>`. */
 export function linkFragment(deviceId: string, keyId: string, key: Uint8Array): string {
-  return `d=${encodeURIComponent(deviceId)}&i=${encodeURIComponent(keyId)}&k=${toBase64Url(key)}`
+  return `d=${encodeURIComponent(deviceId)}&i=${encodeURIComponent(keyId)}&k=${bytesToBase64Url(key)}`
 }
 
 export function parseLinkFragment(fragment: string): { deviceId: string; keyId: string; key: Uint8Array<ArrayBuffer> } | null {
@@ -246,10 +253,6 @@ export function parseLinkFragment(fragment: string): { deviceId: string; keyId: 
   const keyId = params.get('i')
   const key = params.get('k')
   if (!deviceId || !keyId || !key) return null
-  try {
-    const raw = fromBase64Url(key)
-    return raw.length === KEY_BYTES ? { deviceId, keyId, key: raw } : null
-  } catch {
-    return null
-  }
+  const raw = base64UrlToBytes(key)
+  return raw?.length === KEY_BYTES ? { deviceId, keyId, key: raw } : null
 }

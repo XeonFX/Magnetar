@@ -2,7 +2,7 @@ import { randomId } from '@codefusion-cc/base58'
 import { verifyGoogleIdToken } from '@codefusion-cc/google-sign-in'
 import { clientNetwork, getCookie, HttpError, json, jsonError, rateLimit, readJson, requireSameOrigin, serializeCookie, sha256 } from '@codefusion-cc/workers-http'
 import type { AccountDto } from '@magnetar/protocol/cloud'
-import { randomToken } from '@magnetar/protocol/base64'
+import { randomToken } from '@codefusion-cc/workers-crypto'
 import { allowedOrigins, devLoginEnabled, MAX_BODY, type Env } from './env.ts'
 
 export const SESSION_COOKIE = '__Host-md_session'

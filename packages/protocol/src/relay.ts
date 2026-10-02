@@ -6,7 +6,7 @@
  * Device ↔ relay: binary frames carry a 16-byte connection id and then the payload, so one device
  * socket multiplexes every browser; text frames are control messages.
  */
-import { fromBase64Url, toBase64Url } from './base64.ts'
+import { base64UrlToBytes, bytesToBase64Url } from '@codefusion-cc/workers-crypto'
 
 export const CONNECTION_ID_BYTES = 16
 /** Largest payload the relay forwards; bigger frames close the sender. */
@@ -38,8 +38,8 @@ export type RelayToDevice =
 export type DeviceToRelay = { t: 'close'; c: string } | { t: 'hello'; version: string; name: string }
 
 export function wrapForDevice(connectionId: string, payload: Uint8Array): Uint8Array<ArrayBuffer> {
-  const id = fromBase64Url(connectionId)
-  if (id.length !== CONNECTION_ID_BYTES) throw new Error('Invalid connection id')
+  const id = base64UrlToBytes(connectionId)
+  if (id?.length !== CONNECTION_ID_BYTES) throw new Error('Invalid connection id')
   const frame = new Uint8Array(CONNECTION_ID_BYTES + payload.length)
   frame.set(id)
   frame.set(payload, CONNECTION_ID_BYTES)
@@ -49,7 +49,7 @@ export function wrapForDevice(connectionId: string, payload: Uint8Array): Uint8A
 export function unwrapFromDevice(frame: Uint8Array): { connectionId: string; payload: Uint8Array } {
   if (frame.length <= CONNECTION_ID_BYTES) throw new Error('Frame too short')
   return {
-    connectionId: toBase64Url(frame.subarray(0, CONNECTION_ID_BYTES)),
+    connectionId: bytesToBase64Url(frame.subarray(0, CONNECTION_ID_BYTES)),
     payload: frame.subarray(CONNECTION_ID_BYTES),
   }
 }

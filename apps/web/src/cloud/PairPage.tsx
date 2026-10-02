@@ -1,5 +1,5 @@
 import type { PairingInfoDto } from '@magnetar/protocol/cloud'
-import { fromBase64Url } from '@magnetar/protocol/base64'
+import { base64UrlToBytes } from '@codefusion-cc/workers-crypto'
 import { Check, Laptop, Link2, ShieldCheck } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router'
@@ -19,12 +19,9 @@ export function captureFragmentKey(kind: 'pair' | 'link', target: (params: URLSe
   const id = target(params)
   if (!keyId || !key || !id) return
   history.replaceState(history.state, '', location.pathname + location.search)
-  try {
-    const raw = fromBase64Url(key)
-    if (raw.length === 32) parkKey(kind, id, keyId, raw)
-  } catch {
-    // A mangled link: pairing still works, this browser just won't be linked.
-  }
+  const raw = base64UrlToBytes(key)
+  // A mangled link: pairing still works, this browser just won't be linked.
+  if (raw?.length === 32) parkKey(kind, id, keyId, raw)
 }
 
 /**
