@@ -23,7 +23,8 @@ export function AboutPage() {
             <span className="flex items-center gap-2 text-sm"><Globe size={16} className="muted" /><BuildVersion version={BUILD.version} commit={BUILD.commit} /></span>
           </SettingRow>
           <SettingRow layout="wide" title={t('about.latestApp')}
-            description={latest ? t('about.latestAppHint', latest.version, formatDate(latest.publishedAt)) : latest === null ? t('releases.unavailable') : t('changelog.loading')}>
+            description={latest ? (latest.publishedAt ? t('about.latestAppHint', latest.version, formatDate(latest.publishedAt)) : t('settings.version', latest.version))
+              : latest === null ? t('releases.unavailable') : t('changelog.loading')}>
             <span className="flex items-center gap-2 text-sm"><Download size={16} className="muted" />{latest ? `v${latest.version}` : '—'}</span>
           </SettingRow>
         </SettingGroup>

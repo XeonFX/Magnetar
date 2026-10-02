@@ -40,8 +40,14 @@ describe('latestRelease', () => {
     expect(b).toBe(a)
     expect(fetch).toHaveBeenCalledTimes(1)
     fetch.mockImplementationOnce(async () => Response.json({ error: 'GitHub could not be read (rate-limited)' }, { status: 502 }))
-    expect(await latestRelease(start + 10 * 60_000 + 1)).toBeNull()
+    const failedAt = start + 10 * 60_000 + 1
+    expect(await latestRelease(failedAt)).toBeNull()
     expect(fetch).toHaveBeenCalledTimes(2)
+    // Not knowing is kept only briefly: half a minute later the website asks again.
+    expect(await latestRelease(failedAt + 1000)).toBeNull()
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect((await latestRelease(failedAt + 30_001))?.version).toBe('1.2.0')
+    expect(fetch).toHaveBeenCalledTimes(3)
   })
 })
 
@@ -54,6 +60,6 @@ describe('releasesProblemText', () => {
     expect(releasesProblemText(t, 'rate-limited', '2026-10-02T13:00:00.000Z', formatDate)).toBe('releases.rateLimitedUntil|at 2026-10-02T13:00:00.000Z')
     expect(releasesProblemText(t, 'rate-limited', null, formatDate)).toBe('releases.rateLimited')
     expect(releasesProblemText(t, 'unavailable', null, formatDate)).toBe('releases.unavailable')
-    expect(releasesProblemText(t, 'install', null, formatDate, 'Checksum mismatch')).toBe('settings.lastCheckFailed|Checksum mismatch')
+    expect(releasesProblemText(t, 'install', null, formatDate, 'Update failed: Checksum mismatch')).toBe('settings.installFailed|Checksum mismatch')
   })
 })

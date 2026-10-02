@@ -39,13 +39,15 @@ export function UpdateBanner() {
   const key = dismissedKey(connection.keyId)
   const [dismissed, setDismissed] = useState(() => readDismissed(key))
   const [busy, setBusy] = useState(false)
+  // The app looked and can't install the update itself: the button becomes the download link.
+  const [manual, setManual] = useState<string | null>(null)
 
   const running = updates?.currentVersion ?? info?.version
   const offered = offeredVersion(running, updates?.available?.version, latest?.version)
   if (!running || !offered || dismissed === offered || pathname.startsWith(`${basePath}/settings/about`)) return null
   const releaseUrl = httpsOnly(updates?.available?.releaseUrl ?? latest?.pageUrl)
   // The app said it can't install itself (a copy outside Applications, Linux without a key): download instead.
-  const downloadOnly = updates?.available ? !updates.canSelfInstall : false
+  const download = manual ?? (updates?.available && !updates.canSelfInstall ? releaseUrl : null)
   const installing = updates?.installing === true
 
   const dismiss = () => {
@@ -61,8 +63,11 @@ export function UpdateBanner() {
     try {
       // The website heard of the release before the app did: let the app look, then install what it found.
       const status = updates?.available ? updates : await run(() => connection.call('updates.check'))
-      if (!status?.available || !status.canSelfInstall) {
-        window.open(status?.available ? httpsOnly(status.available.releaseUrl) : releaseUrl, '_blank', 'noopener')
+      if (!status) return
+      if (!status.available || !status.canSelfInstall) {
+        // A new tab now would be a pop-up the browser blocks, long after the click: offer the link instead.
+        setManual(status.available ? httpsOnly(status.available.releaseUrl) : releaseUrl)
+        toast(t('update.manual'), 'info')
         return
       }
       toast(t('settings.installNote'), 'info')
@@ -81,8 +86,8 @@ export function UpdateBanner() {
         </span>
         <div className="flex flex-wrap items-center gap-2">
           <Link to={`${basePath}/settings/about`} className="btn btn-ghost btn-sm"><Sparkles size={14} />{t('update.whatsNew')}</Link>
-          {downloadOnly ? (
-            <a className="btn btn-primary btn-sm" href={releaseUrl} target="_blank" rel="noreferrer noopener">{t('update.download')}</a>
+          {download ? (
+            <a className="btn btn-primary btn-sm" href={download} target="_blank" rel="noreferrer noopener">{t('update.download')}</a>
           ) : (
             <button type="button" className="btn btn-primary btn-sm" disabled={busy || installing} onClick={() => void update()}>
               {(busy || installing) && <span className="loading loading-spinner loading-xs" />}

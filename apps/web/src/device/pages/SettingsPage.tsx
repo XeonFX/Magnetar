@@ -26,6 +26,7 @@ import { Loading } from '../../ui/Loading.tsx'
 import { CommitLink } from '../../ui/BuildVersion.tsx'
 import { Changelog } from '../../ui/Changelog.tsx'
 import { releasesProblemText } from '../../lib/releases.ts'
+import { cloud } from '../../lib/cloudApi.ts'
 
 const SECTIONS = [
   { id: 'general', icon: SlidersHorizontal },
@@ -414,7 +415,8 @@ function AboutSection() {
   const run = useRun()
   const formatDate = useFormatDate()
   const { connection, updates, info } = useDevice()
-  const loadReleases = useCallback(() => connection.call('updates.releases'), [connection])
+  // Through the website its own cached list, which an app from before the changelog can't answer either.
+  const loadReleases = useCallback(() => (connection.kind === 'remote' ? cloud.releases() : connection.call('updates.releases')), [connection])
   if (!updates) return null
 
   const problem = updates.lastCheckProblem

@@ -63,6 +63,9 @@ export type PairPollResponse =
   | { state: 'expired' }
   | { state: 'approved'; deviceId: string; deviceToken: string; deviceName: string; accountEmail: string }
 
+/** Where Magnetar is developed and released (GitHub owner/name). */
+export const MAGNETAR_REPO = 'XeonFX/Magnetar'
+
 export type ReleasePlatform = 'macos' | 'windows' | 'linux'
 export type ReleaseArch = 'arm64' | 'x64'
 
@@ -80,7 +83,7 @@ export type { ReleaseDto, ReleasesDto, ReleasesProblem } from './model.ts'
 /** `/api/releases/latest`: the app's newest release, for the website's download buttons. */
 export interface LatestReleaseDto {
   version: string
-  publishedAt: string
+  publishedAt: string | null
   pageUrl: string
   assets: ReleaseAssetDto[]
 }

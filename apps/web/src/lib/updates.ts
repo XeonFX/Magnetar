@@ -1,4 +1,5 @@
 import { watchAppUpdates } from '@codefusion-cc/app-update/browser'
+import { MAGNETAR_REPO } from '@magnetar/protocol/cloud'
 import { useEffect } from 'react'
 import { useLocation } from 'react-router'
 
@@ -6,7 +7,7 @@ import { useLocation } from 'react-router'
 declare const __APP_COMMIT__: string
 
 /** Where Magnetar is developed and released. */
-export const REPO = 'XeonFX/Magnetar'
+export const REPO = MAGNETAR_REPO
 
 /** The newest release's page, where the app can always be downloaded. */
 export const RELEASES_PAGE = `https://github.com/${REPO}/releases/latest`

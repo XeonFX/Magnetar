@@ -36,8 +36,10 @@ const SIGNATURE: &str = "SHA256SUMS.txt.sig";
 const MAC_INSTALL_SCRIPT: &str = include_str!("mac-install.sh");
 /// The newest releases the changelog shows.
 const RELEASES_PER_PAGE: usize = 20;
-/// Longer notes are cut: no release says more, and they cross the relay to the dashboard.
+/// Longer notes are cut: no release says more.
 const MAX_NOTES: usize = 64 * 1024;
+/// All the notes the changelog sends at once: it crosses the relay, whose frames hold 1 MiB.
+const MAX_CHANGELOG: usize = 256 * 1024;
 /// The version people were last told about, so a restart doesn't tell them again.
 const NOTIFIED_KEY: &str = "updates.notified_version";
 
@@ -262,6 +264,10 @@ pub struct UpdateService {
     pub dashboard_url: OnceLock<String>,
     /// GitHub's API, `https://api.github.com` unless set first (a test's own GitHub).
     pub github_api: OnceLock<String>,
+    /// One read of GitHub at a time: the changelog, asked for while a check runs, waits for it.
+    reading: tokio::sync::Mutex<()>,
+    /// For a click on a notice, which arrives on the system's thread.
+    runtime: OnceLock<tokio::runtime::Handle>,
 }
 
 impl UpdateService {
@@ -284,6 +290,8 @@ impl UpdateService {
             on_quit: OnceLock::new(),
             dashboard_url: OnceLock::new(),
             github_api: OnceLock::new(),
+            reading: tokio::sync::Mutex::new(()),
+            runtime: OnceLock::new(),
         }
     }
 
@@ -296,6 +304,14 @@ impl UpdateService {
         if *IS_DEV {
             return;
         }
+        let _ = self.runtime.set(tokio::runtime::Handle::current());
+        // Before any notice: one left from the last run is answered too.
+        let me = Arc::downgrade(self);
+        notify::listen("update", &[("install", "Install and Restart"), ("download", "Download")], move |choice| {
+            if let Some(service) = me.upgrade() {
+                service.chose(choice);
+            }
+        });
         let service = self.clone();
         tokio::spawn(async move {
             let mut delay = FIRST_CHECK;
@@ -368,7 +384,10 @@ impl UpdateService {
             state.checking = true;
         }
         self.changed();
-        let outcome = self.fetch_releases().await;
+        let outcome = {
+            let _reading = self.reading.lock().await;
+            self.fetch_releases().await
+        };
         let news = {
             let mut state = self.state();
             state.checking = false;
@@ -459,20 +478,38 @@ impl UpdateService {
         Ok(())
     }
 
-    /// The releases for the changelog, newest first; read from GitHub when none were yet.
+    /// The releases for the changelog, newest first, at most `MAX_CHANGELOG` of notes; read from
+    /// GitHub when none were yet, after a check under way. Reading them tells nobody of a new
+    /// version: that stays the checks' (`check`, the background one with its notice).
     pub async fn releases(&self) -> ReleasesDto {
-        let unread = {
-            let state = self.state();
-            state.releases.is_empty() && state.etag.is_none()
-        };
-        if unread {
-            self.check().await;
+        let unread = |state: &State| state.releases.is_empty() && state.etag.is_none();
+        let mut problem = None;
+        if unread(&self.state()) {
+            let _reading = self.reading.lock().await;
+            if unread(&self.state()) {
+                match self.fetch_releases().await {
+                    Ok(()) => {
+                        let mut state = self.state();
+                        state.available = newer_release(&state.releases, VERSION).cloned();
+                    }
+                    Err(error) => problem = Some(error.problem),
+                }
+                self.changed();
+            }
         }
         let state = self.state();
-        ReleasesDto {
-            releases: state.releases.iter().map(Release::dto).collect(),
-            problem: if state.releases.is_empty() { state.last_check_problem.map(Problem::as_str) } else { None },
-        }
+        let mut budget = MAX_CHANGELOG;
+        let releases = state
+            .releases
+            .iter()
+            .map(|release| {
+                let notes = cut(&release.notes, budget);
+                budget -= notes.len();
+                ReleaseDto { notes, ..release.dto() }
+            })
+            .collect::<Vec<_>>();
+        let problem = if releases.is_empty() { problem.or(state.last_check_problem) } else { None };
+        ReleasesDto { releases, problem: problem.map(Problem::as_str) }
     }
 
     fn notify_channels(&self, release: &Release) {
@@ -488,33 +525,38 @@ impl UpdateService {
 
     /// Tells about a new version found in the background: the channels, and an OS notification
     /// whose button installs it (or downloads it where this copy can't install itself).
-    fn tell(self: &Arc<Self>, release: &Release) {
+    fn tell(&self, release: &Release) {
         self.notify_channels(release);
         let installs = self.can_self_install(Some(release));
         let (action, label) = if installs { ("install", "Install and Restart") } else { ("download", "Download") };
-        let notice = Notice {
+        notify::show(Notice {
             kind: "update",
             title: format!("Magnetar {} is available", release.version),
             body: summary(release),
             actions: vec![(action, label.to_owned())],
+        });
+    }
+
+    /// A click on an update notice, this run's or one left from before: install what is available
+    /// now, or show where things stand (About) when nothing is; a download opens its page.
+    fn chose(self: &Arc<Self>, choice: Choice) {
+        let about = || {
+            let dashboard = self.dashboard_url.get().cloned().unwrap_or_else(|| format!("http://localhost:{DEFAULT_PORT}"));
+            open_in_browser(&format!("{dashboard}/settings/about"));
         };
-        let (service, page, runtime) = (self.clone(), release.release_url.clone(), tokio::runtime::Handle::current());
-        notify::show(notice, move |choice| match choice {
-            Choice::Action("install") => {
-                let service = service.clone();
+        let available = self.state().available.clone();
+        match (choice, available) {
+            (Choice::Action("install"), Some(_)) => {
+                let (Some(runtime), service) = (self.runtime.get(), self.clone()) else { return };
                 runtime.spawn(async move {
                     if let Some(page) = service.install().await {
                         open_in_browser(&page);
                     }
                 });
             }
-            Choice::Action(_) => open_in_browser(&page),
-            Choice::Open => {
-                let dashboard =
-                    service.dashboard_url.get().cloned().unwrap_or_else(|| format!("http://localhost:{DEFAULT_PORT}"));
-                open_in_browser(&format!("{dashboard}/settings/about"));
-            }
-        });
+            (Choice::Action(_), Some(release)) => open_in_browser(&release.release_url),
+            _ => about(),
+        }
     }
 
     /// Installs the available update and exits, or returns the release page to open where that

@@ -571,6 +571,8 @@
     "about.download": "Baixe o app",
     "footer.whatsNew": "Novidades",
     "devices.outdated": "Atualização disponível: {0}",
-    "remote.reservedName": "“{0}” é uma página do próprio site, então o endereço dele será {1}."
+    "remote.reservedName": "“{0}” é uma página do próprio site, então o endereço dele será {1}.",
+    "update.manual": "Esta cópia do Magnetar não consegue se atualizar sozinha. Baixe a nova versão e substitua-a.",
+    "settings.installFailed": "Não foi possível instalar a atualização: {0}"
   }
 }

@@ -8,11 +8,17 @@ export { isOutdated }
 
 /** How long the website trusts what it last heard of the newest release (the Worker caches GitHub as long). */
 const LATEST_FOR_MS = 10 * 60_000
-let latest: { at: number; release: Promise<LatestReleaseDto | null> } | null = null
+/** How long it trusts not knowing: one failed request must not hide every update notice for ten minutes. */
+const UNKNOWN_FOR_MS = 30_000
+let latest: { until: number; release: Promise<LatestReleaseDto | null> } | null = null
 
-/** The newest release, shared by every caller on the page and asked again after ten minutes; null when unknown. */
+/** The newest release, shared by every caller on the page and asked again after ten minutes (30 s after a failure); null when unknown. */
 export function latestRelease(now = Date.now()): Promise<LatestReleaseDto | null> {
-  if (!latest || now - latest.at > LATEST_FOR_MS) latest = { at: now, release: cloud.latestRelease().catch(() => null) }
+  if (!latest || now > latest.until) {
+    const entry = { until: now + LATEST_FOR_MS, release: cloud.latestRelease().catch(() => null) }
+    void entry.release.then(release => { if (!release) entry.until = now + UNKNOWN_FOR_MS })
+    latest = entry
+  }
   return latest.release
 }
 
@@ -48,6 +54,6 @@ export function releasesProblemText(t: Translate, problem: ReleasesProblem | 'in
     case 'offline': return t('releases.offline')
     case 'rate-limited': return retryAt ? t('releases.rateLimitedUntil', formatDate(retryAt, true)) : t('releases.rateLimited')
     case 'unavailable': return t('releases.unavailable')
-    case 'install': return t('settings.lastCheckFailed', detail ?? '')
+    case 'install': return t('settings.installFailed', detail?.replace(/^Update failed: /, '') ?? '')
   }
 }

@@ -571,6 +571,8 @@
     "about.download": "App herunterladen",
     "footer.whatsNew": "Neuigkeiten",
     "devices.outdated": "Update verfügbar: {0}",
-    "remote.reservedName": "„{0}“ ist eine Seite der Website selbst, daher lautet seine Adresse {1}."
+    "remote.reservedName": "„{0}“ ist eine Seite der Website selbst, daher lautet seine Adresse {1}.",
+    "update.manual": "Diese Magnetar-Kopie kann sich nicht selbst aktualisieren. Lade die neue Version herunter und ersetze sie.",
+    "settings.installFailed": "Das Update konnte nicht installiert werden: {0}"
   }
 }

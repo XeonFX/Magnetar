@@ -22,14 +22,19 @@ type Answer = (StatusCode, Vec<(&'static str, String)>, String);
 struct GitHub {
     answer: Option<Answer>,
     asked: Vec<HeaderMap>,
+    /// How long it takes to answer.
+    delay: std::time::Duration,
 }
 
 type Shared = Arc<Mutex<GitHub>>;
 
 async fn releases(axum::extract::State(github): axum::extract::State<Shared>, headers: HeaderMap) -> Response {
-    let mut github = github.lock().unwrap();
-    github.asked.push(headers);
-    let (status, headers, body) = github.answer.clone().unwrap_or((StatusCode::OK, vec![], "[]".into()));
+    let ((status, headers, body), delay) = {
+        let mut github = github.lock().unwrap();
+        github.asked.push(headers);
+        (github.answer.clone().unwrap_or((StatusCode::OK, vec![], "[]".into())), github.delay)
+    };
+    tokio::time::sleep(delay).await;
     let mut response = (status, body).into_response();
     for (name, value) in headers {
         response.headers_mut().insert(name, value.parse().unwrap());
@@ -239,4 +244,56 @@ async fn two_checks_at_once_ask_github_once() {
     let (a, b) = tokio::join!(app.updates.check(), app.updates.check());
     assert!(!a.checking || !b.checking);
     assert_eq!(github.lock().unwrap().asked.len(), 1);
+}
+
+#[tokio::test]
+async fn the_changelog_asked_for_during_a_check_waits_for_it_and_tells_nobody() {
+    let (github, api) = github().await;
+    let newer = bump(&running(), 1);
+    answer(&github, StatusCode::OK, vec![], json!([release(&format!("v{newer}"), json!({}))]).to_string());
+    github.lock().unwrap().delay = std::time::Duration::from_millis(300);
+    let (app, _dir) = app(&api);
+
+    // Opened while a check is reading GitHub: the list, once the check has it, not an empty one.
+    let (status, changelog) = tokio::join!(app.updates.check(), async {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        app.updates.releases().await
+    });
+    assert_eq!(serde_json::to_value(&changelog).unwrap()["releases"][0]["version"], newer);
+    assert_eq!(serde_json::to_value(status).unwrap()["available"]["version"], newer);
+    assert_eq!(github.lock().unwrap().asked.len(), 1);
+}
+
+#[tokio::test]
+async fn opening_the_changelog_first_leaves_telling_to_the_next_check() {
+    let (github, api) = github().await;
+    let newer = bump(&running(), 1);
+    answer(&github, StatusCode::OK, vec![], json!([release(&format!("v{newer}"), json!({}))]).to_string());
+    let (app, _dir) = app(&api);
+
+    app.updates.releases().await;
+    // The dashboard sees the update at once…
+    assert_eq!(status_json(&app)["available"]["version"], newer);
+    // …but nobody was told: the next check does that (and its notice), once.
+    assert_eq!(KeyValue(app.db.clone()).get("updates.notified_version"), None);
+    app.updates.check().await;
+    assert_eq!(KeyValue(app.db.clone()).get("updates.notified_version"), Some(newer));
+}
+
+#[tokio::test]
+async fn the_changelog_sends_at_most_256_kib_of_notes_newest_first() {
+    let (github, api) = github().await;
+    let long = "x".repeat(60 * 1024);
+    let releases: Vec<Value> = (1..=10).map(|minor| release(&format!("v0.{minor}.0"), json!({ "body": long }))).collect();
+    answer(&github, StatusCode::OK, vec![], Value::Array(releases).to_string());
+    let (app, _dir) = app(&api);
+    let changelog = serde_json::to_value(app.updates.releases().await).unwrap();
+    let lengths: Vec<usize> =
+        changelog["releases"].as_array().unwrap().iter().map(|r| r["notes"].as_str().unwrap().len()).collect();
+    assert_eq!(lengths.len(), 10);
+    assert_eq!(lengths.iter().sum::<usize>(), 256 * 1024);
+    // The newest keep theirs whole; the oldest go without.
+    assert_eq!(&lengths[..4], &[60 * 1024; 4]);
+    assert_eq!(lengths[9], 0);
+    assert_eq!(changelog["releases"][0]["version"], "0.10.0");
 }

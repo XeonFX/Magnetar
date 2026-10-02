@@ -13,5 +13,7 @@ export function CommitLink({ commit }: { commit: string }) {
  * development build (`1.2.0+dev`) shows its version as it is.
  */
 export function BuildVersion({ version, commit, className = '' }: { version: string; commit?: string | null; className?: string }) {
-  return <span className={`tabular-nums ${className}`}>v{version}{commit && <>{' · '}<CommitLink commit={commit} /></>}</span>
+  // `v1.2.0`, but a build outside a release is just `dev`.
+  const shown = /^\d/.test(version) ? `v${version}` : version
+  return <span className={`tabular-nums ${className}`}>{shown}{commit && <>{' · '}<CommitLink commit={commit} /></>}</span>
 }

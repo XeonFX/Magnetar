@@ -122,12 +122,16 @@ jobs:
           node scripts/sign-release.ts assets
       # What the release brings, from the pull requests merged since the release before, grouped by their branch's
       # type (feat/ New, fix/ Fixes, perf/ Faster…). The app's changelog and its update notice show these notes.
+      # A GitHub hiccup here must not lose the release built above: GitHub's own notes stand in.
       - name: Release notes
+        id: notes
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: npx --yes -p @codefusion-cc/app-update@^1.2.0 codefusion-release-notes "$GITHUB_REF_NAME" > notes.md && cat notes.md
       - uses: softprops/action-gh-release@v2
         with:
           files: assets/*
-          body_path: notes.md
+          body_path: ${{ steps.notes.outcome == 'success' && 'notes.md' || '' }}
+          generate_release_notes: ${{ steps.notes.outcome != 'success' }}
           prerelease: ${{ contains(github.ref_name, '-') }}

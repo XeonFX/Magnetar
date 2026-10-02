@@ -749,15 +749,6 @@ fn push_url(device_id: &str, account_name: Option<&str>) -> String {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn pushes_open_the_device_by_its_readable_name_when_the_account_gave_one() {
-        assert_eq!(super::push_url("d_ZIZ0Gac6mtg2TvpD", Some("MacBook-Pro")), "/MacBook-Pro");
-        // No name yet, or one the website could not route (a reserved word, spaces from an old version): by id.
-        assert_eq!(super::push_url("d_ZIZ0Gac6mtg2TvpD", None), "/d/d_ZIZ0Gac6mtg2TvpD");
-        assert_eq!(super::push_url("d_ZIZ0Gac6mtg2TvpD", Some("settings")), "/d/d_ZIZ0Gac6mtg2TvpD");
-        assert_eq!(super::push_url("d_ZIZ0Gac6mtg2TvpD", Some("Krystian's Mac")), "/d/d_ZIZ0Gac6mtg2TvpD");
-        assert_eq!(super::push_url("d_ZIZ0Gac6mtg2TvpD", Some("")), "/d/d_ZIZ0Gac6mtg2TvpD");
-    }
 
     use super::*;
     use crate::db::{Db, SecretBox};
@@ -908,5 +899,15 @@ mod tests {
         assert_eq!(approved(named), Some("MacBook-Pro-2".to_owned()));
         // A Worker from before names were addresses still pairs.
         assert_eq!(approved(base), None);
+    }
+
+    #[test]
+    fn pushes_open_the_device_by_its_readable_name_when_the_account_gave_one() {
+        assert_eq!(push_url("d_ZIZ0Gac6mtg2TvpD", Some("MacBook-Pro")), "/MacBook-Pro");
+        // No name yet, or one the website could not route (a reserved word, spaces from an old version): by id.
+        assert_eq!(push_url("d_ZIZ0Gac6mtg2TvpD", None), "/d/d_ZIZ0Gac6mtg2TvpD");
+        assert_eq!(push_url("d_ZIZ0Gac6mtg2TvpD", Some("settings")), "/d/d_ZIZ0Gac6mtg2TvpD");
+        assert_eq!(push_url("d_ZIZ0Gac6mtg2TvpD", Some("Krystian's Mac")), "/d/d_ZIZ0Gac6mtg2TvpD");
+        assert_eq!(push_url("d_ZIZ0Gac6mtg2TvpD", Some("")), "/d/d_ZIZ0Gac6mtg2TvpD");
     }
 }

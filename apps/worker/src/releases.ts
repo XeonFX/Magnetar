@@ -1,6 +1,6 @@
 import { fetchGitHubReleases, latestRelease, type Release, type ReleasesFailure } from '@codefusion-cc/app-update'
 import { json, jsonError } from '@codefusion-cc/workers-http'
-import type { LatestReleaseDto, ReleaseArch, ReleasePlatform, ReleasesDto, ReleasesProblem } from '@magnetar/protocol/cloud'
+import { MAGNETAR_REPO, type LatestReleaseDto, type ReleaseArch, type ReleasePlatform, type ReleasesDto, type ReleasesProblem } from '@magnetar/protocol/cloud'
 import type { Env } from './env.ts'
 
 /** `Magnetar-2.1.0-macos-arm64.zip`, `…-windows-x64.exe`, `…-linux-arm64`. */
@@ -12,7 +12,7 @@ const PER_PAGE = 20
 export function toLatestRelease(release: Release): LatestReleaseDto {
   return {
     version: release.version,
-    publishedAt: release.publishedAt ?? '',
+    publishedAt: release.publishedAt,
     pageUrl: release.url,
     assets: release.assets.flatMap(asset => {
       const match = ASSET.exec(asset.name)
@@ -39,7 +39,7 @@ const cached = { 'cache-control': `public, max-age=${CACHE_SECONDS}` }
  */
 export async function handleReleases(request: Request, env: Env, path: string, send: typeof fetch = fetch): Promise<Response | null> {
   if ((path !== '/api/releases' && path !== '/api/releases/latest') || request.method !== 'GET') return null
-  const result = await fetchGitHubReleases(env.RELEASES_REPO || 'XeonFX/Magnetar', {
+  const result = await fetchGitHubReleases(env.RELEASES_REPO || MAGNETAR_REPO, {
     userAgent: 'magnetar.codefusion.cc',
     token: env.GITHUB_TOKEN || undefined,
     perPage: PER_PAGE,
