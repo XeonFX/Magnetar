@@ -1299,9 +1299,16 @@ mod tests {
     fn link_folder(target: &Path, link: &Path) {
         #[cfg(unix)]
         std::os::unix::fs::symlink(target, link).unwrap();
+        // cmd takes only backslashes: rebuild the paths from their parts.
         #[cfg(windows)]
         assert!(
-            std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(link).arg(target).status().unwrap().success(),
+            std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(link.components().collect::<PathBuf>())
+                .arg(target.components().collect::<PathBuf>())
+                .status()
+                .unwrap()
+                .success(),
             "mklink /J"
         );
     }

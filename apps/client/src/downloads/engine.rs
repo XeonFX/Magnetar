@@ -460,6 +460,8 @@ pub fn delete_files(metadata: &Metadata, save_path: &Path) {
             tracing::warn!("Could not delete {}: {error}", save_path.join(&folder).join(name).display());
         }
     }
+    // Windows cannot remove a folder while a handle on it is open.
+    drop(open);
     if let Some(folder) = metadata.content_folder() {
         remove_empty_tree(&root, folder, save_path);
     }
