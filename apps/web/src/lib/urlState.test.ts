@@ -82,6 +82,37 @@ describe('a search in the address bar', () => {
     expect(searchTextFrom('%E0%A4%A')).toBe('%E0%A4%A')
   })
 
+  test('text of only dots survives the address bar, which drops a . or .. path segment however it is spelled', () => {
+    // What a browser makes of these paths: %2E is a dot to the URL standard too, and .. even leaves the search page.
+    expect(['/search/.', '/search/%2E', '/search/..', '/search/.%2e'].map(path => new URL(path, 'https://x.example').pathname)).toEqual(['/search/', '/search/', '/', '/'])
+    for (const query of ['.', '..']) {
+      const address = searchAddress({ query, resolution: '', source: '', sort: 'seeders' }, CHOICES)
+      expect(address).toBe(`/search?q=${query}`)
+      expect(read(address).query).toBe(query)
+    }
+    expect(searchAddress({ query: '..', resolution: '720p', source: 'tpb', sort: 'newest' }, CHOICES)).toBe('/search?q=..&res=720p&source=tpb&sort=new')
+    expect(read('/search?q=..&res=720p&source=tpb&sort=new')).toEqual({ query: '..', resolution: '720p', source: 'tpb', sort: 'newest' })
+    // Three dots or more, or dots among other text, are an ordinary segment.
+    expect(searchAddress({ query: '...', resolution: '', source: '', sort: 'seeders' }, CHOICES)).toBe('/search/...')
+    expect(read('/search/...').query).toBe('...')
+    expect(searchAddress({ query: '. .', resolution: '', source: '', sort: 'seeders' }, CHOICES)).toBe('/search/.+.')
+    expect(read('/search/.+.').query).toBe('. .')
+  })
+
+  test('an address whose text trims down to dots, or to nothing, settles after one move', () => {
+    // Found by the property below (seed 1489426516): the trimmed ". " was written as /search/., which reads as no search.
+    const settles = (address: string, to: string) => {
+      const once = searchAddress(read(address), CHOICES)
+      expect([once, searchAddress(read(once), CHOICES)], address).toEqual([to, to])
+    }
+    settles('/search/.%20?', '/search?q=.')
+    settles('/search/+..+?res=720p', '/search?q=..&res=720p')
+    settles('/search/%20.%20.%20', '/search/.+.')
+    // Text that trims to nothing is no search, and the path still wins over a q.
+    settles('/search/+%20+', '/search')
+    settles('/search/%20?q=dragon&sort=new', '/search?sort=new')
+  })
+
   test('sorting does not make it another search; a query, resolution or source does', () => {
     const base: SearchView = { query: 'dragon', resolution: '', source: '', sort: 'seeders' }
     expect(searchKey({ ...base, sort: 'newest' })).toBe(searchKey(base))
@@ -93,8 +124,10 @@ describe('a search in the address bar', () => {
     expect(searchKey({ ...base, query: 'a 1080p', resolution: '' })).not.toBe(searchKey({ ...base, query: 'a', resolution: '1080p' }))
   })
 
+  /** Text of dots and spaces, which a path segment can lose to the URL standard's . and .. segments. */
+  const dotty = fc.string({ unit: fc.constantFrom('.', ' '), maxLength: 5 })
   const view = fc.record({
-    query: fc.string({ unit: 'binary', maxLength: 120 }).map(s => s.trim()),
+    query: fc.oneof(fc.string({ unit: 'binary', maxLength: 120 }), dotty).map(s => s.trim()),
     resolution: fc.constantFrom(...CHOICES.resolutions),
     source: fc.constantFrom('', ...SOURCES.map(s => s.id)),
     sort: fc.constantFrom(...CHOICES.sorts.map(([value]) => value)),
@@ -110,6 +143,9 @@ describe('a search in the address bar', () => {
     const address = fc.oneof(
       view.map(v => searchAddress(v, CHOICES)),
       fc.tuple(fc.string({ maxLength: 30 }), fc.string({ maxLength: 20 })).map(([path, query]) => `/search/${encodeURIComponent(path)}?${query}`),
+      // Paths as typed, with every spelling of a dot and a space.
+      fc.tuple(fc.string({ unit: fc.constantFrom('.', '%2E', '%2e', '+', '%20', 'a', '/'), maxLength: 6 }), fc.constantFrom('', 'q=..', 'q=dragon', 'res=720p'))
+        .map(([path, query]) => `/search/${path}?${query}`),
     )
     fc.assert(fc.property(address, a => {
       const once = searchAddress(read(a), CHOICES)
