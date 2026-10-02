@@ -2,7 +2,7 @@ import { ArrowUpCircle, Sparkles, X } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router'
 import { useT } from '../lib/i18n.tsx'
-import { offeredVersion, useLatestRelease } from '../lib/releases.ts'
+import { offeredVersion, latestRelease } from '../lib/releases.ts'
 import { RELEASES_PAGE } from '../lib/updates.ts'
 import { useToast } from '../ui/toast.tsx'
 import { useDevice } from './DeviceContext.tsx'
@@ -34,7 +34,7 @@ export function UpdateBanner() {
   const run = useRun()
   const { connection, updates, info, deviceName, basePath } = useDevice()
   const remote = connection.kind === 'remote'
-  const latest = useLatestRelease(remote)
+  const latest = latestRelease.useLatest(remote)
   const { pathname } = useLocation()
   const key = dismissedKey(connection.keyId)
   const [dismissed, setDismissed] = useState(() => readDismissed(key))

@@ -7,7 +7,7 @@ import { errorMessage } from '../lib/errors.ts'
 import { useFormatRelative, useT } from '../lib/i18n.tsx'
 import { forgetDeviceKey, listDeviceKeys } from '../lib/keyStore.ts'
 import { isOutdated } from '@codefusion-cc/app-update'
-import { useLatestRelease } from '../lib/releases.ts'
+import { latestRelease } from '../lib/releases.ts'
 import { Empty } from '../ui/Empty.tsx'
 import { Loading } from '../ui/Loading.tsx'
 import { ConfirmDialog } from '../ui/Modal.tsx'
@@ -25,7 +25,7 @@ export function DevicesPage() {
   const [devices, setDevices] = useState<CloudDeviceDto[] | null>(null)
   const [linked, setLinked] = useState<Set<string>>(new Set())
   const [removing, setRemoving] = useState<CloudDeviceDto | null>(null)
-  const latest = useLatestRelease()
+  const latest = latestRelease.useLatest()
 
   const load = useCallback(async () => {
     try {

@@ -7,7 +7,8 @@ import { useDevice, useDownloads, useSearchLink } from './DeviceContext.tsx'
 import { isActive } from './components/downloads.tsx'
 import { BrandMark } from '../ui/BrandMark.tsx'
 import { MenuButton } from '../ui/Menu.tsx'
-import { BuildVersion } from '../ui/BuildVersion.tsx'
+import { BuildVersion } from '@codefusion-cc/app-update/react'
+import { MAGNETAR_REPO } from '@magnetar/protocol/cloud'
 import { BUILD } from '../lib/updates.ts'
 import { UpdateBanner } from './UpdateBanner.tsx'
 
@@ -94,9 +95,9 @@ function Builds() {
     <div className="muted flex flex-col gap-0.5 px-3 text-xs">
       <span>
         <Link to={`${basePath}/settings/about`} className="link link-hover" title={t('settings.section.about')}>Magnetar</Link>
-        {' '}<BuildVersion version={info.version} commit={info.commit} />
+        {' '}<BuildVersion repo={MAGNETAR_REPO} className="tabular-nums" commitClassName="link link-hover font-mono" version={info.version} commit={info.commit} />
       </span>
-      {connection.kind === 'remote' && <span>{t('shell.website')} <BuildVersion version={BUILD.version} commit={BUILD.commit} /></span>}
+      {connection.kind === 'remote' && <span>{t('shell.website')} <BuildVersion repo={MAGNETAR_REPO} className="tabular-nums" commitClassName="link link-hover font-mono" version={BUILD.version} commit={BUILD.commit} /></span>}
     </div>
   )
 }

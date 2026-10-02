@@ -3,7 +3,7 @@ import { formatBytes } from '@magnetar/protocol/bytes'
 import { Download, ExternalLink, Laptop, Monitor, Terminal } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useT } from '../lib/i18n.tsx'
-import { useLatestRelease } from '../lib/releases.ts'
+import { latestRelease } from '../lib/releases.ts'
 import { RELEASES_PAGE } from '../lib/updates.ts'
 
 const ICONS = { macos: Laptop, windows: Monitor, linux: Terminal }
@@ -51,7 +51,7 @@ function pick(assets: ReleaseAssetDto[], platform: ReleasePlatform, arch: Releas
  */
 export function DownloadApp() {
   const t = useT()
-  const release = useLatestRelease()
+  const release = latestRelease.useLatest()
   const [visitor, setVisitor] = useState<Visitor>({ platform: null, arch: null })
   useEffect(() => void detectVisitor().then(setVisitor), [])
 

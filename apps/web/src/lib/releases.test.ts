@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, test, vi } from 'vitest'
-import { latestRelease, offeredVersion, releasesProblemText } from './releases.ts'
+import { describe, expect, test } from 'vitest'
+import { offeredVersion, releasesProblemText } from './releases.ts'
 
 describe('offeredVersion', () => {
   test('offers what the app found, else a newer release the website knows of', () => {
@@ -25,29 +25,6 @@ describe('offeredVersion', () => {
     expect(offeredVersion('1.1.0', null, null)).toBeNull()
     // A stale "available" for a version the app already runs.
     expect(offeredVersion('1.2.0', '1.2.0', null)).toBeNull()
-  })
-})
-
-describe('latestRelease', () => {
-  afterEach(() => vi.unstubAllGlobals())
-
-  test('asks once for every caller, again after ten minutes, and is null when the website cannot say', async () => {
-    const fetch = vi.fn(async () => Response.json({ version: '1.2.0', publishedAt: '', pageUrl: '', assets: [] }))
-    vi.stubGlobal('fetch', fetch)
-    const start = Date.UTC(2026, 9, 2, 12)
-    const [a, b] = await Promise.all([latestRelease(start), latestRelease(start + 1000)])
-    expect(a?.version).toBe('1.2.0')
-    expect(b).toBe(a)
-    expect(fetch).toHaveBeenCalledTimes(1)
-    fetch.mockImplementationOnce(async () => Response.json({ error: 'GitHub could not be read (rate-limited)' }, { status: 502 }))
-    const failedAt = start + 10 * 60_000 + 1
-    expect(await latestRelease(failedAt)).toBeNull()
-    expect(fetch).toHaveBeenCalledTimes(2)
-    // Not knowing is kept only briefly: half a minute later the website asks again.
-    expect(await latestRelease(failedAt + 1000)).toBeNull()
-    expect(fetch).toHaveBeenCalledTimes(2)
-    expect((await latestRelease(failedAt + 30_001))?.version).toBe('1.2.0')
-    expect(fetch).toHaveBeenCalledTimes(3)
   })
 })
 
