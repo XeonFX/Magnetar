@@ -104,7 +104,9 @@ jobs:
       run:
         working-directory: apps/worker
     steps:
+      # Before checkout, so apps/worker doesn't exist yet: run it from the workspace root.
       - name: Require the deploy token
+        working-directory: .
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
             echo "::error::The production environment's CLOUDFLARE_API_TOKEN secret is not set; see docs/DEPLOY.md"
