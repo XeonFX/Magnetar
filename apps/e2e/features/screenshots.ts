@@ -180,7 +180,7 @@ interface Website { desktop: Page; phone: Page }
 async function prepare(browser: Browser): Promise<Website> {
   const main = await socketPage(browser, 'main')
   console.log('Downloading the open films at full speed…')
-  const sintel = await startTorrent(main, TORRENTS.sintel)
+  await startTorrent(main, TORRENTS.sintel)
   await startTorrent(main, TORRENTS.bunny)
   await until('Sintel and Big Buck Bunny to finish', async () => {
     const rows = await downloads(main)
@@ -199,7 +199,6 @@ async function prepare(browser: Browser): Promise<Website> {
   await startTorrent(main, TORRENTS.ubuntu)
   await until('Tears of Steel to start', async () => (await downloads(main)).find(row => row.id === tears.id && row.progress > 0.05))
   await rpc(main, 'downloads.pause', { id: tears.id })
-  void sintel
 
   await rpc(main, 'series.create', { name: 'Pioneer One', query: 'Pioneer One', startFrom: 'new', resolution: '1080p', minSeeders: 3, checkIntervalMinutes: 360, preferWords: 'VODO' })
   for (const watch of [

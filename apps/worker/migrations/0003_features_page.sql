@@ -4,5 +4,6 @@ UPDATE devices SET name = name || '-device'
 WHERE lower(name) = 'features'
   AND NOT EXISTS (SELECT 1 FROM devices other WHERE other.user_id = devices.user_id AND lower(other.name) = lower(devices.name) || '-device');
 
--- An account that has a Features-device already: the device's id after it keeps the name its own.
-UPDATE devices SET name = name || '-device-' || replace(substr(id, 3), '_', '') WHERE lower(name) = 'features';
+-- An account that has a Features-device already: six random hex digits after it keep the name its own (an id would
+-- not do: an older one may hold hyphens or be too long for a name).
+UPDATE devices SET name = name || '-device-' || lower(hex(randomblob(3))) WHERE lower(name) = 'features';

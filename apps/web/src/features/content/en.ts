@@ -1,6 +1,6 @@
 import { DEVICE_NAME_MAX_LENGTH } from '@magnetar/protocol/device-name'
 import { MAX_TORRENT_FILE, MIN_SPEED_LIMIT } from '@magnetar/protocol/limits'
-import { plural } from './plural.ts'
+import { plural } from '@codefusion-cc/i18n'
 import type { FeaturesContent } from './types.ts'
 
 const torrentMb = MAX_TORRENT_FILE / 1024 / 1024

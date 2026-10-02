@@ -16,7 +16,7 @@ export interface FeaturesContent {
   /** The h1 is `title` followed by `accent`, highlighted. */
   hero: { badge: string; title: string; accent: string; lead: string; primary: string; secondary: string }
   /** What each figure in the header counts, in the plural its number takes (`features` for 24). */
-  stats: { features: (n: number) => string; screenshots: (n: number) => string; sources: (n: number) => string; languages: (n: number) => string }
+  stats: Record<'features' | 'screenshots' | 'sources' | 'languages', (n: number) => string>
   copy: FeaturesCopy
   groups: { [G in GroupId]: { title: string; label: string; lead: string; features: Record<FeatureIdOf<G>, FeatureText> } }
   /** What each shot shows: its alt text and caption. */

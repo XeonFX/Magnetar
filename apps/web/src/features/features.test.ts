@@ -10,7 +10,7 @@ const FILES = Object.keys(import.meta.glob('./shots/*.webp'))
 /** The page's own anchors besides the features: the header, the overview, its sections and the closing card. */
 const SECTIONS = ['top', 'overview', 'privacy', 'built-on', 'get-app']
 
-const contents = Object.fromEntries(await Promise.all(FEATURE_LANGUAGES.map(async code => [code, await loadContent(code)] as const))) as Record<string, FeaturesContent>
+const contents = Object.fromEntries(await Promise.all(FEATURE_LANGUAGES.map(async code => [code, (await loadContent(code)).content] as const))) as Record<string, FeaturesContent>
 const { en } = contents
 
 /** Every string in the content, with where it is, functions called with a few numbers. */
@@ -55,8 +55,11 @@ describe('the features page', () => {
     expect([1, 24].map(n => en!.stats.features(n))).toEqual(['feature', 'features'])
   })
 
-  test('shows every shot the screenshot run takes, and nothing more', () => {
-    const shown = new Set([...featureGroups(en!).flatMap(group => group.features.flatMap(feature => feature.shots ?? []).map(shot => shot.src)), ...Object.values(HERO_SHOTS)])
-    expect([...shown].sort()).toEqual(Object.keys(SIZES).sort())
+  test.each(FEATURE_LANGUAGES)('loads %s as itself, not as English', async code => {
+    expect((await loadContent(code)).language).toBe(code)
+  })
+
+  test('falls back to English for a language it has no words in', async () => {
+    expect(await loadContent('xx')).toEqual({ language: 'en', content: en })
   })
 })

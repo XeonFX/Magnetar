@@ -71,8 +71,8 @@ describe('0002: device names become addresses', () => {
 
 describe('0003: /features is the website\'s', () => {
   test('renames a device called features in any case, around a name its account already has', async () => {
-    const [first, second] = await Promise.all([signIn(), signIn()])
-    const ids = await env.DB.prepare('SELECT id, email FROM users WHERE email IN (?, ?)').bind(first.email, second.email).all<{ id: string; email: string }>()
+    const [first, second, third] = await Promise.all([signIn(), signIn(), signIn()])
+    const ids = await env.DB.prepare('SELECT id, email FROM users WHERE email IN (?, ?, ?)').bind(first.email, second.email, third.email).all<{ id: string; email: string }>()
     const owner = (email: string) => ids.results.find(r => r.email === email)!.id
     const rows: [string, string, string][] = [
       ['d_f1', owner(first.email), 'Features'],
@@ -80,6 +80,9 @@ describe('0003: /features is the website\'s', () => {
       ['d_f3', owner(second.email), 'FEATURES'],
       ['d_f4', owner(second.email), 'features-2'],
       ['d_f_5', owner(first.email), 'Featuresmac'],
+      // An older id, with a hyphen and an underscore.
+      ['d_-f_6', owner(third.email), 'Features'],
+      ['d_f7', owner(third.email), 'features-device'],
     ]
     for (const [id, user, name] of rows) {
       await env.DB.prepare('INSERT INTO devices (id, user_id, name, platform, version, token_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
@@ -88,13 +91,15 @@ describe('0003: /features is the website\'s', () => {
 
     await rerun('0003')
 
-    const names = await env.DB.prepare("SELECT id, name FROM devices WHERE id LIKE 'd_f%' ORDER BY id").all<{ id: string; name: string }>()
+    const names = await env.DB.prepare("SELECT id, name FROM devices WHERE id LIKE 'd_f%' OR id = 'd_-f_6' ORDER BY id").all<{ id: string; name: string }>()
     expect(Object.fromEntries(names.results.map(r => [r.id, r.name]))).toEqual({
       d_f1: 'Features-device',
       d_f2: 'features-device',
-      d_f3: 'FEATURES-device-f3',
+      d_f3: expect.stringMatching(/^FEATURES-device-[0-9a-f]{6}$/),
       d_f4: 'features-2',
+      'd_-f_6': expect.stringMatching(/^Features-device-[0-9a-f]{6}$/),
       d_f_5: 'Featuresmac',
+      d_f7: 'features-device',
     })
     expect(names.results.every(r => isDeviceName(r.name))).toBe(true)
   })

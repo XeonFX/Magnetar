@@ -17,6 +17,9 @@ process.env.VITE_APP_VERSION ??= build.version
 
 const target = process.env.MAGNETAR_WEB_TARGET === 'cloud' ? 'http://localhost:8790' : `http://localhost:${process.env.MAGNETAR_CLIENT_PORT ?? 47820}`
 
+/** A file only the features page uses: its own, or the package it is made of. */
+const featuresPage = (file: string) => file.includes('src/features/') || file.includes('@codefusion-cc/features-page/')
+
 export default defineConfig({
   // version.json for CodeFusion Console's Deployments page; source maps only the Worker reads (dist/_console/),
   // to show website failures with their own files and lines. The desktop app leaves the maps out (assets.rs).
@@ -39,9 +42,12 @@ export default defineConfig({
     chunkSizeWarningLimit: 800,
     rolldownOptions: {
       output: {
-        // The features page's screenshots in a folder of their own, which the desktop app leaves out (assets.rs):
-        // only the website shows that page.
-        assetFileNames: asset => asset.originalFileNames.some(file => file.includes('src/features/shots/'))
+        // The features page, its words and its screenshots in a folder of their own, which the desktop app leaves out
+        // (assets.rs): only the website shows that page.
+        chunkFileNames: chunk => chunk.facadeModuleId !== null && featuresPage(chunk.facadeModuleId)
+          ? 'assets/features/[name]-[hash].js'
+          : 'assets/[name]-[hash].js',
+        assetFileNames: asset => asset.originalFileNames.length > 0 && asset.originalFileNames.every(featuresPage)
           ? 'assets/features/[name]-[hash][extname]'
           : 'assets/[name]-[hash][extname]',
       },

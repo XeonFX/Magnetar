@@ -18,17 +18,17 @@ const loaded: Record<string, FeaturesContent> = { en }
 /** The languages the page is written in. */
 export const FEATURE_LANGUAGES: readonly string[] = ['en', ...Object.keys(loaders)]
 
-/** The page's words in `language`, loaded once; English when there are none in it or they fail to load. */
-export async function loadContent(language: string): Promise<FeaturesContent> {
-  if (loaded[language]) return loaded[language]
+/** The page's words in `language`, loaded once, and the language they are in: English when they fail to load. */
+export async function loadContent(language: string): Promise<{ language: string; content: FeaturesContent }> {
+  const ready = loaded[language]
+  if (ready) return { language, content: ready }
   const load = loaders[language]
-  if (!load) return en
+  if (!load) return { language: 'en', content: en }
   try {
-    loaded[language] = await load()
+    return { language, content: (loaded[language] = await load()) }
   } catch {
-    return en
+    return { language: 'en', content: en }
   }
-  return loaded[language]
 }
 
 /** The content already loaded for `language`, if it is. */

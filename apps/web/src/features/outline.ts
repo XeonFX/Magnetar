@@ -87,9 +87,6 @@ export const PRIVACY = [
 /** What Magnetar is built on, one row each. */
 export const BUILT_ON = ['client', 'engine', 'dashboard', 'worker', 'packages', 'console', 'releases'] as const
 
-/** The sections after the features, with their icons in the section bar. */
-export const SECTION_ICONS = { privacy: Lock, 'built-on': Globe } as const satisfies Record<string, LucideIcon>
-
 export type GroupId = (typeof OUTLINE)[number]['id']
 type GroupOf<G extends GroupId> = Extract<(typeof OUTLINE)[number], { id: G }>
 export type FeatureIdOf<G extends GroupId> = GroupOf<G>['features'][number]['id']
