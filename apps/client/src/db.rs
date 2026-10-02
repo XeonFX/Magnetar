@@ -106,6 +106,10 @@ CREATE TABLE watches (
   download_id INTEGER
 );
 ",
+    // A link nobody has opened yet stops working at expires_at; the first connection clears it.
+    r"
+ALTER TABLE browser_keys ADD COLUMN expires_at TEXT;
+",
 ];
 
 /// The app database. Statements are short, so one connection behind a mutex serves every service.

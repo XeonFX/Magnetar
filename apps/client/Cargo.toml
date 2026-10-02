@@ -84,3 +84,4 @@ winresource = "0.1"
 [dev-dependencies]
 proptest = "1"
 tempfile = "3"
+tokio = { version = "1", features = ["test-util"] }
