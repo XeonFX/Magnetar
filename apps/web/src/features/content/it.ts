@@ -175,7 +175,7 @@ export const content: FeaturesContent = {
             'I tuoi dispositivi con il loro stato online, aggiornato ogni 15 secondi',
             'Su un telefono le schede sono in basso, su un computer c’è una barra laterale',
             'Quello che ha senso solo al computer (il suo selettore di cartelle, l’apertura dei file) resta lì',
-            'Accesso con Google; le sessioni durano 30 giorni dall’ultima visita',
+            'Accesso con Google; le sessioni durano 30 giorni dall’ultima visita, e uscendo quel browser si scollega subito dai tuoi computer',
           ],
         },
         pairing: {

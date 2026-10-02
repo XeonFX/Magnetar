@@ -175,7 +175,7 @@ export const content: FeaturesContent = {
             'Vos appareils et leur état en ligne, actualisés toutes les 15 secondes',
             'Un téléphone a une barre d’onglets en bas, un ordinateur une barre latérale',
             'Ce qui n’a de sens que devant l’ordinateur (son sélecteur de dossiers, l’ouverture des fichiers) y reste',
-            'Connexion avec Google ; les sessions durent 30 jours après votre dernière visite',
+            'Connexion avec Google ; les sessions durent 30 jours après votre dernière visite, et la déconnexion coupe aussitôt ce navigateur de vos ordinateurs',
           ],
         },
         pairing: {

@@ -281,6 +281,7 @@
     "remote.rejectedKey": "This browser is no longer linked to the device.",
     "remote.rejectedRefused": "The device refused the connection.",
     "remote.removed": "This device is no longer on your account.",
+    "remote.signedOut": "You were signed out. Sign in again to reach this device.",
     "remote.handshakeFailed": "The device could not prove its identity. The connection was not opened.",
     "cloud.heroTitle": "Your downloads, from anywhere",
     "cloud.heroText": "Search, download and follow series on your own computer from any browser or phone.",

@@ -3,7 +3,8 @@ import { verifyGoogleIdToken } from '@codefusion-cc/google-sign-in'
 import { clientNetwork, getCookie, HttpError, json, jsonError, rateLimit, readJson, requireSameOrigin, serializeCookie, sha256 } from '@codefusion-cc/workers-http'
 import type { AccountDto } from '@magnetar/protocol/cloud'
 import { randomToken } from '@codefusion-cc/workers-crypto'
-import { allowedOrigins, devLoginEnabled, MAX_BODY, type Env } from './env.ts'
+import { signOutDashboards } from './devices.ts'
+import { allowedOrigins, devLoginEnabled, marks, MAX_BODY, type Env } from './env.ts'
 
 export const SESSION_COOKIE = '__Host-md_session'
 export const NONCE_COOKIE = '__Host-md_nonce'
@@ -19,24 +20,35 @@ interface UserRow {
 
 const toAccount = (u: UserRow): AccountDto => ({ id: u.id, email: u.email, name: u.name, picture: u.picture })
 
-/** The signed-in user, or null. Sessions slide: each use within the last half extends them. */
-export async function currentUser(request: Request, env: Env): Promise<UserRow | null> {
+/**
+ * The signed-in user with the hash of the session (as the sessions table keys it), or null. Sessions slide: each use
+ * within the last half extends them.
+ */
+export async function currentUser(request: Request, env: Env): Promise<(UserRow & { tokenHash: string }) | null> {
   const token = getCookie(request, SESSION_COOKIE)
   if (!token || token.length > 100) return null
-  const hash = await sha256(token, 'base64url')
+  const tokenHash = await sha256(token, 'base64url')
   const row = await env.DB.prepare(`SELECT u.id, u.email, u.name, u.picture, s.expires_at FROM sessions s JOIN users u ON u.id = s.user_id
-    WHERE s.token_hash = ? AND s.expires_at > ?`).bind(hash, Date.now()).first<UserRow & { expires_at: number }>()
+    WHERE s.token_hash = ? AND s.expires_at > ?`).bind(tokenHash, Date.now()).first<UserRow & { expires_at: number }>()
   if (!row) return null
   if (row.expires_at - Date.now() < (SESSION_DAYS / 2) * 86_400_000) {
-    await env.DB.prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?').bind(Date.now() + SESSION_DAYS * 86_400_000, hash).run()
+    await env.DB.prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?').bind(Date.now() + SESSION_DAYS * 86_400_000, tokenHash).run()
   }
-  return row
+  return { id: row.id, email: row.email, name: row.name, picture: row.picture, tokenHash }
 }
 
 export async function requireUser(request: Request, env: Env): Promise<UserRow> {
   const user = await currentUser(request, env)
   if (!user) throw new HttpError(401, 'Sign in first')
   return user
+}
+
+/** Which of `tokenHashes` are sessions that have not ended. */
+export async function liveSessions(env: Env, tokenHashes: string[]): Promise<Set<string>> {
+  if (!tokenHashes.length) return new Set()
+  const { results } = await env.DB.prepare(`SELECT token_hash FROM sessions WHERE token_hash IN (${marks(tokenHashes)}) AND expires_at > ?`)
+    .bind(...tokenHashes, Date.now()).all<{ token_hash: string }>()
+  return new Set(results.map(row => row.token_hash))
 }
 
 async function signIn(env: Env, subject: string, email: string, name: string | null, picture: string | null): Promise<{ user: UserRow; cookie: string }> {
@@ -101,7 +113,12 @@ export async function handleAuth(request: Request, env: Env, path: string): Prom
   if (path === '/api/auth/logout' && request.method === 'POST') {
     requireSameOrigin(request, allowedOrigins(env))
     const token = getCookie(request, SESSION_COOKIE)
-    if (token) await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await sha256(token, 'base64url')).run()
+    if (token) {
+      const tokenHash = await sha256(token, 'base64url')
+      const ended = await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ? RETURNING user_id').bind(tokenHash).first<{ user_id: string }>()
+      // Dashboards this browser has open stop controlling its devices too.
+      if (ended) await signOutDashboards(env, [ended.user_id], [tokenHash])
+    }
     return json({ ok: true }, { headers: { 'set-cookie': serializeCookie(SESSION_COOKIE, '', { maxAge: 0 }) } })
   }
 

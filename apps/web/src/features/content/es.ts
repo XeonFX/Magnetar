@@ -175,7 +175,7 @@ export const content: FeaturesContent = {
             'Tus dispositivos con su estado de conexión, actualizado cada 15 segundos',
             'En el móvil, una barra de pestañas abajo; en el ordenador, una barra lateral',
             'Lo que solo tiene sentido delante del ordenador (su selector de carpetas, abrir archivos) se queda allí',
-            'Inicio de sesión con Google; las sesiones duran 30 días desde tu última visita',
+            'Inicio de sesión con Google; las sesiones duran 30 días desde tu última visita, y al cerrar sesión ese navegador se desconecta al instante de tus ordenadores',
           ],
         },
         pairing: {

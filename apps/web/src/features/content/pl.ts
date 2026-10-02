@@ -175,7 +175,7 @@ export const content: FeaturesContent = {
             'Twoje urządzenia ze stanem online, odświeżanym co 15 sekund',
             'Telefon dostaje pasek kart na dole, komputer – pasek boczny',
             'To, co ma sens tylko przy komputerze (wybór folderu, otwieranie plików), zostaje na komputerze',
-            'Logowanie przez Google; sesja trwa 30 dni od ostatniej wizyty',
+            'Logowanie przez Google; sesja trwa 30 dni od ostatniej wizyty, a wylogowanie od razu odłącza tę przeglądarkę od Twoich komputerów',
           ],
         },
         pairing: {

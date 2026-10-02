@@ -278,6 +278,7 @@
     "remote.rejectedKey": "Este navegador não está mais vinculado ao dispositivo.",
     "remote.rejectedRefused": "O dispositivo recusou a conexão.",
     "remote.removed": "Este dispositivo não está mais na sua conta.",
+    "remote.signedOut": "Sua sessão foi encerrada. Entre novamente para acessar este dispositivo.",
     "remote.handshakeFailed": "O dispositivo não conseguiu provar sua identidade. A conexão não foi aberta.",
     "cloud.heroTitle": "As suas transferências, em qualquer lugar",
     "cloud.heroText": "Pesquise, transfira e acompanhe séries no seu próprio computador a partir de qualquer navegador ou telemóvel.",

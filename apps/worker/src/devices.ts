@@ -4,8 +4,8 @@ import type { CloudDeviceDto, PairApproveResponse, PairingInfoDto, PairPollRespo
 import { randomToken } from '@codefusion-cc/workers-crypto'
 import { toDeviceName, uniqueDeviceName } from '@magnetar/protocol/device-name'
 import { RELAY_CLOSE } from '@magnetar/protocol/relay'
-import { requireUser } from './auth.ts'
-import { allowedOrigins, MAX_BODY, type Env } from './env.ts'
+import { currentUser, liveSessions, requireUser } from './auth.ts'
+import { allowedOrigins, marks, MAX_BODY, type Env } from './env.ts'
 
 const PAIRING_MS = 10 * 60_000
 const MAX_DEVICES_PER_USER = 20
@@ -48,6 +48,44 @@ function closedSocket(code: number, reason: string): Response {
 
 function relay(env: Env, deviceId: string) {
   return env.RELAY.getByName(deviceId)
+}
+
+/** The ids of the devices whose `column` is one of `values`. */
+export async function deviceIds(env: Env, column: 'id' | 'user_id', values: string[]): Promise<string[]> {
+  if (!values.length) return []
+  const { results } = await env.DB.prepare(`SELECT id FROM devices WHERE ${column} IN (${marks(values)})`).bind(...values).all<{ id: string }>()
+  return results.map(row => row.id)
+}
+
+/**
+ * Closes the open dashboards on `userIds`' devices that were opened with one of `sessions` (every one without it), as
+ * their account sessions end. The devices stay paired. Best effort: the sessions have ended already, so a failure here
+ * must not fail the sign-out, and each relay's session check closes what this misses.
+ */
+export async function signOutDashboards(env: Env, userIds: string[], sessions?: string[]): Promise<void> {
+  try {
+    await Promise.all((await deviceIds(env, 'user_id', userIds)).map(id => relay(env, id).signOut(sessions)))
+  } catch (e) {
+    console.error('Could not close the signed-out dashboards', e)
+  }
+}
+
+/**
+ * Joins a dashboard to the device's relay, bound to the browser's account session. A browser that is signed out or
+ * not the owner is told so with a close code, so the page stops retrying instead of retrying an HTTP error forever.
+ */
+async function connectDashboard(request: Request, env: Env, deviceId: string): Promise<Response> {
+  if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return jsonError(426, 'WebSocket required')
+  const user = await currentUser(request, env)
+  if (!user) return closedSocket(RELAY_CLOSE.signedOut, 'Signed out')
+  const device = await env.DB.prepare('SELECT id FROM devices WHERE id = ? AND user_id = ?').bind(deviceId, user.id).first<{ id: string }>()
+  if (!device) return closedSocket(RELAY_CLOSE.notOnAccount, 'Device not on this account')
+  const relayStub = relay(env, device.id)
+  // Signing out or the session's expiry closes the dashboard (DeviceRelay).
+  const response = await relayStub.fetch(new Request('https://relay/browser', { headers: { upgrade: 'websocket', 'x-device-id': device.id, 'x-session': user.tokenHash } }))
+  // A sign-out between the check above and the relay taking the socket missed it: close it now.
+  if (response.webSocket && !(await liveSessions(env, [user.tokenHash])).has(user.tokenHash)) await relayStub.signOut([user.tokenHash])
+  return response
 }
 
 /** Unpairs a device: its token stops working and its open connections close with "device removed". */
@@ -185,14 +223,9 @@ export async function handleDevices(request: Request, env: Env, path: string): P
   const deviceRoute = /^\/api\/devices\/([A-Za-z0-9_-]{3,40})(\/connect)?$/.exec(path)
   if (deviceRoute) {
     requireSameOrigin(request, allowedOrigins(env))
+    if (deviceRoute[2]) return connectDashboard(request, env, deviceRoute[1]!)
     const user = await requireUser(request, env)
     const device = await env.DB.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').bind(deviceRoute[1], user.id).first<DeviceRow>()
-    if (deviceRoute[2]) {
-      if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return jsonError(426, 'WebSocket required')
-      // Tell the page this device is gone for good, instead of letting it retry forever.
-      if (!device) return closedSocket(RELAY_CLOSE.notOnAccount, 'Device not on this account')
-      return relay(env, device.id).fetch(new Request('https://relay/browser', { headers: { upgrade: 'websocket', 'x-device-id': device.id } }))
-    }
     if (!device) return jsonError(404, 'No such device')
     if (method === 'DELETE') {
       await removeDevice(env, device.id)
