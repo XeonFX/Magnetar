@@ -13,9 +13,10 @@
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",
-    "not_found_handling": "single-page-application",
-    // Everything but the built bundles, so pages keep their address exactly as written (see page() in src/index.ts).
-    "run_worker_first": ["/*", "!/assets/*"]
+    // No not_found_handling: a path that is no file reaches the Worker, which answers it with the dashboard's page
+    // at the address as written (serveSinglePageApp from @codefusion-cc/workers-http). Files never invoke the Worker,
+    // except the console's source maps (dist/_console/), which only the Worker reads and it answers 404 there.
+    "run_worker_first": ["/_console/*"]
   },
   "d1_databases": [
     { "binding": "DB", "database_name": "magnetar", "database_id": "04dff4c8-e6b5-48e1-94b0-2769261e8a70", "migrations_dir": "migrations" }
