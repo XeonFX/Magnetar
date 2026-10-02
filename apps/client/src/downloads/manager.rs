@@ -1289,7 +1289,7 @@ mod tests {
 
         std::fs::remove_file(root.join("keep.txt")).unwrap();
         // Torrents whose name is no folder of their own never prune the save folder, or the folder above it.
-        for name in ["", ".", ".."] {
+        for name in ["", ".", "..", "...", ". .", "Show/.."] {
             delete_files(&metadata(name, &["a.bin", "b.bin"]), &root);
         }
         assert!(root.exists(), "the save folder itself stays, even when empty");

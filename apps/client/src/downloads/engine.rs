@@ -409,9 +409,13 @@ impl Engine {
     }
 }
 
-/// Whether `path` is plain names only: no root, prefix, `.` or `..`.
+/// Whether `path` is plain names only: no root, prefix, `.` or `..`. On Windows also no name ending in a dot or a space,
+/// which Windows strips: `...` would be the folder itself.
 fn plain(path: &Path) -> bool {
-    path.components().all(|c| matches!(c, Component::Normal(_)))
+    path.components().all(|c| match c {
+        Component::Normal(name) => !cfg!(windows) || !name.to_string_lossy().ends_with(['.', ' ']),
+        _ => false,
+    })
 }
 
 /// Opens the folder `relative` (plain names) below `dir` a name at a time, never following a link (a symlink, or a
