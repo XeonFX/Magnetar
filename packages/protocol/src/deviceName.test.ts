@@ -1,6 +1,6 @@
 import fc from 'fast-check'
 import { describe, expect, test } from 'vitest'
-import { DEVICE_NAME_MAX_LENGTH, isDeviceName, sameDeviceName, toDeviceName, uniqueDeviceName } from './deviceName.ts'
+import { DEVICE_NAME_MAX_LENGTH, isDeviceName, reservedDeviceName, sameDeviceName, toDeviceName, uniqueDeviceName } from './deviceName.ts'
 import { SITE_PAGES } from './consolePages.ts'
 import rules from './device-names.json'
 
@@ -47,6 +47,18 @@ describe('turning text into a name', () => {
     expect(toDeviceName('😀')).toBe('Magnetar')
     expect(toDeviceName('Login')).toBe('Login-device')
     expect(toDeviceName('d')).toBe('d-device')
+    expect(toDeviceName(' Pricing ')).toBe('Pricing-device')
+  })
+
+  test('name the website word someone typed, so the dashboard can say why the address differs', () => {
+    expect(reservedDeviceName('Docs')).toBe('Docs')
+    expect(reservedDeviceName('  changelog  ')).toBe('changelog')
+    expect(reservedDeviceName('stätus')).toBe('status')
+    expect(reservedDeviceName('Docs Mac')).toBeNull()
+    expect(reservedDeviceName('Docs-device')).toBeNull()
+    expect(reservedDeviceName('')).toBeNull()
+    expect(reservedDeviceName('😀')).toBeNull()
+    for (const word of rules.reserved) expect(reservedDeviceName(word.toUpperCase()), word).toBe(word.toUpperCase())
   })
 
   test('cuts long text without leaving a hyphen at the end', () => {

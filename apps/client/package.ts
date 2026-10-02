@@ -66,7 +66,10 @@ if (!process.env.MAGNETAR_RELEASE_PUBLIC_KEY && !existsSync(join(root, 'release-
 }
 
 const profile = values.profile!
-run('cargo', ['build', '--profile', profile, '--locked', '--target', target, '-p', 'magnetar'], { cwd: repo, env: { ...process.env, MAGNETAR_VERSION: version } })
+run('cargo', ['build', '--profile', profile, '--locked', '--target', target, '-p', 'magnetar'], {
+  cwd: repo,
+  env: { ...process.env, MAGNETAR_VERSION: version, MAGNETAR_COMMIT: commit() },
+})
 
 mkdirSync(dist, { recursive: true })
 const outfile = join(dist, name + exe)
@@ -76,6 +79,17 @@ console.log(`Built ${relative(process.cwd(), outfile)}`)
 
 if (platform === 'macos') packageMacApp()
 if (platform === 'windows') signWindowsExecutable(outfile)
+
+/** The commit being built, short, for the app's About and menu: CI's, else the checkout's, else `unknown`. */
+function commit(): string {
+  const fromCi = process.env.GITHUB_SHA
+  if (fromCi && /^[0-9a-f]{7,40}$/i.test(fromCi)) return fromCi.slice(0, 7).toLowerCase()
+  try {
+    return execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim()
+  } catch {
+    return 'unknown'
+  }
+}
 
 /** Magnetar.app: a menu-bar agent (no Dock icon), ad-hoc signed, zipped with ditto. */
 function packageMacApp(): void {

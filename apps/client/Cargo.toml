@@ -35,6 +35,7 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 rust-embed = { version = "8", features = ["include-exclude"] }
 rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
 scraper = { version = "0.27", default-features = false, features = ["errors"] }
+semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"
@@ -51,6 +52,27 @@ libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Threading"] }
+# Toasts (system::notify); the crate is already here for tao and librqbit.
+windows = { version = "0.62", features = ["Data_Xml_Dom", "Foundation", "UI_Notifications", "Win32_System_Registry", "Win32_UI_Shell"] }
+
+# Notification Center (system::notify); already here for the menu-bar icon.
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSError", "NSObject", "NSSet", "NSString", "NSUserNotification"] }
+objc2-user-notifications = { version = "0.3", default-features = false, features = [
+  "std",
+  "block2",
+  "UNNotification",
+  "UNNotificationAction",
+  "UNNotificationCategory",
+  "UNNotificationContent",
+  "UNNotificationRequest",
+  "UNNotificationResponse",
+  "UNNotificationSound",
+  "UNNotificationTrigger",
+  "UNUserNotificationCenter",
+] }
 
 [target.'cfg(any(target_os = "macos", windows))'.dependencies]
 png = "0.18"

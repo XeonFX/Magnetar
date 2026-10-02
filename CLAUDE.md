@@ -39,15 +39,18 @@ See docs/ARCHITECTURE.md before touching the relay, pairing or either `e2e` impl
 - Ids people see (devices, accounts, pairings, searches, streams) are base58: `randomId` from
   `@codefusion-cc/base58` in TypeScript, `encoding::random_id` in Rust. Secrets and values decoded back to bytes stay
   base64url (`randomToken` from `@codefusion-cc/workers-crypto`, `random_token`). Route patterns keep accepting `A-Za-z0-9_-` for older ids.
-- On the website a device's pages are `/<device name>/…`. A new top-level route there (like `/features`) needs its word in
-  `packages/protocol/src/device-names.json` (`reserved`), and a D1 migration renaming any device that has it. Pages
-  are served by the Worker (`serveSinglePageApp` in `apps/worker/src/index.ts`) so the assets never respell an address:
-  keep `not_found_handling` out of `apps/worker/wrangler.jsonc`, and `run_worker_first` on `/_console/*` so the source
-  maps stay private.
+- On the website a device's pages are `/<device name>/…`. The words the website uses or may use for its own pages
+  (`/about`, `/features`, `/changelog`, `/pricing`…) are reserved in `packages/protocol/src/device-names.json`: a new page under a
+  reserved word needs nothing else; any other word needs adding there, and a D1 migration renaming any device that has
+  it (as `0005_reserve_site_words.sql`). Pages are served by the Worker (`serveSinglePageApp` in
+  `apps/worker/src/index.ts`) so the assets never respell an address: keep `not_found_handling` out of
+  `apps/worker/wrangler.jsonc`, and `run_worker_first` on `/_console/*` so the source maps stay private.
 - Test and scratch runs: set `MAGNETAR_DATA_DIRECTORY` and `MAGNETAR_DOWNLOAD_FOLDER`, or they use the user's real folders.
 - `npm run e2e` drives the real app with Playwright; its specs end in `.e2e.ts` so Vitest skips them.
 - Every merge to `main` deploys the Worker (the `deploy` job in `.github/workflows/ci.yml`), migrations first: a new
   migration must leave the Worker still running meanwhile working.
+- PR titles become the release notes the app's What's new shows (`.github/workflows/release.yml`, grouped by the
+  branch type): write them for the people using Magnetar. Label `skip-changelog` what they never notice.
 - Dev ports: app 47820, Vite 5173, Worker 8790.
 - Merging: once the PR's pre-PR passes are done and CI is green, add the `automerge` label
   (`gh pr edit <n> --add-label automerge`). It merges itself with a merge commit as soon as every check

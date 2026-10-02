@@ -1,11 +1,13 @@
 import type { CloudDeviceDto } from '@magnetar/protocol/cloud'
-import { ChevronRight, Laptop, Magnet, MonitorSmartphone, Trash2 } from 'lucide-react'
+import { ArrowUpCircle, ChevronRight, Laptop, Magnet, MonitorSmartphone, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { cloud } from '../lib/cloudApi.ts'
 import { errorMessage } from '../lib/errors.ts'
 import { useFormatRelative, useT } from '../lib/i18n.tsx'
 import { forgetDeviceKey, listDeviceKeys } from '../lib/keyStore.ts'
+import { isOutdated } from '@codefusion-cc/app-update'
+import { useLatestRelease } from '../lib/releases.ts'
 import { Empty } from '../ui/Empty.tsx'
 import { Loading } from '../ui/Loading.tsx'
 import { ConfirmDialog } from '../ui/Modal.tsx'
@@ -23,6 +25,7 @@ export function DevicesPage() {
   const [devices, setDevices] = useState<CloudDeviceDto[] | null>(null)
   const [linked, setLinked] = useState<Set<string>>(new Set())
   const [removing, setRemoving] = useState<CloudDeviceDto | null>(null)
+  const latest = useLatestRelease()
 
   const load = useCallback(async () => {
     try {
@@ -71,8 +74,11 @@ export function DevicesPage() {
                     <div className="muted mt-0.5 text-xs">
                       {device.online ? <span className="text-success">{t('devices.online')}</span>
                         : device.lastSeenAt ? t('remote.lastSeen', formatRelative(device.lastSeenAt)) : t('devices.offline')}
-                      {' · '}{device.platform} · v{device.version}
+                      {' · '}{device.platform}{device.version && <> · v{device.version}</>}
                     </div>
+                    {latest && isOutdated(device.version, latest.version) && (
+                      <div className="mt-1 flex items-center gap-1 text-xs text-info"><ArrowUpCircle size={12} aria-hidden />{t('devices.outdated', latest.version)}</div>
+                    )}
                     {!hasKey && <div className="mt-1 text-xs text-warning">{t('devices.notLinked')}</div>}
                   </div>
                 </>

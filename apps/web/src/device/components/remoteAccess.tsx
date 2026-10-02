@@ -1,5 +1,5 @@
 import { ExternalLink, Link2, Plus, QrCode, RefreshCw, ShieldCheck, TimerOff, Unlink } from 'lucide-react'
-import { toDeviceName } from '@magnetar/protocol/device-name'
+import { reservedDeviceName, toDeviceName } from '@magnetar/protocol/device-name'
 import QRCode from 'qrcode'
 import { useEffect, useRef, useState } from 'react'
 import { useFormatEta, useFormatRelative, useT } from '../../lib/i18n.tsx'
@@ -69,9 +69,12 @@ export function RemoteAccessSection() {
   const local = connection.kind === 'local'
   // The name is the device's address on the website, so it is spelled as one: shown as typed, sent as spelled.
   const spelled = name.trim() ? toDeviceName(name) : ''
+  const address = `${remote.cloudUrl.replace(/^https?:\/\//, '')}/${spelled}`
+  // A word the website keeps for its own pages: say why the address differs from the name typed.
+  const reserved = reservedDeviceName(name)
   const nameField = (
     <Field label={t('remote.deviceName')} className="flex-1"
-      help={spelled && t('remote.address', `${remote.cloudUrl.replace(/^https?:\/\//, '')}/${spelled}`)}>
+      help={spelled && (reserved ? <span className="text-warning">{t('remote.reservedName', reserved, address)}</span> : t('remote.address', address))}>
       <input className="input w-full" maxLength={60} autoComplete="off" spellCheck={false} value={name} onChange={e => setName(e.target.value)} />
     </Field>
   )

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use magnetar::app::{App, AppOptions};
-use magnetar::config::{DEFAULT_PORT, IS_DEV, VERSION};
+use magnetar::config::{DEFAULT_PORT, IS_DEV, build_label};
 use magnetar::http::server;
 use magnetar::instance::{self, Acquired};
 use magnetar::paths::Paths;
@@ -47,7 +47,7 @@ fn main() -> anyhow::Result<()> {
     wait_for_previous_process();
     let paths = Paths::from_environment()?;
     magnetar::log::init(Some(paths.logs.clone()), *IS_DEV);
-    tracing::info!("Magnetar {VERSION} starting (data: {})", paths.data_dir.display());
+    tracing::info!("Magnetar {} starting (data: {})", build_label(), paths.data_dir.display());
 
     // Opened for a magnet link or a .torrent file (Windows and Linux pass it as an argument).
     let opened = OpenTarget::from_args(std::env::args());
@@ -71,6 +71,7 @@ fn main() -> anyhow::Result<()> {
         anyhow::Ok((app, server, Arc::new(lock)))
     })?;
     let dashboard_url = format!("http://localhost:{}", server.port);
+    let _ = app.updates.dashboard_url.set(dashboard_url.clone());
     app.agent.publish(&dashboard_url);
     lock.publish(&dashboard_url);
     if let Some(opened) = &opened {

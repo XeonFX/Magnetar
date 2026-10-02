@@ -155,7 +155,7 @@ impl RemoteService {
             title: &event.title,
             body: &event.message,
             kind: event.kind,
-            url: format!("/d/{}", encode_uri_component(&device_id)),
+            url: push_url(&device_id, self.kv.get("remote.deviceName").as_deref()),
         })?;
         let outcomes = join_all(subscriptions.iter().map(|subscription| async {
             let keys = SubscriptionKeys { p256dh: &subscription.p256dh, auth: &subscription.auth };
@@ -737,8 +737,19 @@ fn default_device_name() -> String {
     })
 }
 
+/// Where a click on a pushed notification opens the dashboard: the device's readable address
+/// (`/MacBook-Pro`) under the name the account gave it, else the address by id, which the website
+/// turns into the readable one.
+fn push_url(device_id: &str, account_name: Option<&str>) -> String {
+    match account_name.filter(|name| device_name::is_device_name(name)) {
+        Some(name) => format!("/{}", encode_uri_component(name)),
+        None => format!("/d/{}", encode_uri_component(device_id)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use crate::db::{Db, SecretBox};
     use crate::events::Event;
@@ -888,5 +899,15 @@ mod tests {
         assert_eq!(approved(named), Some("MacBook-Pro-2".to_owned()));
         // A Worker from before names were addresses still pairs.
         assert_eq!(approved(base), None);
+    }
+
+    #[test]
+    fn pushes_open_the_device_by_its_readable_name_when_the_account_gave_one() {
+        assert_eq!(push_url("d_ZIZ0Gac6mtg2TvpD", Some("MacBook-Pro")), "/MacBook-Pro");
+        // No name yet, or one the website could not route (a reserved word, spaces from an old version): by id.
+        assert_eq!(push_url("d_ZIZ0Gac6mtg2TvpD", None), "/d/d_ZIZ0Gac6mtg2TvpD");
+        assert_eq!(push_url("d_ZIZ0Gac6mtg2TvpD", Some("settings")), "/d/d_ZIZ0Gac6mtg2TvpD");
+        assert_eq!(push_url("d_ZIZ0Gac6mtg2TvpD", Some("Krystian's Mac")), "/d/d_ZIZ0Gac6mtg2TvpD");
+        assert_eq!(push_url("d_ZIZ0Gac6mtg2TvpD", Some("")), "/d/d_ZIZ0Gac6mtg2TvpD");
     }
 }

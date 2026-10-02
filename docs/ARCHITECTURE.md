@@ -193,7 +193,13 @@ builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the ser
   command) and describes the menu as rows (`tray.rs`); the main thread only applies them. While their shape (kinds,
   commands, nesting) stays the same the native items are updated in place, so an open menu keeps ticking instead of
   closing on a rebuild. Pause all and resume all are `Actions`, like every other download control.
-- **Updates**: GitHub Releases every 6 hours. Installs require `SHA256SUMS.txt.sig`, an Ed25519 signature checked
+- **Updates**: GitHub Releases every 6 hours (the newest 20, with an ETag so an unchanged list costs no rate limit),
+  compared as Semantic Versioning (`updates/version.rs`, the same rules as `@codefusion-cc/app-update` on the web
+  side: pre-releases come before their release and are never offered, a dev build's `+dev` changes nothing). A new
+  version is told once, also across restarts (`kv` `updates.notified_version`): through the notification channels,
+  and as an OS notification with an Install button (`system/notify.rs`: UserNotifications on macOS, falling back to
+  NSUserNotification for an ad-hoc signed build, a toast on Windows, `notify-send` on Linux). The releases' notes
+  answer `updates.releases`, the dashboard's changelog. Installs require `SHA256SUMS.txt.sig`, an Ed25519 signature checked
   against the public key compiled into the app. macOS swaps the `.app` bundle after exit with rollback
   (`updates/mac-install.sh`); Windows and Linux rename the running executable aside. The new version is downloaded
   and verified first; only then are active downloads paused (their ids kept under `downloads.pausedForUpdate`) and

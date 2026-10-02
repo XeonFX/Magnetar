@@ -1,13 +1,16 @@
 name: Release
 
 # Bump `version` in package.json and apps/client/Cargo.toml, merge, then tag the merge once CI is green on main:
-# git tag v1.2.0 && git push origin v1.2.0. Installed apps update to it within 6 hours.
+# git tag v1.2.0 && git push origin v1.2.0. Installed apps update to it within 6 hours. A tag with a pre-release
+# (v1.2.0-rc.1) publishes a pre-release, which installed apps don't take.
 on:
   push:
     tags: ['v*']
 
 permissions:
   contents: write
+  # The release notes read the merged pull requests' titles and branches.
+  pull-requests: read
 
 env:
   AWS_LC_SYS_PREBUILT_NASM: '1'
@@ -117,7 +120,18 @@ jobs:
         run: |
           cd assets && sha256sum Magnetar-* > SHA256SUMS.txt && cd ..
           node scripts/sign-release.ts assets
+      # What the release brings, from the pull requests merged since the release before, grouped by their branch's
+      # type (feat/ New, fix/ Fixes, perf/ Faster…). The app's changelog and its update notice show these notes.
+      # A GitHub hiccup here must not lose the release built above: GitHub's own notes stand in.
+      - name: Release notes
+        id: notes
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npx --yes -p @codefusion-cc/app-update@^1.2.0 codefusion-release-notes "$GITHUB_REF_NAME" > notes.md && cat notes.md
       - uses: softprops/action-gh-release@v2
         with:
           files: assets/*
-          generate_release_notes: true
+          body_path: ${{ steps.notes.outcome == 'success' && 'notes.md' || '' }}
+          generate_release_notes: ${{ steps.notes.outcome != 'success' }}
+          prerelease: ${{ contains(github.ref_name, '-') }}

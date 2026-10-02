@@ -422,19 +422,64 @@ pub enum LoginStartupStatus {
 pub struct AvailableUpdateDto {
     pub version: String,
     pub tag: String,
+    /// The release's title on GitHub.
+    pub name: String,
     pub release_url: String,
+    pub published_at: Option<String>,
+}
+
+/// Why reading GitHub's releases, or installing one, failed; the dashboard says it in the person's language.
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum Problem {
+    /// No answer from GitHub: no network, DNS, a timeout.
+    Offline,
+    /// GitHub's rate limit for this network; `retry_at` says when it lifts.
+    RateLimited,
+    /// GitHub refused or answered something unreadable.
+    Unavailable,
+    /// The update could not be installed.
+    Install,
+}
+
+/// A published release, with its notes (Markdown) for the changelog.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseDto {
+    pub version: String,
+    pub tag: String,
+    pub name: String,
+    pub notes: String,
+    pub published_at: Option<String>,
+    pub prerelease: bool,
+    pub url: String,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleasesDto {
+    /// Newest version first.
+    pub releases: Vec<ReleaseDto>,
+    /// Why there are none, when GitHub could not be read.
+    pub problem: Option<Problem>,
 }
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateStatusDto {
     pub current_version: String,
+    /// The commit this build came from, short; `dev` outside a packaged build.
+    pub current_commit: String,
     pub available: Option<AvailableUpdateDto>,
     pub can_self_install: bool,
     pub checking: bool,
     pub installing: bool,
     pub last_checked_at: Option<String>,
     pub last_check_error: Option<String>,
+    /// Why the last check or install failed.
+    pub last_check_problem: Option<Problem>,
+    /// When GitHub's rate limit lifts, after a rate-limited check.
+    pub retry_at: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -509,6 +554,7 @@ pub struct LegacyImportResultDto {
 #[serde(rename_all = "camelCase")]
 pub struct AppInfoDto {
     pub version: &'static str,
+    pub commit: &'static str,
     pub platform: &'static str,
     pub arch: &'static str,
     pub data_directory: String,

@@ -2,6 +2,7 @@ pub mod agents;
 pub mod folders;
 pub mod handlers;
 pub mod login_startup;
+pub mod notify;
 
 use std::process::{Command, Stdio};
 
@@ -26,6 +27,18 @@ pub fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
         command.creation_flags(CREATE_NO_WINDOW);
     }
     command
+}
+
+/// `text` as an AppleScript string literal, quotes included.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn applescript_string(text: &str) -> String {
+    format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// `text` safe inside XML text or a quoted attribute.
+#[cfg_attr(target_os = "linux", allow(dead_code))]
+pub fn xml_escape(text: &str) -> String {
+    text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
 }
 
 pub fn open_in_browser(url: &str) {

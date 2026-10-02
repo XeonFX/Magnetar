@@ -1,8 +1,13 @@
 {
   "maxLength": 40,
   "reserved": [
-    "about", "account", "add", "admin", "api", "app", "assets", "d", "device", "devices", "download", "downloads",
-    "features", "help", "index", "link", "login", "logout", "new", "pair", "search", "series", "settings", "static", "www"
+    "about", "account", "add", "admin", "api", "app", "assets", "auth", "billing", "blog", "callback", "changelog",
+    "community", "console", "contact", "cookies", "d", "dashboard", "device", "devices", "docs", "download",
+    "downloads", "faq", "features", "feedback", "forum", "get", "guide", "guides", "health", "help", "home",
+    "imprint", "index", "install", "invite", "join", "legal", "link", "login", "logout", "me", "new", "news",
+    "oauth", "pair", "press", "pricing", "privacy", "profile", "register", "releases", "roadmap", "search",
+    "security", "series", "settings", "share", "signin", "signup", "sitemap", "start", "static", "status", "support",
+    "team", "terms", "updates", "user", "users", "version", "welcome", "www"
   ],
   "valid": ["MacBook-Pro", "Studio-Mac-2", "PC", "x", "1337", "a-b-c", "Krystians-MacBook-Pro", "Login-2", "dd", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],
   "invalid": [

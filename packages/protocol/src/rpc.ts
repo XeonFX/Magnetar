@@ -5,7 +5,7 @@ import {
   AGENT_CLIENTS, type AgentClientDto, type AgentConnectResultDto, type AgentStatusDto, type AppInfoDto, type DownloadDto, type DownloadFileDto, type FolderListing, type LegacyImportResultDto,
   type LegacyImportStatusDto, type LoginStartupStatus, type RemoteStatusDto, type SearchResultDto,
   type HandlerStatus, type NetworkInterfaceDto, type SeriesTaskDto, type SettingsDto, type SourceDto, type SourceOutcomeDto, type TorrentDetailsDto,
-  type TransferStatusDto, type UpdateStatusDto, type WatchDto,
+  type ReleasesDto, type TransferStatusDto, type UpdateStatusDto, type WatchDto,
 } from './model.ts'
 
 const none = z.strictObject({})
@@ -99,6 +99,8 @@ export const RPC_PARAMS = {
   'updates.status': none,
   'updates.check': none,
   'updates.install': none,
+  /** The releases with their notes, for the changelog. */
+  'updates.releases': none,
 
   'startup.status': none,
   'startup.set': z.strictObject({ enabled: z.boolean() }),
@@ -179,6 +181,7 @@ export interface RpcResults {
   'updates.status': UpdateStatusDto
   'updates.check': UpdateStatusDto
   'updates.install': UpdateStatusDto
+  'updates.releases': ReleasesDto
   'startup.status': { status: LoginStartupStatus }
   'startup.set': { status: LoginStartupStatus }
   'agent.status': AgentStatusDto

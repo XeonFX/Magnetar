@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::app::App;
-use crate::config::{ARCH, PLATFORM, VERSION};
+use crate::config::{ARCH, COMMIT, PLATFORM, VERSION};
 use crate::downloads::manager::{FileSource, media_kind};
 use crate::downloads::media::{MediaReader, media_type, open_reader, read_at};
 use crate::downloads::upload::TorrentUploads;
@@ -353,6 +353,7 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
             parse::<NoParams>(params)?;
             ok(AppInfoDto {
                 version: VERSION,
+                commit: COMMIT,
                 platform: PLATFORM,
                 arch: ARCH,
                 data_directory: app.paths.data_dir.to_string_lossy().into_owned(),
@@ -596,10 +597,18 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
         }
         "updates.install" => {
             parse::<NoParams>(params)?;
-            if let Some(release_page) = app.updates.install().await {
+            // A copy that can't install itself has the release page opened: on this computer for its
+            // own dashboard; a remote dashboard links to the page itself.
+            if let Some(release_page) = app.updates.install().await
+                && session.local()
+            {
                 system::open_in_browser(&release_page);
             }
             ok(app.updates.status())
+        }
+        "updates.releases" => {
+            parse::<NoParams>(params)?;
+            ok(app.updates.releases().await)
         }
 
         "downloads.addTorrentPath" => {

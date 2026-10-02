@@ -1,10 +1,22 @@
 use std::sync::LazyLock;
 
-/// Stamped by package.ts from the release tag; dev builds report the crate version.
+/// Stamped by package.ts from the release tag; dev builds report the crate version with `+dev`
+/// build metadata, which compares equal to it (a dev build is never "outdated" by its own release).
 pub const VERSION: &str = match option_env!("MAGNETAR_VERSION") {
     Some(version) => version,
-    None => concat!(env!("CARGO_PKG_VERSION"), "-dev"),
+    None => concat!(env!("CARGO_PKG_VERSION"), "+dev"),
 };
+
+/// The commit the build came from (short), stamped by package.ts; `dev` for `cargo run`.
+pub const COMMIT: &str = match option_env!("MAGNETAR_COMMIT") {
+    Some(commit) => commit,
+    None => "dev",
+};
+
+/// How the build introduces itself: `1.2.0 (abc1234)`.
+pub fn build_label() -> String {
+    format!("{VERSION} ({COMMIT})")
+}
 
 /// Ed25519 public key (base64url) whose private half signs release manifests in CI.
 pub const RELEASE_PUBLIC_KEY: &str = env!("MAGNETAR_RELEASE_PUBLIC_KEY");

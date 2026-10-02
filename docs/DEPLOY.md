@@ -91,4 +91,10 @@ key makes every browser subscribe again.
 
 The sign-in page and an empty device list offer the app for the visitor's system, from the latest GitHub release of
 `RELEASES_REPO` (a Worker var, `XeonFX/Magnetar` by default). Asset names must stay
-`Magnetar-<version>-<macos|windows|linux>-<arm64|x64>[.zip|.exe]`.
+`Magnetar-<version>-<macos|windows|linux>-<arm64|x64>[.zip|.exe]`. The same list answers `/about`'s changelog and the
+"your app is outdated" notice; GitHub is asked at most every ten minutes per data centre.
+
+GitHub allows 60 anonymous API calls an hour per address, which Cloudflare's addresses share with other Workers. A
+token raises that to 5,000: a fine-grained GitHub token with no permissions (public repositories only), stored once
+with `npx wrangler secret put GITHUB_TOKEN` from `apps/worker`. Without it, a rate-limited lookup shows "GitHub's
+limit is reached" and is asked again on the next visit.

@@ -14,6 +14,7 @@ import { useToast } from '../ui/toast.tsx'
 import { AddRedirect } from './AddRedirect.tsx'
 import { DevicesPage } from './DevicesPage.tsx'
 import { LinkPage } from './LinkPage.tsx'
+import { AboutPage } from './AboutPage.tsx'
 import { LoginPage } from './LoginPage.tsx'
 import { PairPage } from './PairPage.tsx'
 import { DeviceIdRedirect, RemoteDevice } from './RemoteDevice.tsx'
@@ -94,6 +95,7 @@ export default function CloudApp({ config }: { config: AppConfig }) {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/pair/:pairingId" element={<PairPage />} />
             <Route path="/link" element={<LinkPage />} />
+            <Route path="/about" element={<AboutPage />} />
             <Route path="/features/:lang?" element={<Suspense fallback={<Loading screen />}><FeaturesPage /></Suspense>} />
             <Route path="/add" element={<RequireAccount><AddRedirect /></RequireAccount>} />
             <Route path="/d/:deviceId/*" element={<RequireAccount><DeviceIdRedirect /></RequireAccount>} />

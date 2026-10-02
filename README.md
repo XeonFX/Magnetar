@@ -53,7 +53,11 @@ Every feature with screenshots of the app, in all eight languages: [magnetar.cod
   (pause or resume it, show it in Finder or Explorer), pause and resume all, slow mode and speed-limit presets, notification
   and Open at Login switches, remote access and updates. The open menu updates in place.
 - **Start at login** on macOS and Windows.
-- **Self-updating** from GitHub Releases, verified with a signature whose key is built into the app.
+- **Self-updating** from GitHub Releases, verified with a signature whose key is built into the app. A new version
+  arrives as a system notification with an **Install** button (once per version), and **What's new** (Settings →
+  About, the menu-bar icon, or magnetar.codefusion.cc/about) shows what each release brings.
+- **Always know what runs:** the app (Settings → About, the menu-bar icon) and the website (its footer) show their
+  version and commit, and the website flags any of your computers whose app is out of date, with one-click update.
 - **Eight languages**: English, Polish, German, French, Spanish, Italian, Portuguese and Russian.
 - Secrets (SMTP password, bot token, agent and device tokens, browser keys) are **encrypted at rest**.
 
@@ -190,7 +194,10 @@ parallel builds wait on one lock.
 
 Bump `version` in `package.json`, merge, wait for CI on all three OSes, then tag: `git tag v2.1.0 && git push origin v2.1.0`.
 The Release workflow builds every platform, writes `SHA256SUMS.txt`, signs it with the `RELEASE_SIGNING_KEY` secret
-(created once with `node scripts/release-key.ts`) and publishes the GitHub release. With the Apple and Windows
+(created once with `node scripts/release-key.ts`) and publishes the GitHub release, with notes written from the pull
+requests merged since the last release and grouped by branch type (`feat/` New, `fix/` Fixes, `perf/` Faster; a PR
+labeled `skip-changelog` stays out). The app's What's new shows these notes, so PR titles are written for users. A tag
+with a pre-release (`v2.1.0-rc.1`) publishes a pre-release, which installed apps don't take. With the Apple and Windows
 certificates as secrets (see [deployment](docs/DEPLOY.md#code-signing)) the builds are also code-signed and the macOS
 app notarized.
 
