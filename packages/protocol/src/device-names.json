@@ -2,11 +2,11 @@
   "maxLength": 40,
   "reserved": [
     "about", "account", "add", "admin", "api", "app", "assets", "d", "device", "devices", "download", "downloads",
-    "help", "index", "link", "login", "logout", "new", "pair", "search", "series", "settings", "static", "www"
+    "features", "help", "index", "link", "login", "logout", "new", "pair", "search", "series", "settings", "static", "www"
   ],
   "valid": ["MacBook-Pro", "Studio-Mac-2", "PC", "x", "1337", "a-b-c", "Krystians-MacBook-Pro", "Login-2", "dd", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],
   "invalid": [
     "", "-", "MacBook Pro", "MacBook--Pro", "-MacBook", "MacBook-", "MacBook_Pro", "MacBook.local", "Paweł", "Mac/Book",
-    "Mac%20Book", "login", "LOGIN", "Index", "D", "Api", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", " MacBook", "MacBook\n"
+    "Mac%20Book", "login", "LOGIN", "Index", "Features", "D", "Api", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", " MacBook", "MacBook\n"
   ]
 }

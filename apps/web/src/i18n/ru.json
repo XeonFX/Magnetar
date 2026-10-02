@@ -287,6 +287,7 @@
     "cloud.pointPrivate": "Сквозное шифрование",
     "cloud.pointApp": "Работает на вашем компьютере",
     "cloud.pointAppText": "Скачивает бесплатное приложение для macOS, Windows и Linux; этот сайт только соединяет вас с ним.",
+    "cloud.features": "Всё, что умеет Magnetar",
     "common.done": "Готово",
     "common.edit": "Изменить",
     "common.save": "Сохранить",

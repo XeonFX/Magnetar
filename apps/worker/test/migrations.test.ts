@@ -74,12 +74,36 @@ describe('0003: index becomes the website\'s own word', () => {
   })
 })
 
+describe('0004: features is the website\'s own word', () => {
+  test('a device named features in any case gets -device, or the first free -2, -3… on its account', async () => {
+    const [user, other] = await Promise.all([signIn().then(userId), signIn().then(userId)])
+    const rows: Parameters<typeof insertDevice>[] = [
+      ['d_f1', user, 'Features', 1],
+      ['d_f2', user, 'features-DEVICE', 2],
+      ['d_f3', user, 'Featuresmac', 3],
+      ['d_f4', other, 'FEATURES', 4],
+    ]
+    for (const row of rows) await insertDevice(...row)
+
+    await rerun('0004')
+
+    const names = await env.DB.prepare("SELECT id, name FROM devices WHERE id LIKE 'd_f%' ORDER BY id").all<{ id: string; name: string }>()
+    expect(Object.fromEntries(names.results.map(r => [r.id, r.name]))).toEqual({
+      d_f1: 'Features-device-2',
+      d_f2: 'features-DEVICE',
+      d_f3: 'Featuresmac',
+      d_f4: 'FEATURES-device',
+    })
+    expect(names.results.every(r => isDeviceName(r.name))).toBe(true)
+  })
+})
+
 describe('the renaming migrations together', () => {
   test('step around every word the website keeps for itself, as the Worker does', async () => {
     const owner = await signIn().then(userId)
     await env.DB.prepare('DROP INDEX devices_user_name').run()
     for (const [i, word] of rules.reserved.entries()) await insertDevice(`d_r${i}`, owner, word.toUpperCase(), i)
-    for (const migration of ['0002', '0003']) await rerun(migration)
+    for (const migration of ['0002', '0003', '0004']) await rerun(migration)
     const names = await env.DB.prepare("SELECT name FROM devices WHERE id LIKE 'd_r%' ORDER BY created_at").all<{ name: string }>()
     expect(names.results.map(r => r.name)).toEqual(rules.reserved.map(word => `${word.toUpperCase()}-device`))
   })

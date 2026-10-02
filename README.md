@@ -14,6 +14,8 @@ Rust, the dashboard and website TypeScript. It can import everything from a Medi
 
 ## Features
 
+Every feature with screenshots of the app, in all eight languages: [magnetar.codefusion.cc/features](https://magnetar.codefusion.cc/features).
+
 - **Search six sources in parallel**, with results streamed in as each answers: The Pirate Bay (apibay API with HTML
   mirror fallback), 1337x (the real site where it answers, else a mirror; magnet and description fetched on demand),
   RARBG (TheRARBG's JSON API), Torrents-CSV, Nyaa and EZTV. A search can be linked (`/search/house+of+the+dragon?res=720p&source=tpb&sort=new`), and
@@ -142,12 +144,21 @@ npm run dev:worker        # the website on http://localhost:8790 with a local D1
 npm run check             # oxlint, clippy, rustfmt, tsc, Vitest (the Worker's tests in workerd) and cargo test
 npm run e2e               # Playwright drives the real app (its own data and download folders) through the dashboard
 npm run build:client      # the dashboard and a release executable in apps/client/dist (--target <rust triple> for another platform)
+npm run screenshots -w @magnetar/e2e   # the features page's screenshots, light and dark (--only=search,player); see below
 ```
 
 The debug client serves the dashboard from `apps/web/dist`, so run `npm run build:web` once (or use `dev:web`). To try
 remote access locally, run the client with `MAGNETAR_CLOUD_URL=http://localhost:8790` next to `dev:worker`.
 `MAGNETAR_LIVE_TESTS=1 cargo test --test providers live_providers` checks every provider against the real sites (also run
 weekly in CI).
+
+The features page (`/features`, `/features/<language>`, the website's only) is `apps/web/src/features`: the outline of
+groups, features and shots in `outline.ts`, the words of each language in `content/`, and the page itself from
+[@codefusion-cc/features-page](https://www.npmjs.com/package/@codefusion-cc/features-page). Its screenshots are taken
+by `apps/e2e/features/screenshots.ts` from the real app on fresh data: build the dashboard (`npm run build:web`) and the
+app with a release's version (`MAGNETAR_VERSION=1.1.0 cargo build -p magnetar`), then run `npm run screenshots -w
+@magnetar/e2e`. It starts the Worker and three copies of the app on ports 8797 and 47891–47893, downloads Blender's
+open films and Linux images, and removes everything it made when it ends.
 
 Worktrees share compiled crates through [sccache](https://github.com/mozilla/sccache), set up once per machine rather
 than in the repository, so CI and other machines build without it: `brew install sccache` (or `cargo install sccache`),
@@ -172,7 +183,7 @@ parallel builds wait on one lock.
 | `apps/client` | The app, in Rust: search providers, librqbit engine, series monitor, notifications, RPC/REST/MCP server, relay connector, tray, updater, legacy importer |
 | `apps/web` | The React + Tailwind + daisyUI dashboard, served by the app locally and by the Worker remotely |
 | `apps/worker` | The Cloudflare Worker: Google sign-in, pairing, device registry (D1), the relay (a Durable Object per device), Web Push forwarding and the latest-release lookup |
-| `apps/e2e` | Playwright tests of the dashboard against the real app |
+| `apps/e2e` | Playwright tests of the dashboard against the real app, and the features page's screenshots |
 | `docs/` | [Architecture and security](docs/ARCHITECTURE.md), [deployment](docs/DEPLOY.md) |
 
 ### Releases

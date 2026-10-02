@@ -1,12 +1,12 @@
 import { cancelGoogleSignIn } from '@codefusion-cc/google-sign-in/browser'
 import type { AccountDto } from '@magnetar/protocol/cloud'
 import { consolePage } from '@magnetar/protocol/console-pages'
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router'
 import type { AppConfig } from '../lib/cloudApi.ts'
 import { cloud } from '../lib/cloudApi.ts'
 import { reporting } from '../lib/console.ts'
-import { UpdatesOnNavigation } from '../lib/updates.ts'
+import { updates, UpdatesOnNavigation } from '../lib/updates.ts'
 import { errorMessage } from '../lib/errors.ts'
 import { browserLanguage, I18nProvider } from '../lib/i18n.tsx'
 import { Loading } from '../ui/Loading.tsx'
@@ -33,7 +33,10 @@ export function useAccount(): AccountState {
   return value
 }
 
-const PUBLIC_PAGES = new Set(['login', 'pair', 'link'])
+const PUBLIC_PAGES = new Set(['login', 'pair', 'link', 'features'])
+
+/** Its own chunk, with its screenshots: none of the dashboard's pages loads it. */
+const FeaturesPage = lazy(() => updates.importOrReload(() => import('../features/FeaturesPage.tsx')))
 
 /** Tells CodeFusion Console which screen is showing: failures are filed under it and its view is counted. */
 function ConsolePageTracker({ signedIn }: { signedIn: boolean }) {
@@ -91,6 +94,7 @@ export default function CloudApp({ config }: { config: AppConfig }) {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/pair/:pairingId" element={<PairPage />} />
             <Route path="/link" element={<LinkPage />} />
+            <Route path="/features/:lang?" element={<Suspense fallback={<Loading screen />}><FeaturesPage /></Suspense>} />
             <Route path="/add" element={<RequireAccount><AddRedirect /></RequireAccount>} />
             <Route path="/d/:deviceId/*" element={<RequireAccount><DeviceIdRedirect /></RequireAccount>} />
             <Route path="/:deviceName/*" element={<RequireAccount><RemoteDevice /></RequireAccount>} />
