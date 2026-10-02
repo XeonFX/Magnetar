@@ -44,6 +44,8 @@ const PING_EVERY: Duration = Duration::from_secs(30);
 const MAX_SESSIONS: usize = 16;
 const CLOUD_TIMEOUT: Duration = Duration::from_secs(15);
 const LINK_TTL: Duration = Duration::from_secs(10 * 60);
+/// How often expired links are looked for at most: the timer stops while the computer sleeps, the expiry doesn't.
+const SWEEP_EVERY: Duration = Duration::from_secs(15);
 
 struct Pairing {
     pairing_id: String,
@@ -79,6 +81,8 @@ struct State {
     relay: Option<CancellationToken>,
     writer: Option<mpsc::UnboundedSender<Message>>,
     connections: HashMap<String, Connection>,
+    /// Whether a task is waiting to delete links nobody used in time.
+    sweeping: bool,
 }
 
 enum Closed {
@@ -189,8 +193,9 @@ impl RemoteService {
     }
 
     pub fn start(self: &Arc<Self>) {
-        // Links that went unused while the app was not running.
+        // Links that went unused while the app was not running, and a watch on those still pending.
         self.keys.revoke_expired();
+        self.sweep_links();
         if self.device_id().is_some() && self.secrets.has(SecretName::DeviceToken) {
             self.connect();
         }
@@ -376,26 +381,50 @@ impl RemoteService {
         let expires_at = iso(chrono::Utc::now() + LINK_TTL);
         let (key_id, key) = self.keys.mint(label, true, Some(&expires_at))?;
         self.changed();
-        let (service, unused, stop) = (self.clone(), key_id.clone(), self.stop.clone());
+        self.sweep_links();
+        let url = format!("{}/link#{}", *CLOUD_URL, link_fragment(&device_id, &key_id, &key));
+        Ok(json!({ "url": url, "keyId": key_id, "expiresIn": LINK_TTL.as_secs() }))
+    }
+
+    /// Deletes each link nobody used in time when it expires, telling the dashboards, while any is pending. One
+    /// task does it for every link; it ends with the last one.
+    fn sweep_links(self: &Arc<Self>) {
+        if std::mem::replace(&mut self.state().sweeping, true) {
+            return;
+        }
+        let service = self.clone();
         tokio::spawn(async move {
-            tokio::select! {
-                _ = stop.cancelled() => {}
-                _ = tokio::time::sleep(LINK_TTL) => {
-                    if service.keys.revoke_unused(&unused) {
-                        service.changed();
-                    }
+            loop {
+                let next = {
+                    // Under the state lock, so a link minted meanwhile either is seen here or starts a new task.
+                    let mut state = service.state();
+                    let Some(next) = service.keys.next_expiry() else {
+                        state.sweeping = false;
+                        return;
+                    };
+                    next
+                };
+                let left = parse_iso(&next).and_then(|at| (at - chrono::Utc::now()).to_std().ok()).unwrap_or_default();
+                tokio::select! {
+                    _ = service.stop.cancelled() => return,
+                    _ = tokio::time::sleep(left.min(SWEEP_EVERY)) => {}
+                }
+                if service.keys.revoke_expired() > 0 {
+                    service.changed();
                 }
             }
         });
-        let url = format!("{}/link#{}", *CLOUD_URL, link_fragment(&device_id, &key_id, &key));
-        Ok(json!({ "url": url, "keyId": key_id, "expiresAt": expires_at }))
     }
 
-    /// A browser opened a connection with its key: a link it came from is used now and no longer expires, and the
-    /// dashboards see when it was last used (the one that showed the link closes it).
-    fn browser_connected(&self, key_id: &str) {
-        self.keys.touch(key_id);
-        self.changed();
+    /// Admits a browser that proved it holds `key_id`: false when the key was revoked or expired since its lookup.
+    /// A link it came from is used now and no longer expires; on the key's first use the dashboards are told, and
+    /// the one showing the link closes it.
+    fn browser_connected(&self, key_id: &str) -> bool {
+        let Some(first_use) = self.keys.touch(key_id) else { return false };
+        if first_use {
+            self.changed();
+        }
+        true
     }
 
     pub fn revoke_browser(&self, key_id: &str) -> RemoteStatusDto {
@@ -598,8 +627,10 @@ impl RemoteService {
         let Some(connection) = state.connections.get_mut(&connection_id) else { return };
         match payload.first() {
             Some(&FRAME_HANDSHAKE) => {
-                if connection.session.is_some() {
-                    drop(state);
+                let again = connection.session.is_some();
+                // Checking the key and telling the dashboards about it don't need the state, and the status takes it.
+                drop(state);
+                if again {
                     return self.drop_connection(&connection_id, true);
                 }
                 let hello = match decode_handshake(payload) {
@@ -618,6 +649,12 @@ impl RemoteService {
                     }
                 };
                 let Some(app) = self.app.upgrade() else { return };
+                if !self.browser_connected(kid) {
+                    return send(&encode_handshake(&Handshake::Reject { reason: "unknown-key".into() }));
+                }
+                let mut state = self.state();
+                // The browser may have left meanwhile.
+                let Some(connection) = state.connections.get_mut(&connection_id) else { return };
                 let (rpc, mut replies) = app.rpc.connect(Some(kid.clone()));
                 let session = Arc::new(Mutex::new(session));
                 send(&encode_handshake(&welcome));
@@ -635,9 +672,6 @@ impl RemoteService {
                 connection.key_id = Some(kid.clone());
                 connection.session = Some(session);
                 connection.rpc = Some(rpc);
-                // The status takes the state lock.
-                drop(state);
-                self.browser_connected(kid);
             }
             Some(&FRAME_SEALED) => {
                 let (Some(session), Some(rpc)) = (&connection.session, &connection.rpc) else { return };
@@ -744,43 +778,98 @@ mod tests {
         last
     }
 
+    /// Moves every pending link's expiry `minutes` from now, as if the wall clock had moved.
+    fn expire_in(service: &RemoteService, minutes: i64) {
+        let at = iso(chrono::Utc::now() + chrono::Duration::minutes(minutes));
+        service.keys.db().lock().execute("UPDATE browser_keys SET expires_at = ? WHERE expires_at IS NOT NULL", [at]).unwrap();
+    }
+
     #[tokio::test(start_paused = true)]
     async fn a_link_nobody_opens_expires_and_the_dashboards_see_it_go() {
         let (service, _dir) = linked_service();
         let mut events = service.events.subscribe();
         let link = service.link_browser(Some("My phone")).unwrap();
         let key_id = link["keyId"].as_str().unwrap().to_owned();
-        let expires_at = parse_iso(link["expiresAt"].as_str().expect("expiresAt")).unwrap();
-        let left = expires_at - chrono::Utc::now();
-        assert!(left > chrono::Duration::minutes(9) && left <= chrono::Duration::minutes(10), "{left}");
+        assert_eq!(link["expiresIn"], json!(600));
         assert_eq!(last_listed(&mut events), Some(vec![(key_id.clone(), None)]));
 
-        tokio::time::sleep(LINK_TTL - Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_secs(60)).await;
         assert_eq!(last_listed(&mut events), None, "nothing changes before the link expires");
         assert!(service.keys.lookup(&key_id).is_some());
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        // The computer slept through the expiry: the timer did not move, the clock did.
+        expire_in(&service, -1);
+        tokio::time::sleep(SWEEP_EVERY).await;
         assert_eq!(last_listed(&mut events), Some(vec![]));
         assert!(service.keys.lookup(&key_id).is_none());
         assert!(service.status().browsers.is_empty());
+        assert!(!service.state().sweeping, "the watch ends with the last pending link");
+
+        // A handshake that looked the key up just before it was swept is refused and announces nothing.
+        assert!(!service.browser_connected(&key_id));
+        assert_eq!(last_listed(&mut events), None);
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_browser_connecting_with_a_link_is_announced_and_keeps_its_key() {
+    async fn links_expire_at_their_time_through_one_watch() {
         let (service, _dir) = linked_service();
-        let other = service.link_browser(None).unwrap()["keyId"].as_str().unwrap().to_owned();
-        let link = service.link_browser(Some("My phone")).unwrap();
-        let key_id = link["keyId"].as_str().unwrap().to_owned();
+        let first = service.link_browser(Some("Phone")).unwrap()["keyId"].as_str().unwrap().to_owned();
+        let second = service.link_browser(Some("Tablet")).unwrap()["keyId"].as_str().unwrap().to_owned();
         let mut events = service.events.subscribe();
 
-        service.browser_connected(&key_id);
+        tokio::time::sleep(Duration::from_secs(4 * 60)).await;
+        assert_eq!(last_listed(&mut events), None);
+        // Only the first link is due; the watch it started also takes the second.
+        let now = iso(chrono::Utc::now());
+        service.keys.db().lock().execute("UPDATE browser_keys SET expires_at = ? WHERE key_id = ?", (now, &first)).unwrap();
+        tokio::time::sleep(SWEEP_EVERY).await;
+        assert_eq!(last_listed(&mut events), Some(vec![(second.clone(), None)]));
+        assert!(service.keys.lookup(&first).is_none());
+        assert!(service.state().sweeping);
+
+        expire_in(&service, -1);
+        tokio::time::sleep(SWEEP_EVERY).await;
+        assert_eq!(last_listed(&mut events), Some(vec![]));
+        assert!(!service.state().sweeping);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn links_left_from_before_a_restart_are_swept_on_start_and_watched() {
+        let (service, _dir) = linked_service();
+        let stale = service.keys.mint("Phone", true, Some(&iso(chrono::Utc::now() - chrono::Duration::minutes(1)))).unwrap().0;
+        let pending = service.keys.mint("Tablet", true, Some(&iso(chrono::Utc::now() + chrono::Duration::minutes(5)))).unwrap().0;
+        let mut events = service.events.subscribe();
+
+        service.start();
+        assert!(service.keys.lookup(&stale).is_none());
+        let rows: i64 = service.keys.db().lock().query_row("SELECT COUNT(*) FROM browser_keys", [], |r| r.get(0)).unwrap();
+        assert_eq!(rows, 1, "the expired link is deleted, not only refused");
+
+        expire_in(&service, -1);
+        tokio::time::sleep(SWEEP_EVERY).await;
+        assert_eq!(last_listed(&mut events), Some(vec![]));
+        assert!(service.keys.lookup(&pending).is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_browser_is_announced_on_its_first_connection_and_keeps_its_key() {
+        let (service, _dir) = linked_service();
+        let other = service.link_browser(None).unwrap()["keyId"].as_str().unwrap().to_owned();
+        let key_id = service.link_browser(Some("My phone")).unwrap()["keyId"].as_str().unwrap().to_owned();
+        let mut events = service.events.subscribe();
+
+        assert!(service.browser_connected(&key_id));
         let listed = last_listed(&mut events).expect("the dashboards are told");
         assert_eq!(listed.len(), 2);
         assert_eq!(listed[0], (other.clone(), None));
         assert_eq!(listed[1].0, key_id);
         assert!(listed[1].1.is_some(), "the linked browser shows when it was used");
 
-        tokio::time::sleep(LINK_TTL + Duration::from_secs(1)).await;
+        assert!(service.browser_connected(&key_id), "it connects again");
+        assert_eq!(last_listed(&mut events), None, "only the first connection is news");
+
+        expire_in(&service, -1);
+        tokio::time::sleep(SWEEP_EVERY).await;
         assert!(service.keys.lookup(&key_id).is_some(), "a used link does not expire");
         assert!(service.keys.lookup(&other).is_none());
         let names: Vec<_> = service.status().browsers.into_iter().map(|b| (b.key_id, b.label)).collect();

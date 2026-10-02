@@ -7,12 +7,13 @@ interface Browser { keyId: string; label: string; createdAt: string; lastSeenAt:
 
 /**
  * The app runs without a relay, so it is never on an account. This stands in for its remote access: the
- * dashboard's socket goes to the real app for everything else, while `remote.status`, `remote.linkBrowser`
- * and `remote.changed` come from here, the way a device linked to an account answers them.
+ * dashboard's socket goes to the real app for everything else, while `remote.status`, `remote.linkBrowser`,
+ * `remote.revokeBrowser` and `remote.changed` come from here, the way a device linked to an account answers them.
  */
 class FakeRemote {
   browsers: Browser[] = [{ keyId: 'laptop', label: 'Laptop', createdAt: '2026-09-01T10:00:00.000Z', lastSeenAt: null }]
   readonly minted: (string | undefined)[] = []
+  readonly revoked: string[] = []
   private socket: WebSocketRoute | null = null
   private held: (() => void)[] | null = null
 
@@ -22,10 +23,14 @@ class FakeRemote {
       remote.socket = socket
       const app = socket.connectToServer()
       socket.onMessage(raw => {
-        const message = JSON.parse(String(raw)) as { id: number; method: string; params?: { label?: string } }
+        const message = JSON.parse(String(raw)) as { id: number; method: string; params?: { label?: string; keyId?: string } }
         if (message.method === 'remote.status') remote.reply(message.id, remote.status())
         else if (message.method === 'remote.linkBrowser') remote.mint(message.id, message.params?.label)
-        else app.send(raw)
+        else if (message.method === 'remote.revokeBrowser') {
+          remote.revoked.push(message.params!.keyId!)
+          remote.gone(message.params!.keyId!)
+          remote.reply(message.id, remote.status())
+        } else app.send(raw)
       })
       app.onMessage(raw => {
         if (!String(raw).includes('"event":"remote.changed"')) socket.send(raw)
@@ -52,8 +57,8 @@ class FakeRemote {
     this.changed(this.browsers.map(b => (b.keyId === keyId ? { ...b, lastSeenAt: new Date().toISOString() } : b)))
   }
 
-  /** The link went unused: the device deletes its key. */
-  expire(keyId: string) {
+  /** The key leaves the list: the link went unused until it expired, or someone revoked it. */
+  gone(keyId: string) {
     this.changed(this.browsers.filter(b => b.keyId !== keyId))
   }
 
@@ -73,11 +78,7 @@ class FakeRemote {
     const keyId = `key${this.minted.length}`
     const send = () => {
       this.changed([...this.browsers, { keyId, label: label ?? 'Linked browser', createdAt: new Date().toISOString(), lastSeenAt: null }])
-      this.reply(id, {
-        url: `https://magnetar.example/link#d=dev1&i=${keyId}&k=${'A'.repeat(43)}`,
-        keyId,
-        expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
-      })
+      this.reply(id, { url: `https://magnetar.example/link#d=dev1&i=${keyId}&k=${'A'.repeat(43)}`, keyId, expiresIn: 600 })
     }
     if (this.held) this.held.push(send)
     else send()
@@ -107,7 +108,6 @@ test('the link dialog closes by itself once the browser it is for has linked, an
   await page.goto('/settings/remote')
   const link = await openLink(page, 'My phone')
   await expect(link.getByRole('textbox', { name: 'Link another browser' })).toHaveValue(/i=key1&/)
-  await expect(link).toContainText(/If no browser opens it, this link stops working in (9|10) min/)
 
   // Another browser connecting is not this link being used.
   remote.use('laptop')
@@ -121,27 +121,45 @@ test('the link dialog closes by itself once the browser it is for has linked, an
   await expect(row(page, 'My phone')).toContainText('Last used')
 })
 
-test('an expired link says so and offers a new one for the same browser', async ({ page }) => {
+test('the dialog counts down the link, says when it expired and offers a new one for the same browser', async ({ page }) => {
+  await page.clock.install()
   const remote = await FakeRemote.on(page)
   await page.goto('/settings/remote')
   const link = await openLink(page, 'Tablet')
+  await expect(link).toContainText('If no browser opens it, this link stops working in 10 min')
+  await page.clock.fastForward('04:00')
+  await expect(link).toContainText('stops working in 6 min')
 
-  remote.expire('key1')
+  await page.clock.fastForward('06:00')
+  await expect(link).not.toContainText('stops working')
+  remote.gone('key1')
   await expect(link).toContainText('This link expired before a browser used it.')
   await expect(link.getByRole('img')).toHaveCount(0)
   await expect(link.getByRole('textbox')).toHaveCount(0)
+  await expect(link.getByRole('button', { name: 'New link' })).toBeFocused()
 
   remote.hold()
   await link.getByRole('button', { name: 'New link' }).click()
   await expect(link.getByRole('button', { name: 'New link' })).toBeDisabled()
   remote.release()
   await expect(link.getByRole('textbox', { name: 'Link another browser' })).toHaveValue(/i=key2&/)
-  await expect(link).not.toContainText('expired')
+  await expect(link).toContainText('stops working in 10 min')
   expect(remote.minted).toEqual(['Tablet', 'Tablet'])
 
   remote.use('key2')
   await expect(link).toBeHidden()
   await expect(linkedToast(page)).toHaveText('Browser linked: Tablet')
+})
+
+test('a link revoked elsewhere while it is shown says so', async ({ page }) => {
+  const remote = await FakeRemote.on(page)
+  await page.goto('/settings/remote')
+  const link = await openLink(page, 'Tablet')
+  remote.gone('key1')
+  await expect(link).toContainText('This link was revoked before a browser used it.')
+  await expect(link.getByRole('img')).toHaveCount(0)
+  await link.getByRole('button', { name: 'New link' }).click()
+  await expect(link.getByRole('textbox', { name: 'Link another browser' })).toHaveValue(/i=key2&/)
 })
 
 test('a browser named nowhere is announced without a name', async ({ page }) => {
@@ -165,18 +183,18 @@ test('a link dialog closed by hand stays closed, whatever becomes of its link', 
   await expect(dialog(page, 'Link another browser')).toBeHidden()
   await expect(linkedToast(page)).toHaveCount(0)
 
-  // A new link that arrives after its dialog was closed does not open it again.
+  // A new link that arrives after its dialog was closed does not open it again, nor stays in the list.
   const second = await openLink(page, 'Tablet')
-  remote.expire('key2')
-  await expect(second).toContainText('This link expired')
+  remote.gone('key2')
+  await expect(second).toContainText('This link was revoked')
   remote.hold()
   await second.getByRole('button', { name: 'New link' }).click()
+  await expect(second.getByRole('button', { name: 'New link' })).toBeDisabled()
   await page.keyboard.press('Escape')
   await expect(second).toBeHidden()
   remote.release()
-  // Anything the dashboard hears after the link has been handled by then.
-  remote.use('laptop')
-  await expect(row(page, 'Laptop')).toContainText('Last used')
+  await expect.poll(() => ({ minted: remote.minted.length, revoked: remote.revoked })).toEqual({ minted: 3, revoked: ['key3'] })
+  await expect(row(page, 'Tablet')).toHaveCount(0)
   await expect(dialog(page, 'Link another browser')).toBeHidden()
 })
 

@@ -11,14 +11,13 @@ import { useDevice } from '../DeviceContext.tsx'
 import { followLink, type LinkWatch } from '../linkState.ts'
 import { useRun } from '../useRun.ts'
 
-/** The link the dialog shows, followed until a browser uses it or it expires. */
+/** The link the dialog shows, followed until a browser uses it or it stops working. */
 interface ShownLink extends LinkWatch {
   /** As typed; empty when the browser was left unnamed. */
   label: string
   url: string
   qr: string
-  expiresAt?: string
-  expired: boolean
+  ended?: 'expired' | 'revoked'
 }
 
 /**
@@ -53,14 +52,16 @@ export function RemoteAccessSection() {
   const paired = remote?.paired ?? false
   const browsers = remote?.browsers
   useEffect(() => {
-    if (!link || link.expired || !browsers) return
+    if (!link || link.ended || !browsers) return
     if (!paired) return closeLink()
-    const next = followLink(link, browsers)
+    const next = followLink(link, browsers, Date.now())
     if (next.state === 'linked') {
       closeLink()
       toast(link.label ? t('remote.browserLinked', next.browser.label) : t('remote.browserLinkedUnnamed'), 'success')
-    } else if (next.state === 'expired' || next.listed !== link.listed) {
-      setLink({ ...link, listed: next.listed, expired: next.state === 'expired' })
+    } else if (next.state !== 'waiting') {
+      setLink({ ...link, listed: true, ended: next.state })
+    } else if (next.listed !== link.listed) {
+      setLink({ ...link, listed: true })
     }
   }, [link, browsers, paired, toast, t])
 
@@ -92,9 +93,11 @@ export function RemoteAccessSection() {
     try {
       const minted = await run(() => connection.call('remote.linkBrowser', { label: forLabel || undefined }))
       if (!minted) return
+      const deadline = minted.expiresIn === undefined ? undefined : Date.now() + minted.expiresIn * 1000
       const qr = await QRCode.toDataURL(minted.url, { margin: 1, width: 280, errorCorrectionLevel: 'M' })
-      if (request.current !== mine) return
-      setLink({ keyId: minted.keyId, listed: false, expired: false, label: forLabel, url: minted.url, qr, expiresAt: minted.expiresAt })
+      // Closed while the link was on its way: nobody will see it, so it should not linger in the list.
+      if (request.current !== mine) return void connection.call('remote.revokeBrowser', { keyId: minted.keyId }).catch(() => {})
+      setLink({ keyId: minted.keyId, listed: false, deadline, label: forLabel, url: minted.url, qr })
       setLabel('')
     } finally {
       if (request.current === mine) setMinting(false)
@@ -171,21 +174,24 @@ export function RemoteAccessSection() {
       )}
 
       <Modal open={link !== null} title={t('remote.linkTitle')} icon={<QrCode size={20} />} onClose={closeLink}
-        actions={link?.expired ? <>
+        actions={link?.ended ? <>
           <button type="button" className="btn btn-ghost btn-sm" onClick={closeLink}>{t('common.close')}</button>
           {/* Focus moves here, since the link it replaces had it. */}
           <button type="button" className="btn btn-primary btn-sm" disabled={minting} autoFocus onClick={() => void mintLink(link.label)}>
             {minting ? <span className="loading loading-spinner loading-xs" /> : <RefreshCw size={14} />}{t('remote.newLink')}
           </button>
         </> : <button type="button" className="btn btn-primary btn-sm" onClick={closeLink}>{t('common.done')}</button>}>
-        {link && (link.expired ? (
-          <div role="alert" className="alert alert-warning alert-soft text-sm"><TimerOff size={18} />{t('remote.linkExpired')}</div>
+        {link && (link.ended ? (
+          <div role="alert" className="alert alert-warning alert-soft text-sm">
+            {link.ended === 'expired' ? <TimerOff size={18} /> : <Unlink size={18} />}
+            {t(link.ended === 'expired' ? 'remote.linkExpired' : 'remote.linkRevoked')}
+          </div>
         ) : (
           <div className="flex flex-col items-center gap-3 text-center">
             <p className="text-sm">{t('remote.linkHint')}</p>
             <img src={link.qr} alt={t('remote.linkTitle')} className="size-64 rounded-box bg-white p-2" />
             <CopyInput small label={t('remote.linkTitle')} value={link.url} copyLabel={t('common.copy')} onCopy={value => void copy(value)} />
-            {link.expiresAt && <LinkExpiry expiresAt={link.expiresAt} />}
+            {link.deadline !== undefined && <LinkExpiry deadline={link.deadline} />}
             <p className="text-xs text-warning">{t('remote.linkWarning')}</p>
           </div>
         ))}
@@ -207,7 +213,7 @@ export function RemoteAccessSection() {
 }
 
 /** How long a link has left, kept current while it is shown. */
-function LinkExpiry({ expiresAt }: { expiresAt: string }) {
+function LinkExpiry({ deadline }: { deadline: number }) {
   const t = useT()
   const formatEta = useFormatEta()
   const [now, setNow] = useState(Date.now)
@@ -215,8 +221,8 @@ function LinkExpiry({ expiresAt }: { expiresAt: string }) {
     const timer = setInterval(() => setNow(Date.now()), 15_000)
     return () => clearInterval(timer)
   }, [])
-  const seconds = (Date.parse(expiresAt) - now) / 1000
+  const seconds = (deadline - now) / 1000
   // Gone once the time is up: the device deletes the key then, and the dialog says the link expired.
-  if (!(seconds > 0)) return null
+  if (seconds <= 0) return null
   return <p className="muted text-xs">{t('remote.linkExpires', formatEta(seconds))}</p>
 }

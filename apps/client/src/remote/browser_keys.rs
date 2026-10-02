@@ -58,12 +58,22 @@ impl BrowserKeyStore {
         (key.len() == KEY_BYTES).then_some(key)
     }
 
-    /// Records a connection with the key; a link that is used no longer expires.
-    pub fn touch(&self, key_id: &str) {
-        let _ = self.db.lock().execute(
-            "UPDATE browser_keys SET last_seen_at = ?1, expires_at = NULL WHERE key_id = ?2 AND (expires_at IS NULL OR expires_at > ?1)",
-            params![now_iso(), key_id],
-        );
+    /// Records a connection with the key; a link that is used no longer expires. None, recording nothing, when the
+    /// key is gone, inactive or expired by now (revoked or swept since its lookup); otherwise whether this was the
+    /// key's first use.
+    pub fn touch(&self, key_id: &str) -> Option<bool> {
+        let now = now_iso();
+        let db = self.db.lock();
+        let first_use: bool = db
+            .query_row(
+                &format!("SELECT last_seen_at IS NULL FROM browser_keys WHERE key_id = ? AND active = 1 AND {UNEXPIRED}"),
+                params![key_id, now],
+                |r| r.get(0),
+            )
+            .optional()
+            .ok()??;
+        db.execute("UPDATE browser_keys SET last_seen_at = ?, expires_at = NULL WHERE key_id = ?", params![now, key_id]).ok()?;
+        Some(first_use)
     }
 
     pub fn revoke(&self, key_id: &str) {
@@ -79,9 +89,9 @@ impl BrowserKeyStore {
         self.db.lock().execute("DELETE FROM browser_keys WHERE expires_at <= ?", [now_iso()]).unwrap_or(0)
     }
 
-    /// Deletes a link if no browser has used it yet; returns whether it did.
-    pub fn revoke_unused(&self, key_id: &str) -> bool {
-        self.db.lock().execute("DELETE FROM browser_keys WHERE key_id = ? AND expires_at IS NOT NULL", [key_id]).unwrap_or(0) > 0
+    /// When the next link nobody has used yet expires (ISO), if there is one.
+    pub fn next_expiry(&self) -> Option<String> {
+        self.db.lock().query_row("SELECT MIN(expires_at) FROM browser_keys", [], |r| r.get(0)).ok()?
     }
 
     pub fn revoke_all(&self) {
@@ -149,28 +159,35 @@ mod tests {
         let (store, _dir) = store();
         let (used, _) = store.mint("Phone", true, Some(&at(10))).unwrap();
         let (late, _) = store.mint("Tablet", true, Some(&at(-1))).unwrap();
-        store.touch(&used);
-        store.touch(&late);
+        let (pending, _) = store.mint("Browser used for pairing", false, None).unwrap();
+        assert_eq!(store.touch(&used), Some(true), "the first connection");
+        assert_eq!(store.touch(&used), Some(false));
+        assert_eq!(store.touch(&late), None, "an expired link is not usable");
+        assert_eq!(store.touch("unknown"), None);
+        assert_eq!(store.touch(&pending), None, "a key pairing has not activated is not usable");
+        assert!(store.list()[0].last_seen_at.is_some());
 
-        assert!(!store.revoke_unused(&used), "a link a browser has used stays");
         // Time passes: whatever still has an expiry is past it now.
         store.db.lock().execute("UPDATE browser_keys SET expires_at = ? WHERE expires_at IS NOT NULL", [at(-60)]).unwrap();
         assert_eq!(store.revoke_expired(), 1);
         assert!(store.lookup(&used).is_some());
-        assert!(store.list()[0].last_seen_at.is_some());
         assert!(store.lookup(&late).is_none());
+        assert_eq!(store.touch(&late), None);
     }
 
     #[test]
-    fn revoking_an_unused_link_leaves_used_links_and_pairing_keys_alone() {
+    fn the_next_expiry_is_the_soonest_unused_link() {
         let (store, _dir) = store();
-        let (unused, _) = store.mint("Phone", true, Some(&at(10))).unwrap();
-        let (paired, _) = store.mint("Browser used for pairing", true, None).unwrap();
-
-        assert!(!store.revoke_unused(&paired), "a key without an expiry is not a pending link");
-        assert!(!store.revoke_unused("unknown"));
-        assert!(store.revoke_unused(&unused));
-        assert!(!store.revoke_unused(&unused));
-        assert_eq!(listed(&store), [paired]);
+        assert_eq!(store.next_expiry(), None);
+        store.mint("Browser used for pairing", true, None).unwrap();
+        assert_eq!(store.next_expiry(), None, "a key without an expiry is not a pending link");
+        let (later, soon) = (at(10), at(5));
+        let (first, _) = store.mint("Phone", true, Some(&later)).unwrap();
+        let (second, _) = store.mint("Tablet", true, Some(&soon)).unwrap();
+        assert_eq!(store.next_expiry(), Some(soon));
+        store.touch(&second);
+        assert_eq!(store.next_expiry(), Some(later));
+        store.revoke(&first);
+        assert_eq!(store.next_expiry(), None);
     }
 }

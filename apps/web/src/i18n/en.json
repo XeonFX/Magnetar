@@ -223,6 +223,7 @@
     "remote.linkWarning": "Anyone who opens this link while signed in to your account can control this device. Only open it on your own devices.",
     "remote.linkExpires": "If no browser opens it, this link stops working {0}",
     "remote.linkExpired": "This link expired before a browser used it.",
+    "remote.linkRevoked": "This link was revoked before a browser used it.",
     "remote.newLink": "New link",
     "remote.browserLinked": "Browser linked: {0}",
     "remote.browserLinkedUnnamed": "Browser linked",

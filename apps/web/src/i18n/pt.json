@@ -220,6 +220,7 @@
     "remote.linkWarning": "Quem abrir este link conectado à sua conta poderá controlar este dispositivo. Abra-o apenas nos seus próprios dispositivos.",
     "remote.linkExpires": "Se nenhum navegador o abrir, este link deixará de funcionar {0}",
     "remote.linkExpired": "Este link expirou antes de um navegador o usar.",
+    "remote.linkRevoked": "Este link foi revogado antes de um navegador o usar.",
     "remote.newLink": "Novo link",
     "remote.browserLinked": "Navegador vinculado: {0}",
     "remote.browserLinkedUnnamed": "Navegador vinculado",
