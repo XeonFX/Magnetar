@@ -38,7 +38,9 @@ See docs/ARCHITECTURE.md before touching the relay, pairing or either `e2e` impl
   base64url (`randomToken` from `@codefusion-cc/workers-crypto`, `random_token`). Route patterns keep accepting `A-Za-z0-9_-` for older ids.
 - On the website a device's pages are `/<device name>/…`. A new top-level route there needs its word in
   `packages/protocol/src/device-names.json` (`reserved`), and a D1 migration renaming any device that has it. Pages
-  are served by the Worker (`page()` in `apps/worker/src/index.ts`) so the assets never respell an address.
+  are served by the Worker (`serveSinglePageApp` in `apps/worker/src/index.ts`) so the assets never respell an address:
+  keep `not_found_handling` out of `apps/worker/wrangler.jsonc`, and `run_worker_first` on `/_console/*` so the source
+  maps stay private.
 - Test and scratch runs: set `MAGNETAR_DATA_DIRECTORY` and `MAGNETAR_DOWNLOAD_FOLDER`, or they use the user's real folders.
 - `npm run e2e` drives the real app with Playwright; its specs end in `.e2e.ts` so Vitest skips them.
 - Every merge to `main` deploys the Worker (the `deploy` job in `.github/workflows/ci.yml`), migrations first: a new

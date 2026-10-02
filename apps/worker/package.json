@@ -16,7 +16,7 @@
     "@codefusion-cc/google-sign-in": "^1.0.0",
     "@codefusion-cc/web-push": "^1.1.0",
     "@codefusion-cc/workers-crypto": "^1.0.0",
-    "@codefusion-cc/workers-http": "^1.0.0",
+    "@codefusion-cc/workers-http": "^1.1.0",
     "@magnetar/protocol": "*"
   },
   "devDependencies": {

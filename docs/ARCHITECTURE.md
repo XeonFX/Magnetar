@@ -15,8 +15,9 @@
 
 `apps/web` is a single build. It asks `/app-config.json` where it is running: the app answers `local`, the Worker
 answers `cloud`. On the website a device's pages are `/<device name>/…` (`/d/<device id>/…` moves there), and the
-Worker answers page paths itself with the dashboard's one page (`page()` in `apps/worker/src/index.ts`): the static
-assets would redirect a path to their own spelling, turning a search's `+` into `%2B`. Every page talks to a device through an `RpcClient`:
+Worker answers page paths itself with the dashboard's one page (`serveSinglePageApp` from `@codefusion-cc/workers-http`):
+single-page-application assets would redirect a path to their own spelling, turning a search's `+` into `%2B`, so the
+assets keep the default `not_found_handling` and serve files only. Every page talks to a device through an `RpcClient`:
 
 - **LocalConnection**: a same-origin WebSocket to `/ws` on the app. The app accepts it only from a loopback address,
   under a loopback host name, with the app's own `Origin`, so neither web pages nor DNS-rebound sites can drive it.
