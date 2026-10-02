@@ -32,7 +32,7 @@ use crate::protocol::e2e::{
 };
 use crate::protocol::encoding::{encode_uri_component, parse_iso, to_base64url};
 use crate::protocol::relay::{
-    CLOSE_DEVICE_REMOVED, DeviceToRelay, MAX_RELAY_FRAME, RELAY_PING, RelayToDevice, unwrap_from_device, wrap_for_device,
+    CLOSE_DEVICE_REMOVED, DeviceToRelay, RELAY_PING, RelayToDevice, unwrap_from_device, wrap_for_device,
 };
 use crate::protocol::webpush::{self, SubscriptionKeys};
 use crate::protocol::{NotificationEvent, PendingPairingDto, RemoteStatusDto};
@@ -563,9 +563,6 @@ impl RemoteService {
 
     /// Binary frames: a browser's handshake, or a sealed RPC message.
     fn on_frame(self: &Arc<Self>, frame: &Bytes, writer: &mpsc::UnboundedSender<Message>) {
-        if frame.len() > MAX_RELAY_FRAME + 16 {
-            return;
-        }
         let Some((connection_id, payload)) = unwrap_from_device(frame) else { return };
         let send = |payload: &[u8]| {
             if let Ok(wrapped) = wrap_for_device(&connection_id, payload) {

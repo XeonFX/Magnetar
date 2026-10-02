@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { fromBase64, srtToVtt } from './streaming.ts'
+import { srtToVtt } from './streaming.ts'
 
 describe('subtitles', () => {
   test('SubRip becomes WebVTT with dotted milliseconds, whatever the line endings', () => {
@@ -9,13 +9,5 @@ describe('subtitles', () => {
 
   test('commas in the text itself are left alone', () => {
     expect(srtToVtt('1\n00:00:01,000 --> 00:00:02,000\nWait, 12:34:56,789 is a time')).toContain('Wait, 12:34:56,789 is a time')
-  })
-})
-
-describe('base64', () => {
-  test('decodes every byte value, and nothing', () => {
-    const all = Uint8Array.from({ length: 256 }, (_, i) => i)
-    expect([...fromBase64(Buffer.from(all).toString('base64'))]).toEqual([...all])
-    expect(fromBase64('').length).toBe(0)
   })
 })

@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:workers'
-import { CONNECTION_ID_BYTES, MAX_RELAY_FRAME, RELAY_CLOSE, RELAY_PING, RELAY_PONG, unwrapFromDevice, wrapForDevice } from '@magnetar/protocol/relay'
+import { CONNECTION_ID_BYTES, MAX_SEALED_FRAME, RELAY_CLOSE, RELAY_PING, RELAY_PONG, unwrapFromDevice, wrapForDevice } from '@magnetar/protocol/relay'
 import { describe, expect, test } from 'vitest'
 import { call, connectBrowser, connectDevice, deviceAuth, eventually, listDevices, openSocket, pairDevice, settle, signIn, type Device, type Socket, type User } from './client.ts'
 
@@ -83,13 +83,13 @@ describe('the relay', () => {
   test('closes a sender whose frame is over the limit', async () => {
     const { user, device, app } = await onlineDevice()
     const { page, connectionId } = await openDashboard(user, device, app)
-    page.ws.send(new Uint8Array(MAX_RELAY_FRAME + 65))
+    page.ws.send(new Uint8Array(MAX_SEALED_FRAME + 1))
     expect((await page.closed).code).toBe(1009)
     expect(await app.nextJson()).toEqual({ t: 'close', c: connectionId })
     // The largest frame allowed still goes through.
     const second = await openDashboard(user, device, app)
-    second.page.ws.send(new Uint8Array(MAX_RELAY_FRAME))
-    expect((await app.next() as Uint8Array).length).toBe(MAX_RELAY_FRAME + CONNECTION_ID_BYTES)
+    second.page.ws.send(new Uint8Array(MAX_SEALED_FRAME))
+    expect((await app.next() as Uint8Array).length).toBe(MAX_SEALED_FRAME + CONNECTION_ID_BYTES)
   })
 
   test('tells the app when a dashboard leaves, and closes one the app drops', async () => {

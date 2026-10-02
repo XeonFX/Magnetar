@@ -28,8 +28,8 @@ Every feature with screenshots of the app, in all eight languages: [magnetar.cod
   after 3 minutes instead of sitting on "Fetching metadata" forever. Updates pause active downloads only once the new
   version is downloaded and verified, and resume them when it starts; downloaded files are never touched.
 - **Add anything:** magnet links (paste one or many, or click one anywhere once Magnetar is the system's
-  handler) and `.torrent` files (pick, drop on the Downloads page, or open one). The add dialog always shows what
-  will start and where.
+  handler) and `.torrent` files of up to 4 MB (pick, drop on the Downloads page, or open one), on this computer or
+  through the website. The add dialog always shows what will start and where.
 - **Choose files** of a torrent (skip the extras of a season pack), see each file's progress, and show a download
   in Finder or Explorer.
 - **Play while downloading:** video and audio play in the browser, with the torrent's subtitles, fetching the
@@ -159,6 +159,23 @@ by `apps/e2e/features/screenshots.ts` from the real app on fresh data: build the
 app with a release's version (`MAGNETAR_VERSION=1.1.0 cargo build -p magnetar`), then run `npm run screenshots -w
 @magnetar/e2e`. It starts the Worker and three copies of the app on ports 8797 and 47891–47893, downloads Blender's
 open films and Linux images, and removes everything it made when it ends.
+
+Worktrees share compiled crates through [sccache](https://github.com/mozilla/sccache), set up once per machine rather
+than in the repository, so CI and other machines build without it: `brew install sccache` (or `cargo install sccache`),
+then in `~/.cargo/config.toml`:
+
+```toml
+[build]
+rustc-wrapper = "sccache"
+```
+
+A new worktree then takes its dependencies (Rust, and aws-lc's and SQLite's C) from the cache instead of compiling
+them: 88% of its compiler calls hit, and `cargo test` plus `cargo clippy` finish about a third sooner. Only the
+`magnetar` crate, the links and the build scripts run again. `sccache --show-stats` shows the hits; the cache keeps
+10 GB by default (`SCCACHE_DIR` and `SCCACHE_CACHE_SIZE` move and resize it). Don't point worktrees at one shared
+`CARGO_TARGET_DIR` instead: Cargo then treats every worktree's `magnetar` as the same unit and decides freshness by
+file times, so a worktree whose sources are older than another's last build silently gets that build's binary, and
+parallel builds wait on one lock.
 
 | Path | What it is |
 |---|---|

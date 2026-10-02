@@ -43,9 +43,8 @@ const TORRENTS = {
   cosmos: 'https://webtorrent.io/torrents/cosmos-laundromat.torrent',
   tears: 'https://webtorrent.io/torrents/tears-of-steel.torrent',
   debian: 'https://cdimage.debian.org/debian-cd/current/amd64/bt-cd/debian-13.7.0-amd64-netinst.iso.torrent',
+  ubuntu: 'https://releases.ubuntu.com/26.04.1/ubuntu-26.04.1-desktop-amd64.iso.torrent',
 }
-/** Ubuntu's image as a magnet link: its .torrent is larger than a dashboard message may be. */
-const UBUNTU = 'magnet:?xt=urn:btih:5b1e0d988fc7a0c9e99bd852071681a59974b39f&dn=ubuntu-26.04.1-desktop-amd64.iso&tr=https%3A%2F%2Ftorrent.ubuntu.com%2Fannounce'
 /** Shown pasted into the Add dialog: three of the same, as magnet links. */
 const MAGNETS = [
   'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337',
@@ -197,7 +196,7 @@ async function prepare(browser: Browser): Promise<Website> {
   const tears = await startTorrent(main, TORRENTS.tears)
   await startTorrent(main, TORRENTS.cosmos)
   await startTorrent(main, TORRENTS.debian)
-  await rpc(main, 'downloads.start', { magnet: UBUNTU })
+  await startTorrent(main, TORRENTS.ubuntu)
   await until('Tears of Steel to start', async () => (await downloads(main)).find(row => row.id === tears.id && row.progress > 0.05))
   await rpc(main, 'downloads.pause', { id: tears.id })
   void sintel

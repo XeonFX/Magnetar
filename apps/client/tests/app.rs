@@ -1,5 +1,7 @@
 //! The dashboard RPC end to end, on a real app without a torrent engine.
 
+mod common;
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -376,4 +378,171 @@ async fn linked_browsers_ask_for_push_and_lose_it_with_their_key() {
         false,
         "revoking the key drops its subscription"
     );
+}
+
+/// .torrent files through the dashboard: whole when small, in `downloads.upload` pieces when not.
+mod torrent_uploads {
+    use magnetar::downloads::manager::MAX_TORRENT_FILE;
+    use magnetar::downloads::upload::TORRENT_UPLOAD_CHUNK as PIECE;
+    use magnetar::protocol::encoding::to_base64;
+
+    use super::common::torrent_of_size;
+    use super::*;
+
+    /// Sends `bytes` as pieces `from..to` of upload `id`; the bytes received after the last one.
+    async fn send_pieces(c: &mut Client, id: &str, bytes: &[u8], pieces: std::ops::Range<usize>) -> Result<Value, String> {
+        let mut last = Ok(Value::Null);
+        for offset in pieces.map(|i| i * PIECE).filter(|o| *o < bytes.len()) {
+            let data = to_base64(&bytes[offset..(offset + PIECE).min(bytes.len())]);
+            last =
+                c.call("downloads.upload", json!({ "uploadId": id, "offset": offset, "size": bytes.len(), "data": data })).await;
+            last.as_ref()?;
+        }
+        last
+    }
+
+    /// The names of the downloads started from .torrent files, sorted.
+    async fn torrent_downloads(c: &mut Client) -> Vec<String> {
+        let list = c.ok("downloads.list", json!({})).await;
+        let mut names: Vec<String> = list
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|d| d["source"] == "Torrent file")
+            .map(|d| d["name"].as_str().unwrap().to_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    async fn upload(c: &mut Client, id: &str, bytes: &[u8]) -> Result<Value, String> {
+        send_pieces(c, id, bytes, 0..bytes.len().div_ceil(PIECE)).await?;
+        c.call("downloads.startUpload", json!({ "uploadId": id })).await
+    }
+
+    #[tokio::test]
+    async fn a_small_file_starts_whole_as_before() {
+        let h = harness();
+        let mut c = Client::new(&h.app, false);
+        let torrent = torrent_of_size(190_000, "Small");
+        let download = c.ok("downloads.start", json!({ "torrent": to_base64(&torrent) })).await;
+        assert_eq!((download["name"].as_str(), download["source"].as_str()), (Some("Small"), Some("Torrent file")));
+    }
+
+    #[tokio::test]
+    async fn files_of_750_kb_and_exactly_4_mib_arrive_in_pieces_and_start_in_the_chosen_folder() {
+        let h = harness();
+        let mut c = Client::new(&h.app, false);
+        let medium = torrent_of_size(750_000, "Medium");
+        let received = send_pieces(&mut c, "m", &medium, 0..2).await.unwrap();
+        assert_eq!(received, json!({ "received": 750_000 }));
+        let folder = h.dir.path().join("Medium");
+        let download = c.ok("downloads.startUpload", json!({ "uploadId": "m", "folder": folder })).await;
+        assert_eq!(download["name"], "Medium");
+        assert_eq!(download["savePath"], folder.display().to_string());
+
+        let largest = torrent_of_size(MAX_TORRENT_FILE, "Largest");
+        assert_eq!(upload(&mut c, "l", &largest).await.unwrap()["name"], "Largest");
+        assert_eq!(torrent_downloads(&mut c).await, ["Largest", "Medium"]);
+        // Started uploads are gone.
+        assert!(c.call("downloads.startUpload", json!({ "uploadId": "l" })).await.unwrap_err().starts_with("not_found"));
+    }
+
+    #[tokio::test]
+    async fn one_byte_over_4_mib_is_refused_at_the_first_piece() {
+        let h = harness();
+        let mut c = Client::new(&h.app, false);
+        let error = c
+            .call("downloads.upload", json!({ "uploadId": "big", "offset": 0, "size": MAX_TORRENT_FILE + 1, "data": "AAAA" }))
+            .await
+            .unwrap_err();
+        assert_eq!(error, "bad_request: That .torrent file is larger than 4 MB.");
+        assert!(c.call("downloads.startUpload", json!({ "uploadId": "big" })).await.unwrap_err().starts_with("not_found"));
+    }
+
+    #[tokio::test]
+    async fn pieces_out_of_order_or_missing_drop_the_file_instead_of_starting_a_broken_one() {
+        let h = harness();
+        let mut c = Client::new(&h.app, false);
+        let torrent = torrent_of_size(1_600_000, "Ordered");
+        let piece = |i: usize| to_base64(&torrent[i * PIECE..((i + 1) * PIECE).min(torrent.len())]);
+        let size = torrent.len();
+
+        // A skipped piece.
+        send_pieces(&mut c, "a", &torrent, 0..1).await.unwrap();
+        let skipped =
+            c.call("downloads.upload", json!({ "uploadId": "a", "offset": 2 * PIECE, "size": size, "data": piece(2) })).await;
+        assert_eq!(skipped.unwrap_err(), "bad_request: Part of the .torrent file got lost on the way. Add it again.");
+        // The file is gone, so even the right next piece is refused.
+        let after = c.call("downloads.upload", json!({ "uploadId": "a", "offset": PIECE, "size": size, "data": piece(1) })).await;
+        assert!(after.unwrap_err().starts_with("not_found"));
+
+        // A piece sent twice.
+        send_pieces(&mut c, "b", &torrent, 0..2).await.unwrap();
+        assert!(send_pieces(&mut c, "b", &torrent, 1..2).await.unwrap_err().starts_with("bad_request"));
+
+        // Another size halfway, and a piece running past the size.
+        send_pieces(&mut c, "c", &torrent, 0..1).await.unwrap();
+        let resized =
+            c.call("downloads.upload", json!({ "uploadId": "c", "offset": PIECE, "size": size + 1, "data": piece(1) })).await;
+        assert!(resized.unwrap_err().starts_with("bad_request"));
+        let past = c.call("downloads.upload", json!({ "uploadId": "d", "offset": 0, "size": 10, "data": piece(0) })).await;
+        assert!(past.unwrap_err().starts_with("bad_request"));
+
+        // Truncated: started before the last piece came.
+        send_pieces(&mut c, "e", &torrent, 0..2).await.unwrap();
+        let truncated = c.call("downloads.startUpload", json!({ "uploadId": "e" })).await;
+        assert_eq!(truncated.unwrap_err(), "bad_request: Only part of the .torrent file arrived. Add it again.");
+        assert!(c.call("downloads.startUpload", json!({ "uploadId": "e" })).await.unwrap_err().starts_with("not_found"));
+
+        // Junk instead of base64, and an empty piece.
+        let junk = c.call("downloads.upload", json!({ "uploadId": "f", "offset": 0, "size": 10, "data": "not base64!" })).await;
+        assert!(junk.unwrap_err().starts_with("bad_request"));
+        let empty = c.call("downloads.upload", json!({ "uploadId": "f", "offset": 0, "size": 10, "data": "" })).await;
+        assert!(empty.unwrap_err().starts_with("bad_request"));
+
+        // An id the contract doesn't allow: empty, or longer than 64.
+        for id in [String::new(), "i".repeat(65)] {
+            let refused = c.call("downloads.upload", json!({ "uploadId": id, "offset": 0, "size": 10, "data": "AAAA" })).await;
+            assert_eq!(refused.unwrap_err(), "bad_request: uploadId: 1 to 64 characters");
+        }
+        let longest = "i".repeat(64);
+        let accepted = c.call("downloads.upload", json!({ "uploadId": longest, "offset": 0, "size": 10, "data": "AAAA" })).await;
+        assert_eq!(accepted.unwrap()["received"], 3);
+
+        // None of it started anything; the whole file in order still does.
+        assert_eq!(upload(&mut c, "g", &torrent).await.unwrap()["name"], "Ordered");
+        assert_eq!(torrent_downloads(&mut c).await, ["Ordered"]);
+    }
+
+    #[tokio::test]
+    async fn two_files_at_once_arrive_side_by_side() {
+        let h = harness();
+        let mut c = Client::new(&h.app, false);
+        let one = torrent_of_size(1_200_000, "One");
+        let two = torrent_of_size(900_000, "Two");
+        for i in 0..3 {
+            send_pieces(&mut c, "one", &one, i..i + 1).await.unwrap();
+            send_pieces(&mut c, "two", &two, i..i + 1).await.unwrap();
+        }
+        assert_eq!(c.ok("downloads.startUpload", json!({ "uploadId": "two" })).await["name"], "Two");
+        assert_eq!(c.ok("downloads.startUpload", json!({ "uploadId": "one" })).await["name"], "One");
+    }
+
+    #[tokio::test]
+    async fn pieces_belong_to_their_connection_and_leave_with_it() {
+        let h = harness();
+        let torrent = torrent_of_size(800_000, "Mine");
+        let mut first = Client::new(&h.app, false);
+        send_pieces(&mut first, "x", &torrent, 0..2).await.unwrap();
+        let mut other = Client::with_key(&h.app, Some("another-browser"));
+        assert!(other.call("downloads.startUpload", json!({ "uploadId": "x" })).await.unwrap_err().starts_with("not_found"));
+
+        // The connection drops mid-transfer: what arrived is let go, and the file is added again from the start.
+        send_pieces(&mut first, "y", &torrent, 0..1).await.unwrap();
+        first.session.close();
+        let mut again = Client::new(&h.app, false);
+        assert!(send_pieces(&mut again, "y", &torrent, 1..2).await.unwrap_err().starts_with("not_found"));
+        assert_eq!(upload(&mut again, "y", &torrent).await.unwrap()["name"], "Mine");
+    }
 }

@@ -6,8 +6,11 @@ use serde::{Deserialize, Serialize};
 use super::encoding::{from_base64url, to_base64url};
 
 pub const CONNECTION_ID_BYTES: usize = 16;
-/// Largest payload the relay forwards; bigger frames close the sender.
+/// Largest message the dashboard sends, the same on the relay and the local socket.
 pub const MAX_RELAY_FRAME: usize = 1024 * 1024;
+/// Largest payload the relay forwards: a message of MAX_RELAY_FRAME, sealed. Bigger frames close the
+/// sender (`apps/worker/src/relay.ts`).
+pub const MAX_SEALED_FRAME: usize = MAX_RELAY_FRAME + 64;
 
 /// The device was removed from its account: it forgets its pairing.
 pub const CLOSE_DEVICE_REMOVED: u16 = 4001;
@@ -47,6 +50,10 @@ pub fn wrap_for_device(connection_id: &str, payload: &[u8]) -> anyhow::Result<Ve
     Ok(frame)
 }
 
+/// The connection id and payload of a frame from the relay; None for a frame too short, or larger
+/// than the relay passes.
 pub fn unwrap_from_device(frame: &[u8]) -> Option<(String, &[u8])> {
-    (frame.len() > CONNECTION_ID_BYTES).then(|| (to_base64url(&frame[..CONNECTION_ID_BYTES]), &frame[CONNECTION_ID_BYTES..]))
+    (CONNECTION_ID_BYTES + 1..=CONNECTION_ID_BYTES + MAX_SEALED_FRAME)
+        .contains(&frame.len())
+        .then(|| (to_base64url(&frame[..CONNECTION_ID_BYTES]), &frame[CONNECTION_ID_BYTES..]))
 }

@@ -1,4 +1,4 @@
-import type { ClientMessage, ServerMessage } from '@magnetar/protocol'
+import type { ServerMessage } from '@magnetar/protocol'
 import {
   decodeHandshake, encodeHandshake, FRAME_HANDSHAKE, FRAME_SEALED, startBrowserHandshake, type E2ESession,
   type PendingBrowserHandshake,
@@ -112,14 +112,14 @@ export class RelayConnection extends RpcClient {
     if (socket === this.socket && socket.readyState === WebSocket.OPEN) socket.send(encodeHandshake(this.handshake.hello))
   }
 
-  protected transmit(message: ClientMessage): void {
+  protected async transmit(text: string): Promise<void> {
     const session = this.session
     const socket = this.socket
-    if (!session || !socket) return
+    if (!session || socket?.readyState !== WebSocket.OPEN) throw new Error('Not connected to the device')
     // seal() numbers frames in call order, so sends stay ordered.
-    void session.seal(message).then(frame => {
-      if (socket.readyState === WebSocket.OPEN) socket.send(frame)
-    }).catch(() => {})
+    const frame = await session.sealText(text)
+    if (socket.readyState !== WebSocket.OPEN) throw new Error('The connection closed')
+    socket.send(frame)
   }
 
   close(): void {

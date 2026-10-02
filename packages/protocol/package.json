@@ -8,9 +8,11 @@
     "./relay": "./src/relay.ts",
     "./cloud": "./src/cloud.ts",
     "./bytes": "./src/bytes.ts",
+    "./base64": "./src/base64.ts",
     "./scrub": "./src/scrub.ts",
     "./merge": "./src/merge.ts",
     "./limits": "./src/limits.ts",
+    "./torrent-upload": "./src/torrentUpload.ts",
     "./console-pages": "./src/consolePages.ts",
     "./device-name": "./src/deviceName.ts"
   },

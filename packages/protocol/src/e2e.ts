@@ -146,9 +146,14 @@ export class E2ESession {
 
   /** Encrypts a JSON value into a sealed frame. */
   seal(value: unknown): Promise<Uint8Array<ArrayBuffer>> {
+    return this.sealText(JSON.stringify(value))
+  }
+
+  /** Encrypts a JSON value already serialized as `json` into a sealed frame. */
+  sealText(json: string): Promise<Uint8Array<ArrayBuffer>> {
     const run = this.sealChain.then(async () => {
       const counter = this.sendCounter++
-      const plaintext = encoder.encode(JSON.stringify(value))
+      const plaintext = encoder.encode(json)
       const ciphertext = new Uint8Array(await subtle.encrypt(
         { name: 'AES-GCM', iv: this.iv(DIRECTION[this.role], counter), additionalData: this.keys.transcriptHash },
         this.keys.send, plaintext,

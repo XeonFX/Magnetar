@@ -61,3 +61,35 @@ test('a bad magnet link is refused with the reason, and the dialog stays open', 
   await expect(add.getByRole('alert')).toContainText('no valid info hash')
   await expect(add).toBeVisible()
 })
+
+/** A valid .torrent of exactly `size` bytes: one small file, padded with a comment. */
+function torrentFile(name: string, size: number): { name: string; mimeType: string; buffer: Buffer } {
+  const info = Buffer.concat([Buffer.from(`d6:lengthi16384e4:name${name.length}:${name}12:piece lengthi16384e6:pieces20:`), Buffer.alloc(20, name.length), Buffer.from('e')])
+  const wrap = (comment: number) => Buffer.concat([Buffer.from(`d7:comment${comment}:${'x'.repeat(comment)}4:info`), info, Buffer.from('e')])
+  let comment = size - wrap(0).length
+  while (wrap(comment).length > size) comment--
+  const buffer = wrap(comment)
+  if (buffer.length !== size) throw new Error(`no torrent of exactly ${size} bytes`)
+  return { name: `${name}.torrent`, mimeType: 'application/x-bittorrent', buffer }
+}
+
+test('.torrent files up to 4 MB start, and larger ones are refused as soon as they are picked', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  const add = dialog(page, 'Add magnet links or torrent files')
+  const picker = add.locator('input[type=file]')
+
+  await picker.setInputFiles([torrentFile('Too large', 4 * 1024 * 1024 + 1)])
+  await expect(add.getByRole('alert')).toHaveText('Magnetar takes .torrent files of up to 4 MB. Left out: Too large.torrent')
+  await expect(add.getByRole('listitem')).toHaveCount(0)
+  await expect(add.getByRole('button', { name: 'Download', exact: true })).toBeDisabled()
+
+  // 495 KB, the size of an Ubuntu desktop image's, goes whole; 4 MB exactly goes in pieces.
+  await picker.setInputFiles([torrentFile('Ubuntu desktop', 495_000), torrentFile('Season pack', 4 * 1024 * 1024)])
+  await expect(add.getByRole('alert')).toBeHidden()
+  await add.getByRole('button', { name: 'Download 2' }).click()
+  await expect(page.getByText('Started 2 downloads')).toBeVisible()
+  await expect(add).toBeHidden()
+  await expect(page.locator('li').filter({ hasText: 'Ubuntu desktop' })).toHaveCount(1)
+  await expect(page.locator('li').filter({ hasText: 'Season pack' })).toHaveCount(1)
+})

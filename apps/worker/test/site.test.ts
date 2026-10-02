@@ -31,7 +31,7 @@ describe('the website API', () => {
       const response = await fetchWith({ ...env, ASSETS: assets } as Env, new Request(`http://localhost:8790${path}`))
       return { response, asked: [...asked] }
     }
-    for (const path of ['/', '/MacBook-Pro', '/MacBook-Pro/search/house+of+the+dragon?res=720p', '/MacBook-Pro/search/AC%2FDC+%2B:1', '/MacBook-Pro/search/s01e01+1080p.mkv', '/d/d_x/settings']) {
+    for (const path of ['/', '/MacBook-Pro', '/MacBook-Pro/search/house+of+the+dragon?res=720p', '/MacBook-Pro/search/AC%2FDC+%2B:1', '/MacBook-Pro/search/s01e01+1080p.mkv', '/MacBook-Pro/search/...', '/MacBook-Pro/search?q=..&res=720p', '/d/d_x/settings']) {
       const { response, asked } = await get(path)
       expect([response.status, await response.text(), asked], path).toEqual([200, 'asset', ['/']])
       expect(response.headers.get('x-content-type-options')).toBe('nosniff')
