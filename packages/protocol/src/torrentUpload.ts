@@ -5,6 +5,7 @@
  * sealed call, and `downloads.startUpload` then starts it; the device checks that the pieces arrive
  * in order and add up to the size announced with each.
  */
+import { toBase64 } from './base64.ts'
 import { MAX_TORRENT_FILE, TORRENT_UPLOAD_CHUNK } from './limits.ts'
 import type { RpcParams } from './rpc.ts'
 
@@ -32,14 +33,4 @@ export function torrentCalls(bytes: Uint8Array, uploadId: string, folder?: strin
     }
     yield { method: 'downloads.startUpload', params: { uploadId, ...at } }
   })()
-}
-
-/** Standard base64, natively where the runtime can. */
-export function toBase64(bytes: Uint8Array): string {
-  const native = (bytes as Uint8Array & { toBase64?: () => string }).toBase64
-  if (native) return native.call(bytes)
-  let binary = ''
-  // String.fromCharCode takes its bytes as arguments: a slice at a time stays under the stack limit.
-  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-  return btoa(binary)
 }

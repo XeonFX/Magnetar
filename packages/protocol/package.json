@@ -8,6 +8,7 @@
     "./relay": "./src/relay.ts",
     "./cloud": "./src/cloud.ts",
     "./bytes": "./src/bytes.ts",
+    "./base64": "./src/base64.ts",
     "./scrub": "./src/scrub.ts",
     "./merge": "./src/merge.ts",
     "./limits": "./src/limits.ts",

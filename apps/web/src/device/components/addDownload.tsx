@@ -58,8 +58,8 @@ export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; i
   const [folder, setFolder] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  /** Share sent so far (0–1) of each file going in pieces, by fileKey. */
-  const [progress, setProgress] = useState<Record<string, number>>({})
+  /** The file going in pieces right now (fileKey), and the share of it sent (0–1). */
+  const [progress, setProgress] = useState<{ key: string; sent: number } | null>(null)
   const picker = useRef<HTMLInputElement>(null)
   /** Counts the times the dialog opened, so a run started before it closed leaves the new one alone. */
   const opened = useRef(0)
@@ -74,7 +74,7 @@ export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; i
     setFiles(files)
     setPaths(initial?.paths ?? [])
     setFolder(null)
-    setProgress({})
+    setProgress(null)
     setBusy(false)
     refuse(tooBig)
   }, [open, initial])
@@ -119,17 +119,13 @@ export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; i
       const key = fileKey(file)
       try {
         const bytes = new Uint8Array(await file.arrayBuffer())
-        await sendTorrent(connection, bytes, target, sent => { if (stillOpen()) setProgress(p => ({ ...p, [key]: sent / bytes.length })) })
+        await sendTorrent(connection, bytes, target, sent => { if (stillOpen()) setProgress({ key, sent: sent / file.size }) })
         started++
       } catch (e) {
         failures.push(`${file.name}: ${describe(t, e)}`)
         left.files.push(file)
       } finally {
-        if (stillOpen()) setProgress(p => {
-          const next = { ...p }
-          delete next[key]
-          return next
-        })
+        if (stillOpen()) setProgress(null)
       }
     }
     if (started > 0) toast(started === 1 ? t('add.startedOne') : t('add.started', started), 'success')
@@ -182,7 +178,7 @@ export function AddDownloadDialog({ open, initial, onClose }: { open: boolean; i
       {files.length > 0 && (
         <ul className="mt-3 flex flex-col gap-1">
           {files.map(f => {
-            const sent = progress[fileKey(f)]
+            const sent = progress?.key === fileKey(f) ? progress.sent : undefined
             return (
               <li key={fileKey(f)} className="flex flex-col gap-1 rounded-field bg-base-200 px-3 py-1.5 text-sm">
                 <div className="flex items-center gap-2">

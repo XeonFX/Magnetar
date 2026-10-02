@@ -247,6 +247,7 @@ async fn a_stream_link_serves_byte_ranges_of_one_file_and_nothing_else() {
 mod dashboard_socket {
     use futures::{SinkExt, StreamExt};
     use magnetar::downloads::manager::MAX_TORRENT_FILE;
+    use magnetar::downloads::upload::TORRENT_UPLOAD_CHUNK as PIECE;
     use magnetar::protocol::encoding::to_base64;
     use magnetar::protocol::relay::MAX_RELAY_FRAME;
     use tokio_tungstenite::tungstenite::Message;
@@ -311,11 +312,11 @@ mod dashboard_socket {
         let mut socket = open(&base).await;
         let torrent = torrent_of_size(MAX_TORRENT_FILE, "Season pack");
         let mut id = 0;
-        for (i, piece) in torrent.chunks(512 * 1024).enumerate() {
+        for (i, piece) in torrent.chunks(PIECE).enumerate() {
             id += 1;
-            let params = json!({ "uploadId": "s", "offset": i * 512 * 1024, "size": torrent.len(), "data": to_base64(piece) });
+            let params = json!({ "uploadId": "s", "offset": i * PIECE, "size": torrent.len(), "data": to_base64(piece) });
             let answer = call(&mut socket, id, "downloads.upload", params).await.unwrap();
-            assert_eq!(answer["result"]["received"], (i * 512 * 1024 + piece.len()) as u64);
+            assert_eq!(answer["result"]["received"], (i * PIECE + piece.len()) as u64);
         }
         let started = call(&mut socket, id + 1, "downloads.startUpload", json!({ "uploadId": "s" })).await.unwrap();
         assert_eq!(started["result"]["name"], "Season pack");
@@ -325,14 +326,13 @@ mod dashboard_socket {
     async fn a_socket_closed_mid_transfer_lets_the_pieces_go() {
         let (_app, base, _dir) = start().await;
         let torrent = torrent_of_size(700_000, "Dropped");
-        let first = json!({ "uploadId": "d", "offset": 0, "size": torrent.len(), "data": to_base64(&torrent[..512 * 1024]) });
+        let first = json!({ "uploadId": "d", "offset": 0, "size": torrent.len(), "data": to_base64(&torrent[..PIECE]) });
         let mut socket = open(&base).await;
         call(&mut socket, 1, "downloads.upload", first).await.unwrap();
         socket.close(None).await.unwrap();
 
         let mut again = open(&base).await;
-        let rest =
-            json!({ "uploadId": "d", "offset": 512 * 1024, "size": torrent.len(), "data": to_base64(&torrent[512 * 1024..]) });
+        let rest = json!({ "uploadId": "d", "offset": PIECE, "size": torrent.len(), "data": to_base64(&torrent[PIECE..]) });
         assert_eq!(call(&mut again, 1, "downloads.upload", rest).await.unwrap()["error"]["code"], "not_found");
         assert_eq!(
             call(&mut again, 2, "downloads.startUpload", json!({ "uploadId": "d" })).await.unwrap()["error"]["code"],

@@ -26,10 +26,18 @@ const CALL_TIMEOUT_MS = 120_000
  * socket takes too, so the dashboard behaves the same on either.
  */
 const MAX_MESSAGE = MAX_RELAY_FRAME
-const encoder = new TextEncoder()
-
-/** The size of `text` in UTF-8 bytes, without encoding text that can't be near the limit. */
-const tooLarge = (text: string) => text.length > MAX_MESSAGE || (text.length * 3 > MAX_MESSAGE && encoder.encode(text).length > MAX_MESSAGE)
+/** Whether `text` is over MAX_MESSAGE bytes in UTF-8, counted without encoding it. */
+function tooLarge(text: string): boolean {
+  if (text.length > MAX_MESSAGE) return true
+  if (text.length * 3 <= MAX_MESSAGE) return false
+  let bytes = 0
+  for (let i = 0; i < text.length && bytes <= MAX_MESSAGE; i++) {
+    const code = text.charCodeAt(i)
+    // A surrogate pair is 4 bytes: 2 for each half.
+    bytes += code < 0x80 ? 1 : code < 0x800 || (code >= 0xd800 && code < 0xe000) ? 2 : 3
+  }
+  return bytes > MAX_MESSAGE
+}
 
 /**
  * Request/response and events over some message transport. The dashboard uses one of these per

@@ -26,8 +26,8 @@ Rust, the dashboard and website TypeScript. It can import everything from a Medi
   after 3 minutes instead of sitting on "Fetching metadata" forever. Updates pause active downloads only once the new
   version is downloaded and verified, and resume them when it starts; downloaded files are never touched.
 - **Add anything:** magnet links (paste one or many, or click one anywhere once Magnetar is the system's
-  handler) and `.torrent` files (pick, drop on the Downloads page, or open one). The add dialog always shows what
-  will start and where.
+  handler) and `.torrent` files of up to 4 MB (pick, drop on the Downloads page, or open one), on this computer or
+  through the website. The add dialog always shows what will start and where.
 - **Choose files** of a torrent (skip the extras of a season pack), see each file's progress, and show a download
   in Finder or Explorer.
 - **Play while downloading:** video and audio play in the browser, with the torrent's subtitles, fetching the

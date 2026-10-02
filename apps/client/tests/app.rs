@@ -383,12 +383,11 @@ async fn linked_browsers_ask_for_push_and_lose_it_with_their_key() {
 /// .torrent files through the dashboard: whole when small, in `downloads.upload` pieces when not.
 mod torrent_uploads {
     use magnetar::downloads::manager::MAX_TORRENT_FILE;
+    use magnetar::downloads::upload::TORRENT_UPLOAD_CHUNK as PIECE;
     use magnetar::protocol::encoding::to_base64;
 
     use super::common::torrent_of_size;
     use super::*;
-
-    const PIECE: usize = 512 * 1024;
 
     /// Sends `bytes` as pieces `from..to` of upload `id`; the bytes received after the last one.
     async fn send_pieces(c: &mut Client, id: &str, bytes: &[u8], pieces: std::ops::Range<usize>) -> Result<Value, String> {

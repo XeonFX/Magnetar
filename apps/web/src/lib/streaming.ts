@@ -1,3 +1,4 @@
+import { fromBase64 } from '@magnetar/protocol/base64'
 import { errorMessage } from './errors.ts'
 import type { RpcClient } from './rpcClient.ts'
 
@@ -6,16 +7,6 @@ export interface OpenedStream {
   url: string
   type: string
   close: () => void
-}
-
-/** Standard base64 to bytes, natively where the browser can (it is ~450 KB a read). */
-export function fromBase64(data: string): Uint8Array<ArrayBuffer> {
-  const native = (Uint8Array as unknown as { fromBase64?: (s: string) => Uint8Array<ArrayBuffer> }).fromBase64
-  if (native) return native(data)
-  const binary = atob(data)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return bytes
 }
 
 interface RelayStream {

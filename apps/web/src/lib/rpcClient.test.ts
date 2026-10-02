@@ -104,6 +104,12 @@ describe('a call to the device', () => {
     expect((await settledNow(connection.call('downloads.start', params))).error!.code).toBe('too_large')
   })
 
+  test('counts characters outside the BMP as their four UTF-8 bytes', async () => {
+    connection.call('downloads.start', paramsOfSize(MAX_RELAY_FRAME, '😀')).catch(() => {})
+    expect(Buffer.byteLength(socket.sent[0]!)).toBe(MAX_RELAY_FRAME)
+    expect((await settledNow(connection.call('downloads.start', paramsOfSize(MAX_RELAY_FRAME + 1, '😀')))).error!.code).toBe('too_large')
+  })
+
   test('fails at once when the socket closes before the answer', async () => {
     const pending = connection.call('downloads.upload', { uploadId: 'u', offset: 0, size: 10, data: 'AAAA' })
     socket.drop()

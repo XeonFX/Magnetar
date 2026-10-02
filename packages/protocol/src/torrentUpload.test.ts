@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest'
 import { MAX_TORRENT_FILE, TORRENT_UPLOAD_CHUNK } from './limits.ts'
 import { acceptBrowserHandshake, importBrowserKey, newBrowserKey, startBrowserHandshake } from './e2e.ts'
 import { MAX_RELAY_FRAME, MAX_SEALED_FRAME } from './relay.ts'
-import { toBase64, torrentCalls, type TorrentCall } from './torrentUpload.ts'
+import { torrentCalls, type TorrentCall } from './torrentUpload.ts'
 
 const KB = 1000
 const MiB = 1024 * 1024
@@ -114,14 +114,5 @@ describe('the calls that hand a .torrent file to the device', () => {
       expect(reassemble(calls).equals(bytes)).toBe(true)
       expect(largestMessage(calls)).toBeLessThanOrEqual(MAX_RELAY_FRAME)
     }), { numRuns: 12 })
-  })
-})
-
-describe('base64', () => {
-  test('matches the standard encoding for every length around the 3-byte groups and large inputs', () => {
-    for (const size of [0, 1, 2, 3, 4, 5, 32_767, 32_768, 32_769, 700_001]) {
-      const bytes = file(size, size)
-      expect(toBase64(bytes), String(size)).toBe(Buffer.from(bytes).toString('base64'))
-    }
   })
 })
