@@ -30,7 +30,7 @@ use crate::protocol::e2e::{
     E2ESession, FRAME_HANDSHAKE, FRAME_SEALED, Handshake, accept_browser_handshake, decode_handshake, encode_handshake,
     link_fragment,
 };
-use crate::protocol::encoding::{encode_uri_component, parse_iso, to_base64url};
+use crate::protocol::encoding::{encode_uri_component, iso, parse_iso, to_base64url};
 use crate::protocol::relay::{
     CLOSE_DEVICE_REMOVED, DeviceToRelay, RELAY_PING, RelayToDevice, unwrap_from_device, wrap_for_device,
 };
@@ -43,6 +43,7 @@ const MAX_BACKOFF: Duration = Duration::from_secs(60);
 const PING_EVERY: Duration = Duration::from_secs(30);
 const MAX_SESSIONS: usize = 16;
 const CLOUD_TIMEOUT: Duration = Duration::from_secs(15);
+const LINK_TTL: Duration = Duration::from_secs(10 * 60);
 
 struct Pairing {
     pairing_id: String,
@@ -188,6 +189,8 @@ impl RemoteService {
     }
 
     pub fn start(self: &Arc<Self>) {
+        // Links that went unused while the app was not running.
+        self.keys.revoke_expired();
         if self.device_id().is_some() && self.secrets.has(SecretName::DeviceToken) {
             self.connect();
         }
@@ -250,7 +253,7 @@ impl RemoteService {
             .await?,
         )
         .map_err(|e| ApiError::internal(e.to_string()))?;
-        let (key_id, key) = self.keys.mint("Browser used for pairing", false)?;
+        let (key_id, key) = self.keys.mint("Browser used for pairing", false, None)?;
         let url = format!(
             "{}/pair/{}#i={}&k={}",
             *CLOUD_URL,
@@ -365,12 +368,34 @@ impl RemoteService {
         Ok(self.status())
     }
 
-    pub fn link_browser(&self, label: Option<&str>) -> ApiResult<Value> {
+    /// Mints a key for another browser and returns the link that carries it. Unless a browser connects with it
+    /// within `LINK_TTL`, the key is deleted and the dashboards see it leave the list.
+    pub fn link_browser(self: &Arc<Self>, label: Option<&str>) -> ApiResult<Value> {
         let device_id = self.device_id().ok_or_else(|| ApiError::bad("Connect this device to your account first."))?;
         let label = label.map(str::trim).filter(|l| !l.is_empty()).unwrap_or("Linked browser");
-        let (key_id, key) = self.keys.mint(label, true)?;
+        let expires_at = iso(chrono::Utc::now() + LINK_TTL);
+        let (key_id, key) = self.keys.mint(label, true, Some(&expires_at))?;
         self.changed();
-        Ok(json!({ "url": format!("{}/link#{}", *CLOUD_URL, link_fragment(&device_id, &key_id, &key)), "keyId": key_id }))
+        let (service, unused, stop) = (self.clone(), key_id.clone(), self.stop.clone());
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = stop.cancelled() => {}
+                _ = tokio::time::sleep(LINK_TTL) => {
+                    if service.keys.revoke_unused(&unused) {
+                        service.changed();
+                    }
+                }
+            }
+        });
+        let url = format!("{}/link#{}", *CLOUD_URL, link_fragment(&device_id, &key_id, &key));
+        Ok(json!({ "url": url, "keyId": key_id, "expiresAt": expires_at }))
+    }
+
+    /// A browser opened a connection with its key: a link it came from is used now and no longer expires, and the
+    /// dashboards see when it was last used (the one that showed the link closes it).
+    fn browser_connected(&self, key_id: &str) {
+        self.keys.touch(key_id);
+        self.changed();
     }
 
     pub fn revoke_browser(&self, key_id: &str) -> RemoteStatusDto {
@@ -610,7 +635,9 @@ impl RemoteService {
                 connection.key_id = Some(kid.clone());
                 connection.session = Some(session);
                 connection.rpc = Some(rpc);
-                self.keys.touch(kid);
+                // The status takes the state lock.
+                drop(state);
+                self.browser_connected(kid);
             }
             Some(&FRAME_SEALED) => {
                 let (Some(session), Some(rpc)) = (&connection.session, &connection.rpc) else { return };
@@ -679,6 +706,86 @@ fn default_device_name() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::{Db, SecretBox};
+    use crate::events::Event;
+    use tokio::sync::broadcast;
+
+    fn linked_service() -> (Arc<RemoteService>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::open(&dir.path().join("magnetar.db")).unwrap();
+        let sealer = Arc::new(SecretBox::open(&dir.path().join("secret.key")).unwrap());
+        let kv = KeyValue(db.clone());
+        kv.set("remote.deviceId", Some("dev_1"));
+        let service = RemoteService::new(
+            kv,
+            Arc::new(SecretStore::new(db.clone(), sealer.clone())),
+            BrowserKeyStore::new(db, sealer),
+            EventBus::default(),
+            reqwest::Client::new(),
+            Weak::new(),
+        );
+        (Arc::new(service), dir)
+    }
+
+    /// The browsers the last `remote.changed` waiting on `events` listed, as (key id, last used).
+    fn last_listed(events: &mut broadcast::Receiver<Arc<Event>>) -> Option<Vec<(String, Option<String>)>> {
+        let mut last = None;
+        while let Ok(event) = events.try_recv() {
+            if event.name == "remote.changed" {
+                let browsers = event.data["browsers"].as_array().unwrap();
+                last = Some(
+                    browsers
+                        .iter()
+                        .map(|b| (b["keyId"].as_str().unwrap().to_owned(), b["lastSeenAt"].as_str().map(str::to_owned)))
+                        .collect(),
+                );
+            }
+        }
+        last
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_link_nobody_opens_expires_and_the_dashboards_see_it_go() {
+        let (service, _dir) = linked_service();
+        let mut events = service.events.subscribe();
+        let link = service.link_browser(Some("My phone")).unwrap();
+        let key_id = link["keyId"].as_str().unwrap().to_owned();
+        let expires_at = parse_iso(link["expiresAt"].as_str().expect("expiresAt")).unwrap();
+        let left = expires_at - chrono::Utc::now();
+        assert!(left > chrono::Duration::minutes(9) && left <= chrono::Duration::minutes(10), "{left}");
+        assert_eq!(last_listed(&mut events), Some(vec![(key_id.clone(), None)]));
+
+        tokio::time::sleep(LINK_TTL - Duration::from_secs(1)).await;
+        assert_eq!(last_listed(&mut events), None, "nothing changes before the link expires");
+        assert!(service.keys.lookup(&key_id).is_some());
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert_eq!(last_listed(&mut events), Some(vec![]));
+        assert!(service.keys.lookup(&key_id).is_none());
+        assert!(service.status().browsers.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_browser_connecting_with_a_link_is_announced_and_keeps_its_key() {
+        let (service, _dir) = linked_service();
+        let other = service.link_browser(None).unwrap()["keyId"].as_str().unwrap().to_owned();
+        let link = service.link_browser(Some("My phone")).unwrap();
+        let key_id = link["keyId"].as_str().unwrap().to_owned();
+        let mut events = service.events.subscribe();
+
+        service.browser_connected(&key_id);
+        let listed = last_listed(&mut events).expect("the dashboards are told");
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0], (other.clone(), None));
+        assert_eq!(listed[1].0, key_id);
+        assert!(listed[1].1.is_some(), "the linked browser shows when it was used");
+
+        tokio::time::sleep(LINK_TTL + Duration::from_secs(1)).await;
+        assert!(service.keys.lookup(&key_id).is_some(), "a used link does not expire");
+        assert!(service.keys.lookup(&other).is_none());
+        let names: Vec<_> = service.status().browsers.into_iter().map(|b| (b.key_id, b.label)).collect();
+        assert_eq!(names, [(key_id, "My phone".to_owned())]);
+    }
 
     #[test]
     fn an_approval_names_the_device_when_the_worker_does() {

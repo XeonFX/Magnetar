@@ -53,7 +53,8 @@ The relay must not be able to read or alter anything a dashboard and a device sa
 fragment (`#…`), which browsers never send to servers: in the pairing link, or in the QR code / link made by
 **Link a phone or another browser**. The browser imports K as a *non-extractable* HMAC key and keeps it in
 IndexedDB, so page script can use it but not read it back. The device keeps every K sealed at rest and can revoke
-each one.
+each one. A K made for a link stops working if no browser connects with it within 10 minutes; a browser's first
+connection tells every dashboard (`remote.changed`), which is how the dialog showing the link knows to close.
 
 **Handshake** (per connection; the browser side is `packages/protocol/src/e2e.ts`, the device side
 `apps/client/src/protocol/e2e.rs`, and both are checked against the same fixed vector,
