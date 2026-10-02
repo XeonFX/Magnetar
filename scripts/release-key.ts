@@ -9,11 +9,10 @@
  */
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { toBase64Url } from '../packages/protocol/src/base64.ts'
 
 const pair = (await crypto.subtle.generateKey('Ed25519', true, ['sign', 'verify'])) as CryptoKeyPair
-const publicKey = toBase64Url(new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey)))
-const privateKey = toBase64Url(new Uint8Array(await crypto.subtle.exportKey('pkcs8', pair.privateKey)))
+const publicKey = Buffer.from(await crypto.subtle.exportKey('raw', pair.publicKey)).toString('base64url')
+const privateKey = Buffer.from(await crypto.subtle.exportKey('pkcs8', pair.privateKey)).toString('base64url')
 writeFileSync(join(import.meta.dirname, '..', 'apps', 'client', 'release-public-key.txt'), publicKey + '\n')
 console.log('Wrote apps/client/release-public-key.txt — commit it.')
 console.log('\nStore this as the RELEASE_SIGNING_KEY repository secret, then forget it:\n')
