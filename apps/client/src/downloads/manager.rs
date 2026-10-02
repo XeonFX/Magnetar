@@ -692,11 +692,15 @@ impl DownloadManager {
         if let Some(removed) = removed {
             let _ = removed.await;
         }
-        if delete_files_too && let Some(metadata) = &metadata {
-            delete_files(metadata, &save_path);
-            if let Some(folder) = metadata.content_folder() {
-                remove_empty_tree(&save_path, folder);
-            }
+        if delete_files_too && let Some(metadata) = metadata {
+            // Thousands of files, maybe on a network drive: off the async workers.
+            let _ = tokio::task::spawn_blocking(move || {
+                delete_files(&metadata, &save_path);
+                if let Some(folder) = metadata.content_folder() {
+                    remove_empty_tree(&save_path, folder);
+                }
+            })
+            .await;
         }
         self.db.lock().execute("DELETE FROM downloads WHERE id = ?", [id])?;
         let _ = std::fs::remove_file(self.cached_torrent_path(&item.info_hash));
@@ -1282,7 +1286,7 @@ mod tests {
         std::fs::write(root.join("keep.txt"), "mine").unwrap();
 
         let single = metadata("single.iso", &["single.iso"]);
-        assert_eq!(single.content_directory(&root), None);
+        assert_eq!(single.content_folder(), None);
         delete_files(&single, &root);
         assert!(!root.join("single.iso").exists());
 
@@ -1384,5 +1388,32 @@ mod tests {
         assert!(std::fs::symlink_metadata(root.join("Show/e01.mkv")).is_err(), "the link goes");
         assert_eq!(std::fs::read_to_string(outside.join("e01.mkv")).unwrap(), "mine");
         assert!(!root.join("Show").exists(), "and the emptied folder with it");
+    }
+
+    #[test]
+    fn deleting_files_reaches_every_folder_whatever_order_they_are_listed_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("Downloads");
+        let files = ["A/1.mkv", "B/deep/er/1.srt", "A/2.mkv", "Linked/1.mkv", "B/deep/er/2.srt", "Linked/2.mkv", "top.nfo"];
+        for file in files.iter().filter(|f| !f.starts_with("Linked")) {
+            let path = root.join("Show").join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "x").unwrap();
+        }
+        let outside = dir.path().join("Documents");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("1.mkv"), "mine").unwrap();
+        std::fs::write(outside.join("2.mkv"), "mine").unwrap();
+        link_folder(&outside, &root.join("Show/Linked"));
+
+        let multi = metadata("Show", &files);
+        delete_files(&multi, &root);
+        for file in files.iter().filter(|f| !f.starts_with("Linked")) {
+            assert!(!root.join("Show").join(file).exists(), "{file} goes");
+        }
+        assert!(outside.join("1.mkv").exists() && outside.join("2.mkv").exists(), "files behind the link stay");
+        remove_empty_tree(&root, multi.content_folder().unwrap());
+        assert!(!root.join("Show/A").exists() && !root.join("Show/B").exists(), "emptied folders go");
+        assert!(root.join("Show").exists(), "the folder holding the link stays");
     }
 }

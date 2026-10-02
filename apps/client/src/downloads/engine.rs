@@ -61,13 +61,9 @@ impl Metadata {
         (self.files.len() > 1 && plain(folder)).then_some(folder)
     }
 
-    /// The torrent's own folder inside `save_path` (`content_folder`).
-    pub fn content_directory(&self, save_path: &Path) -> Option<PathBuf> {
-        self.content_folder().map(|folder| save_path.join(folder))
-    }
-
+    /// Where the torrent's files are: its `content_folder` inside `save_path`, or `save_path` itself.
     pub fn output_folder(&self, save_path: &Path) -> PathBuf {
-        self.content_directory(save_path).unwrap_or_else(|| save_path.to_path_buf())
+        self.content_folder().map_or_else(|| save_path.to_path_buf(), |folder| save_path.join(folder))
     }
 }
 
@@ -432,19 +428,29 @@ fn open_folder(dir: &Dir, relative: &Path) -> std::io::Result<Dir> {
 /// handle on the save folder without following links: a file behind a linked folder (pointing anywhere, even at another
 /// folder of the save folder) stays. A link planted in place of a file is removed, never followed.
 pub fn delete_files(metadata: &Metadata, save_path: &Path) {
-    let Ok(root) = Dir::open_ambient_dir(save_path, ambient_authority()) else { return };
+    let root = match Dir::open_ambient_dir(save_path, ambient_authority()) {
+        Ok(root) => root,
+        Err(error) => {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!("Could not delete the files in {}: {error}", save_path.display());
+            }
+            return;
+        }
+    };
     let base = metadata.content_folder().unwrap_or(Path::new(""));
-    // Files come grouped by folder: the folder of the previous file is usually the next one's too.
-    let mut open: Option<(PathBuf, Dir)> = None;
+    // Files come grouped by folder: the folder of the previous file is usually the next one's too. A folder that could
+    // not be opened (a link, or gone) is remembered as well, so its other files do not try again.
+    let mut open: Option<(PathBuf, Option<Dir>)> = None;
     for relative in metadata.files.iter().filter(|f| plain(f)) {
         let (Some(name), Some(parent)) = (relative.file_name(), relative.parent()) else { continue };
         let folder = base.join(parent);
         if open.as_ref().is_none_or(|(opened, _)| *opened != folder) {
-            open = open_folder(&root, &folder).ok().map(|dir| (folder.clone(), dir));
+            open = Some((folder.clone(), open_folder(&root, &folder).ok()));
         }
-        let Some((_, dir)) = &open else { continue };
+        let Some((_, Some(dir))) = &open else { continue };
+        // remove_file_or_symlink: on Windows a link to a folder (or a junction) is not a file to remove_file.
         if dir.symlink_metadata(name).is_ok_and(|m| !m.is_dir())
-            && let Err(error) = dir.remove_file(name)
+            && let Err(error) = dir.remove_file_or_symlink(name)
         {
             tracing::warn!("Could not delete {}: {error}", save_path.join(&folder).join(name).display());
         }
