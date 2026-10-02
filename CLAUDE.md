@@ -41,6 +41,8 @@ See docs/ARCHITECTURE.md before touching the relay, pairing or either `e2e` impl
   are served by the Worker (`page()` in `apps/worker/src/index.ts`) so the assets never respell an address.
 - Test and scratch runs: set `MAGNETAR_DATA_DIRECTORY` and `MAGNETAR_DOWNLOAD_FOLDER`, or they use the user's real folders.
 - `npm run e2e` drives the real app with Playwright; its specs end in `.e2e.ts` so Vitest skips them.
+- Every merge to `main` deploys the Worker (the `deploy` job in `.github/workflows/ci.yml`), migrations first: a new
+  migration must leave the Worker still running meanwhile working.
 - Dev ports: app 47820, Vite 5173, Worker 8790.
 - Merging: once the PR's pre-PR passes are done and CI is green, add the `automerge` label
   (`gh pr edit <n> --add-label automerge`). It merges itself with a merge commit as soon as every check
