@@ -1,9 +1,10 @@
 import { Download, Globe, Sparkles } from 'lucide-react'
 import { cloud } from '../lib/cloudApi.ts'
 import { useFormatDate, useT } from '../lib/i18n.tsx'
-import { useLatestRelease } from '../lib/releases.ts'
+import { latestRelease } from '../lib/releases.ts'
 import { BUILD } from '../lib/updates.ts'
-import { BuildVersion } from '../ui/BuildVersion.tsx'
+import { BuildVersion } from '@codefusion-cc/app-update/react'
+import { MAGNETAR_REPO } from '@magnetar/protocol/cloud'
 import { Changelog } from '../ui/Changelog.tsx'
 import { PageHeader, SettingGroup, SettingRow } from '../ui/controls.tsx'
 import { CloudFrame } from './CloudFrame.tsx'
@@ -13,14 +14,14 @@ import { DownloadApp } from './DownloadApp.tsx'
 export function AboutPage() {
   const t = useT()
   const formatDate = useFormatDate()
-  const latest = useLatestRelease()
+  const latest = latestRelease.useLatest()
   return (
     <CloudFrame>
       <PageHeader title={t('about.title')} summary={t('about.subtitle')} />
       <div className="flex flex-col gap-5">
         <SettingGroup>
           <SettingRow layout="wide" title={t('about.website')} description={t('about.websiteHint')}>
-            <span className="flex items-center gap-2 text-sm"><Globe size={16} className="muted" /><BuildVersion version={BUILD.version} commit={BUILD.commit} /></span>
+            <span className="flex items-center gap-2 text-sm"><Globe size={16} className="muted" /><BuildVersion repo={MAGNETAR_REPO} className="tabular-nums" commitClassName="link link-hover font-mono" version={BUILD.version} commit={BUILD.commit} /></span>
           </SettingRow>
           <SettingRow layout="wide" title={t('about.latestApp')}
             description={latest ? (latest.publishedAt ? t('about.latestAppHint', latest.version, formatDate(latest.publishedAt)) : t('settings.version', latest.version))

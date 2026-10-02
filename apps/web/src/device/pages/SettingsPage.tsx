@@ -23,7 +23,8 @@ import { NetworkSettings, SeedingRow, SpeedSettings } from '../components/transf
 import { AgentClients } from '../components/agentClients.tsx'
 import { useRun } from '../useRun.ts'
 import { Loading } from '../../ui/Loading.tsx'
-import { CommitLink } from '../../ui/BuildVersion.tsx'
+import { CommitLink } from '@codefusion-cc/app-update/react'
+import { MAGNETAR_REPO } from '@magnetar/protocol/cloud'
 import { Changelog } from '../../ui/Changelog.tsx'
 import { releasesProblemText } from '../../lib/releases.ts'
 import { cloud } from '../../lib/cloudApi.ts'
@@ -442,7 +443,7 @@ function AboutSection() {
       <SettingGroup>
         <SettingRow layout="stack" title={t('settings.version', updates.currentVersion)}
           description={<>
-            {updates.currentCommit && <span className="block">{t('settings.commit')} <CommitLink commit={updates.currentCommit} /></span>}
+            {updates.currentCommit && <span className="block">{t('settings.commit')} <CommitLink commit={updates.currentCommit} repo={MAGNETAR_REPO} className="link link-hover font-mono" /></span>}
             <span className={updates.available ? 'font-medium text-primary' : problem ? 'text-warning' : ''}>{statusText}</span>
           </>}>
           <div className="flex flex-wrap gap-2">

@@ -15,8 +15,6 @@ export const BUILD = { version: import.meta.env.VITE_APP_VERSION ?? 'dev', commi
 /** "v1.0.0 · abc1234": the build as CodeFusion Console's Failures page shows it. */
 export const BUILD_LABEL = `v${BUILD.version} · ${BUILD.commit}`
 
-/** The commit's page on GitHub, or null for a build outside git (`dev`, `unknown`). */
-export const commitUrl = (commit: string) => (/^[0-9a-f]{7,40}$/.test(commit) ? `https://github.com/${MAGNETAR_REPO}/commit/${commit}` : null)
 
 /**
  * Keeps an open page on the build that is deployed (@codefusion-cc/app-update): on the website after a Worker

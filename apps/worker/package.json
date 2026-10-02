@@ -10,7 +10,7 @@
     "typecheck": "tsc -p . && tsc -p test"
   },
   "dependencies": {
-    "@codefusion-cc/app-update": "^1.2.0",
+    "@codefusion-cc/app-update": "^0.1.0",
     "@codefusion-cc/base58": "^1.0.0",
     "@codefusion-cc/console": "^0.10.0",
     "@codefusion-cc/google-sign-in": "^1.0.0",

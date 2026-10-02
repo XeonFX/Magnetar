@@ -1,39 +1,15 @@
 import { isOutdated } from '@codefusion-cc/app-update'
+import { createLatestRelease } from '@codefusion-cc/app-update/react'
 import type { LatestReleaseDto, ReleasesProblem } from '@magnetar/protocol/cloud'
-import { useEffect, useState } from 'react'
 import { cloud } from './cloudApi.ts'
 import type { Translate } from './i18n.tsx'
 
-/** How long the website trusts what it last heard of the newest release (the Worker caches GitHub as long). */
-const LATEST_FOR_MS = 10 * 60_000
-/** How long it trusts not knowing: one failed request must not hide every update notice for ten minutes. */
-const UNKNOWN_FOR_MS = 30_000
-let latest: { until: number; release: Promise<LatestReleaseDto | null> } | null = null
-
-/** The newest release, shared by every caller on the page and asked again after ten minutes (30 s after a failure); null when unknown. */
-export function latestRelease(now = Date.now()): Promise<LatestReleaseDto | null> {
-  if (!latest || now > latest.until) {
-    const entry = { until: now + LATEST_FOR_MS, release: cloud.latestRelease().catch(() => null) }
-    void entry.release.then(release => { if (!release) entry.until = now + UNKNOWN_FOR_MS })
-    latest = entry
-  }
-  return latest.release
-}
-
 /**
- * The newest release of the app, on the website (`undefined` while asked, null when GitHub couldn't say). On a
- * device's own dashboard the device knows it itself (`updates.status`), so `enabled` is false there.
+ * The newest release of the app, as the website's Worker says, read once for every component on the page (again
+ * after ten minutes, 30 s after a failure). On a device's own dashboard the device knows it itself
+ * (`updates.status`), so its components pass `enabled` false to `useLatest`.
  */
-export function useLatestRelease(enabled = true): LatestReleaseDto | null | undefined {
-  const [release, setRelease] = useState<LatestReleaseDto | null | undefined>(undefined)
-  useEffect(() => {
-    if (!enabled) return
-    let cancelled = false
-    void latestRelease().then(r => !cancelled && setRelease(r))
-    return () => { cancelled = true }
-  }, [enabled])
-  return enabled ? release : null
-}
+export const latestRelease = createLatestRelease<LatestReleaseDto>(cloud.latestRelease)
 
 /**
  * The version to offer the app behind a dashboard, or null: the one the app found itself, else the newest release

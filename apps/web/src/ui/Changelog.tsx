@@ -1,7 +1,8 @@
-import { compareVersions, parseReleaseNotes, type NotesBlock, type NotesInline } from '@codefusion-cc/app-update'
+import { compareVersions, parseReleaseNotes } from '@codefusion-cc/app-update'
+import { ReleaseNotes, type ReleaseNotesClasses } from '@codefusion-cc/app-update/react'
 import type { ReleaseDto, ReleasesDto } from '@magnetar/protocol'
 import { ExternalLink, RefreshCw } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useFormatDate, useT } from '../lib/i18n.tsx'
 import { releasesProblemText } from '../lib/releases.ts'
 import { MAGNETAR_REPO } from '@magnetar/protocol/cloud'
@@ -86,7 +87,7 @@ function Release({ release, running }: { release: ReleaseDto; running?: string |
         <span className="flex-1" />
         {release.publishedAt && <time className="muted text-xs" dateTime={release.publishedAt}>{formatDate(release.publishedAt)}</time>}
       </header>
-      {blocks.length ? <ReleaseNotes blocks={blocks} /> : <p className="muted text-sm">{t('changelog.noNotes')}</p>}
+      {blocks.length ? <ReleaseNotes notes={blocks} classes={NOTES_CLASSES} /> : <p className="muted text-sm">{t('changelog.noNotes')}</p>}
       <a className="link link-hover muted mt-3 inline-flex items-center gap-1 text-xs" href={release.url} target="_blank" rel="noreferrer noopener">
         <ExternalLink size={12} />{t('changelog.onGitHub')}
       </a>
@@ -94,40 +95,15 @@ function Release({ release, running }: { release: ReleaseDto; running?: string |
   )
 }
 
-/** Release notes as the page's own elements: text only, links only where `parseReleaseNotes` allows them. */
-export function ReleaseNotes({ blocks }: { blocks: NotesBlock[] }) {
-  return (
-    <div className="flex flex-col gap-2 text-sm">
-      {blocks.map((block, i) => {
-        switch (block.type) {
-          case 'heading':
-            return <h4 key={i} className="muted mt-1 text-xs font-semibold uppercase tracking-wide">{inlines(block.content)}</h4>
-          case 'paragraph':
-            return <p key={i} className="break-words">{inlines(block.content)}</p>
-          case 'list': {
-            const List = block.ordered ? 'ol' : 'ul'
-            return (
-              <List key={i} className={`flex flex-col gap-1 pl-5 ${block.ordered ? 'list-decimal' : 'list-disc'}`}>
-                {block.items.map((item, j) => <li key={j} className="break-words">{inlines(item)}</li>)}
-              </List>
-            )
-          }
-          case 'code':
-            return <pre key={i} className="overflow-x-auto rounded-field bg-base-200 p-3 text-xs"><code>{block.text}</code></pre>
-        }
-      })}
-    </div>
-  )
-}
-
-function inlines(content: NotesInline[]): ReactNode {
-  return content.map((inline, i) => {
-    switch (inline.type) {
-      case 'text': return inline.text
-      case 'strong': return <strong key={i}>{inline.text}</strong>
-      case 'emphasis': return <em key={i}>{inline.text}</em>
-      case 'code': return <code key={i} className="rounded bg-base-200 px-1 text-[0.85em]">{inline.text}</code>
-      case 'link': return <a key={i} className="link" href={inline.href} target="_blank" rel="noreferrer noopener">{inline.text}</a>
-    }
-  })
+/** The app's look for release notes. */
+const NOTES_CLASSES: ReleaseNotesClasses = {
+  root: 'flex flex-col gap-2 text-sm',
+  heading: 'muted mt-1 text-xs font-semibold uppercase tracking-wide',
+  paragraph: 'break-words',
+  list: 'flex flex-col gap-1 pl-5 list-disc',
+  orderedList: 'flex flex-col gap-1 pl-5 list-decimal',
+  item: 'break-words',
+  code: 'overflow-x-auto rounded-field bg-base-200 p-3 text-xs',
+  inlineCode: 'rounded bg-base-200 px-1 text-[0.85em]',
+  link: 'link',
 }
