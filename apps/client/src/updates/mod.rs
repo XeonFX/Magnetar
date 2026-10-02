@@ -1,9 +1,9 @@
 //! Checks GitHub Releases every 6 hours, tells once per new version (an OS notification with an
 //! Install button, and the notification channels), and installs in place: the macOS .app bundle is
 //! swapped by a helper after this process exits (with rollback), the Windows/Linux executable is
-//! renamed aside and replaced (put back if that or starting the new one fails). Every install needs the manifest signature to verify against the key
-//! built into this binary, so a swapped asset *and* manifest are still refused. The releases' notes
-//! are kept for the dashboard's changelog.
+//! renamed aside and replaced (put back if that or starting the new one fails). Every install needs
+//! the manifest signature to verify against the key built into this binary, so a swapped asset *and*
+//! manifest are still refused. The releases' notes are kept for the dashboard's changelog.
 
 mod version;
 
@@ -585,7 +585,8 @@ impl UpdateService {
         self.downloads.pause_for_update().await;
         let swapped = match mac_installer {
             Some(installer) => installer.launch(),
-            None => install_executable(&asset_path),
+            // Copies across volumes and waits for the new version to start: off the async workers.
+            None => tokio::task::spawn_blocking(move || install_executable(&asset_path)).await?,
         };
         if swapped.is_err() {
             self.downloads.resume_after_update();
@@ -721,14 +722,33 @@ impl SwapFs for RealFs {
 /// beside it, swap them, start the new one and let it delete the old one on start-up.
 fn install_executable(new_path: &Path) -> anyhow::Result<()> {
     swap_executable(&RealFs, &std::env::current_exe()?, new_path, |installed| {
-        crate::system::hidden_command(installed)
+        let mut child = crate::system::hidden_command(installed)
             .env("MAGNETAR_WAIT_FOR_PID", std::process::id().to_string())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
-            .spawn()
-            .map(|_| ())
+            .spawn()?;
+        confirm_started(&mut child, STARTED_WITHIN)
     })
+}
+
+/// How long a just-started new version must keep running for its start to count. It waits for this process to exit,
+/// so it only ends sooner when it cannot run at all (a library the loader can't find, a wrong architecture).
+const STARTED_WITHIN: Duration = Duration::from_secs(1);
+
+/// Fails if `child` ends unsuccessfully within `within`. Ending successfully is not a failure: that is a new version
+/// that found another Magnetar running and handed over to it.
+fn confirm_started(child: &mut std::process::Child, within: Duration) -> std::io::Result<()> {
+    let deadline = std::time::Instant::now() + within;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return if status.success() { Ok(()) } else { Err(std::io::Error::other(format!("it exited at once ({status})"))) };
+        }
+        if std::time::Instant::now() >= deadline {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 /// Swaps the executable at `current` for `new_path` and starts it, so that launching Magnetar keeps working whatever
@@ -764,12 +784,11 @@ fn swap_executable(
     let _ = fs.remove(&staged);
     let _ = fs.remove(current);
     if let Err(restore) = fs.rename(&previous, current) {
-        tracing::error!("Could not put {} back after a failed update: {restore}", previous.display());
-        return Err(error.context(format!(
-            "and the installed version could not be put back: it is at {}, rename it to {}",
+        return Err(anyhow::anyhow!(
+            "{error:#}, and the installed version could not be put back ({restore}): it is at {}, rename it to {}",
             previous.display(),
             current.display()
-        )));
+        ));
     }
     Err(error)
 }
@@ -936,6 +955,21 @@ mod tests {
     }
 
     #[test]
+    fn an_update_from_another_volume_is_copied_beside_the_installed_one_and_made_executable() {
+        let install = Install::new();
+        // The first rename (the download beside the installed one) fails as it does across volumes.
+        let (result, started) = install.swap(&FailAt::new(&[("rename", 1)]), false);
+        result.unwrap();
+        assert_eq!(started, ["new"]);
+        assert_eq!(install.installed(), files(&[("Magnetar", "new"), ("Magnetar.previous", "old")]));
+        #[cfg(unix)]
+        assert_eq!(
+            std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&install.current).unwrap().permissions()) & 0o111,
+            0o111
+        );
+    }
+
+    #[test]
     fn a_failed_update_always_leaves_the_installed_executable_runnable_in_place() {
         // Every step that can fail. Renames, in order: the download beside the installed one (fails across volumes, then
         // it is copied), the installed one aside, the new one in place.
@@ -963,8 +997,35 @@ mod tests {
         let (result, started) = install.swap(&fs, true);
         let error = format!("{:#}", result.unwrap_err());
         assert_eq!(started, ["new"]);
+        assert!(error.starts_with("Could not start the new version"), "the message starts with what failed: {error}");
+        assert!(error.contains("rename failed on purpose"), "the message says why the old version stayed aside: {error}");
         assert!(error.contains("Magnetar.previous"), "the message says where the old version is: {error}");
-        assert_eq!(std::fs::read_to_string(install.current.with_file_name("Magnetar.previous")).unwrap(), "old");
+        // The new version that did not start is gone, so nothing half-working is left at the installed path.
+        assert_eq!(install.installed(), files(&[("Magnetar.previous", "old")]));
+    }
+
+    #[cfg(unix)]
+    fn shell(script: &str) -> std::process::Child {
+        std::process::Command::new("/bin/sh").args(["-c", script]).spawn().unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_new_version_that_dies_at_once_is_a_failed_start() {
+        let error = confirm_started(&mut shell("exit 127"), Duration::from_secs(5)).unwrap_err();
+        assert!(error.to_string().contains("127"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_new_version_still_running_or_handing_over_has_started() {
+        let mut waiting = shell("sleep 5");
+        let begun = std::time::Instant::now();
+        confirm_started(&mut waiting, Duration::from_millis(200)).unwrap();
+        assert!(begun.elapsed() < Duration::from_secs(2), "returns once the window is over, not when the process ends");
+        let _ = waiting.kill();
+        let _ = waiting.wait();
+        confirm_started(&mut shell("exit 0"), Duration::from_secs(5)).unwrap();
     }
 
     #[test]
