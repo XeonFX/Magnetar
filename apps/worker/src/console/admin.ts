@@ -1,5 +1,5 @@
 import type { ActionCall, Actor, AppRecord, ListQuery, ListResult, ResourceHandlers } from '@codefusion-cc/console/worker'
-import { removeDevice } from '../devices.ts'
+import { removeDevice, signOutDashboards } from '../devices.ts'
 import type { Env } from '../env.ts'
 
 /**
@@ -110,6 +110,8 @@ export const consoleResources: Record<string, ResourceHandlers<Env>> = {
     actions: {
       'sign-out': async ({ env, ids }: ActionCall<Env>) => {
         const result = await env.DB.prepare(`DELETE FROM sessions WHERE user_id IN (${marks(ids)})`).bind(...ids).run()
+        // Dashboards already open on the accounts' devices end with their sessions; the devices stay paired.
+        await signOutDashboards(env, ids)
         return { ok: true, message: `Signed out ${count(result.meta.changes, 'browser', 'browsers')}` }
       },
       delete: async ({ env, ids }: ActionCall<Env>) => {

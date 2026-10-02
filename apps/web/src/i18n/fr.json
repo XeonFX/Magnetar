@@ -278,6 +278,7 @@
     "remote.rejectedKey": "Ce navigateur n’est plus associé à l’appareil.",
     "remote.rejectedRefused": "L’appareil a refusé la connexion.",
     "remote.removed": "Cet appareil n’est plus associé à votre compte.",
+    "remote.signedOut": "Vous avez été déconnecté. Reconnectez-vous pour accéder à cet appareil.",
     "remote.handshakeFailed": "L’appareil n’a pas pu prouver son identité. La connexion n’a pas été ouverte.",
     "cloud.heroTitle": "Vos téléchargements, où que vous soyez",
     "cloud.heroText": "Recherchez, téléchargez et suivez des séries sur votre propre ordinateur depuis n’importe quel navigateur ou téléphone.",

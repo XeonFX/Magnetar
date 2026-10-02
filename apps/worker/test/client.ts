@@ -46,6 +46,14 @@ export async function signIn(): Promise<User> {
   return { email, headers: { cookie: `${SESSION_COOKIE}=${session}`, origin: ORIGIN } }
 }
 
+/** Signs `user` in again, as a second browser would: the same account, another session. */
+export async function signInAgain(user: User): Promise<User> {
+  const response = await call('/api/auth/dev', { method: 'POST', headers: { origin: ORIGIN }, json: { email: user.email } })
+  const session = cookieValue(response, SESSION_COOKIE)
+  if (!session) throw new Error('No session cookie')
+  return { email: user.email, headers: { cookie: `${SESSION_COOKIE}=${session}`, origin: ORIGIN } }
+}
+
 /** The id of `user`'s account. */
 export const userId = async (user: User) =>
   (await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(user.email).first<{ id: string }>())!.id

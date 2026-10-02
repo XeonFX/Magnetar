@@ -42,8 +42,8 @@ export class RelayConnection extends RpcClient {
       if (this.pingTimer) clearInterval(this.pingTimer)
       if (this.socket !== socket || this.closed) return
       this.session = null
-      if (event.code === RELAY_CLOSE.notOnAccount) {
-        this.setState({ status: 'rejected', reason: 'remote.removed' })
+      if (event.code === RELAY_CLOSE.notOnAccount || event.code === RELAY_CLOSE.signedOut) {
+        this.setState({ status: 'rejected', reason: event.code === RELAY_CLOSE.signedOut ? 'remote.signedOut' : 'remote.removed' })
         return
       }
       this.setState({ status: 'reconnecting' })

@@ -1,7 +1,10 @@
+import { runDurableObjectAlarm } from 'cloudflare:test'
 import { env } from 'cloudflare:workers'
 import { CONNECTION_ID_BYTES, MAX_SEALED_FRAME, RELAY_CLOSE, RELAY_PING, RELAY_PONG, unwrapFromDevice, wrapForDevice } from '@magnetar/protocol/relay'
 import { describe, expect, test } from 'vitest'
-import { call, connectBrowser, connectDevice, deviceAuth, eventually, listDevices, openSocket, pairDevice, settle, signIn, type Device, type Socket, type User } from './client.ts'
+import { call, connectBrowser, connectDevice, deviceAuth, eventually, listDevices, openSocket, pairDevice, settle, signIn, signInAgain, type Device, type Socket, type User } from './client.ts'
+import { SESSION_COOKIE } from '../src/auth.ts'
+import { sha256 } from '@codefusion-cc/workers-http'
 
 const deviceRow = (id: string) =>
   env.DB.prepare('SELECT online, last_seen_at, version FROM devices WHERE id = ?').bind(id).first<{ online: number; last_seen_at: number | null; version: string }>()
@@ -234,5 +237,69 @@ describe('removing a device', () => {
     const { page } = await openDashboard(user, next, nextApp)
     page.ws.send(bytes(8))
     expect((await nextApp.next() as Uint8Array).at(-1)).toBe(8)
+  })
+})
+
+/** The session behind `user`'s cookie, as the sessions table keys it. */
+const sessionHash = (user: User) => sha256(user.headers.cookie!.slice(SESSION_COOKIE.length + 1), 'base64url')
+/** Whether `socket` is still open after the relay had a moment to act. */
+const stillOpen = async (socket: Socket) => (await Promise.race([socket.closed.then(() => false), settle().then(() => true)]))
+
+describe('the relay and the account session that opened a dashboard', () => {
+  test('signing out closes the dashboards of that browser session only; the device is told and keeps working', async () => {
+    const { user, device, app } = await onlineDevice()
+    const other = await signInAgain(user)
+    const mine = await openDashboard(user, device, app)
+    const theirs = await openDashboard(other, device, app)
+
+    const logout = await call('/api/auth/logout', { method: 'POST', headers: user.headers })
+    expect(logout.status).toBe(200)
+    expect(await mine.page.closed).toMatchObject({ code: RELAY_CLOSE.signedOut })
+    expect(await app.nextJson()).toEqual({ t: 'close', c: mine.connectionId })
+    await settle()
+    expect(app.pending()).toEqual([])
+
+    // The other browser's dashboard still reaches the device both ways.
+    expect(await stillOpen(theirs.page)).toBe(true)
+    theirs.page.ws.send(bytes(4, 2))
+    expect(unwrapFromDevice(await app.next() as Uint8Array).connectionId).toBe(theirs.connectionId)
+    app.ws.send(wrapForDevice(theirs.connectionId, bytes(7)))
+    expect([...(await theirs.page.next() as Uint8Array)]).toEqual([7])
+    // And the signed-out browser cannot open a new one.
+    expect((await connectBrowser(user, device.deviceId)).status).toBe(401)
+  })
+
+  test('a dashboard whose session expired or was deleted closes at the next session check; a live one stays', async () => {
+    const { user, device, app } = await onlineDevice()
+    const other = await signInAgain(user)
+    const expiring = await openDashboard(user, device, app)
+    const deleted = await openDashboard(other, device, app)
+    const third = await signInAgain(user)
+    const live = await openDashboard(third, device, app)
+
+    await env.DB.prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?').bind(Date.now() - 1, await sessionHash(user)).run()
+    await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await sessionHash(other)).run()
+    expect(await runDurableObjectAlarm(env.RELAY.getByName(device.deviceId))).toBe(true)
+
+    expect(await expiring.page.closed).toMatchObject({ code: RELAY_CLOSE.signedOut })
+    expect(await deleted.page.closed).toMatchObject({ code: RELAY_CLOSE.signedOut })
+    const told = [await app.nextJson<{ t: string; c: string }>(), await app.nextJson<{ t: string; c: string }>()]
+    expect(told.map(m => m.c).sort()).toEqual([expiring.connectionId, deleted.connectionId].sort())
+    expect(told.every(m => m.t === 'close')).toBe(true)
+    await settle()
+    expect(app.pending()).toEqual([])
+    expect(await stillOpen(live.page)).toBe(true)
+    live.page.ws.send(bytes(1))
+    expect(unwrapFromDevice(await app.next() as Uint8Array).connectionId).toBe(live.connectionId)
+    // The check runs again while a dashboard is open.
+    expect(await runDurableObjectAlarm(env.RELAY.getByName(device.deviceId))).toBe(true)
+    expect(await stillOpen(live.page)).toBe(true)
+  })
+
+  test('removing the device still closes every dashboard as removed, not as signed out', async () => {
+    const { user, device, app } = await onlineDevice()
+    const { page } = await openDashboard(user, device, app)
+    expect((await call(`/api/devices/${device.deviceId}`, { method: 'DELETE', headers: user.headers })).status).toBe(200)
+    expect(await page.closed).toMatchObject({ code: RELAY_CLOSE.notOnAccount })
   })
 })

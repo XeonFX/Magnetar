@@ -97,6 +97,12 @@ control (`open`, `close`, device online/offline, `revoked`, and `name` when the 
 the account's). Pings are answered with an auto-response, without waking
 the object. Removing a device closes the device socket with 4001 and browsers with 4003.
 
+A browser socket is bound to the account session that opened it (the session hash in its attachment). Signing out
+closes that session's browser sockets on every device of the account, and signing an account out everywhere (the
+console's `sign-out`) closes all of them, with 4004; the devices stay paired and are told `close` for each. An alarm
+checks the sessions of open browser sockets in D1 every hour, so an expired or otherwise ended session closes too. The
+page stops retrying on 4003 and 4004.
+
 ## Accounts and sessions
 
 Google sign-in is an OpenID Connect redirect (`response_type=id_token`, `response_mode=fragment`) from
