@@ -23,10 +23,11 @@ import { featureGroups, FEATURE_LANGUAGES, loadContent, loadedContent } from './
 import type { FeaturesContent } from './content/types.ts'
 import { BUILT_ON, HERO_SHOTS, PRIVACY } from './outline.ts'
 import SIZES from './shots.json'
+import { MAGNETAR_REPO } from '@magnetar/protocol/cloud'
 
 const shotUrl = shotUrls(import.meta.glob<string>('./shots/*.webp', { eager: true, query: '?url', import: 'default' }))
 const SOURCES = 6
-const REPOSITORY = 'https://github.com/XeonFX/Magnetar'
+const REPOSITORY = `https://github.com/${MAGNETAR_REPO}`
 
 /** The language the address names (null for one the page isn't written in), else the browser's. */
 function pageLanguage(param: string | undefined): string | null {
@@ -124,7 +125,7 @@ function Features({ language, content }: { language: string; content: FeaturesCo
           label: content.builtOn.label,
           icon: Globe,
           title: content.builtOn.title,
-          lead: <>{content.builtOn.lead} <a className="link" href={REPOSITORY}>github.com/XeonFX/Magnetar</a></>,
+          lead: <>{content.builtOn.lead} <a className="link" href={REPOSITORY}>{REPOSITORY.replace('https://', '')}</a></>,
           children: <FeatureNames items={BUILT_ON.map(id => content.builtOn.items[id])} />,
         },
       ]}
