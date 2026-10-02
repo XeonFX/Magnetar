@@ -181,7 +181,8 @@ mod platform {
             Kept(delegate)
         });
         register_category(&center, id, &notice.actions);
-        let (id, title, body, button) = (id.to_owned(), notice.title.clone(), notice.body.clone(), notice.actions.first().cloned());
+        let (id, title, body, button) =
+            (id.to_owned(), notice.title.clone(), notice.body.clone(), notice.actions.first().cloned());
         // The first time, macOS asks the person whether Magnetar may notify; later this answers at once.
         let post = RcBlock::new(move |granted: Bool, error: *mut NSError| {
             if !granted.as_bool() {
