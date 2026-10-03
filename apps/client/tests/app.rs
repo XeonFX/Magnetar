@@ -482,7 +482,8 @@ mod torrent_uploads {
         let received = send_pieces(&mut c, "m", &medium, 0..2).await.unwrap();
         assert_eq!(received, json!({ "received": 750_000 }));
         // Through the relay, a folder inside the download folder.
-        let downloads = std::fs::canonicalize(h.dir.path()).unwrap();
+        let real = std::fs::canonicalize(h.dir.path()).unwrap().display().to_string();
+        let downloads = std::path::PathBuf::from(real.trim_start_matches(r"\\?\"));
         h.app.settings.update(|s| s.download_folder = downloads.display().to_string()).unwrap();
         let folder = downloads.join("Medium");
         let download = c.ok("downloads.startUpload", json!({ "uploadId": "m", "folder": folder })).await;
