@@ -1,8 +1,9 @@
 import { z } from 'zod'
-import { MAX_TORRENT_FILE, TORRENT_UPLOAD_CHUNK } from './limits.ts'
+import { FOLDER_PAGE_MAX, MAX_TORRENT_FILE, TORRENT_UPLOAD_CHUNK } from './limits.ts'
 import {
   SeriesTaskInput, SeriesTaskPatch, SettingsPatch, StartDownloadInput, WatchInput,
-  AGENT_CLIENTS, type AgentClientDto, type AgentConnectResultDto, type AgentStatusDto, type AppInfoDto, type DownloadDto, type DownloadFileDto, type FolderListing, type LegacyImportResultDto,
+  AGENT_CLIENTS, type AgentClientDto, type AgentConnectResultDto, type AgentStatusDto, type AppInfoDto, type DownloadDto, type DownloadFileDto,
+  type FolderPageDto, type FolderRootsDto, type LegacyImportResultDto,
   type LegacyImportStatusDto, type LoginStartupStatus, type RemoteStatusDto, type SearchResultDto,
   type HandlerStatus, type NetworkInterfaceDto, type SeriesTaskDto, type SettingsDto, type SourceDto, type SourceOutcomeDto, type TorrentDetailsDto,
   type ReleasesDto, type TransferStatusDto, type UpdateStatusDto, type WatchDto,
@@ -91,8 +92,21 @@ export const RPC_PARAMS = {
   'settings.update': SettingsPatch,
   'notifications.test': none,
 
-  'fs.list': z.strictObject({ path: z.string().optional() }),
-  'fs.mkdir': z.strictObject({ path: z.string().min(1) }),
+  /** The folders this dashboard may browse: the download folder and the ones added on the device itself. */
+  'fs.roots': none,
+  /** A page of a folder inside one of the roots; anything else is refused. */
+  'fs.browse': z.strictObject({
+    path: z.string().min(1),
+    offset: z.number().int().min(0).optional(),
+    limit: z.number().int().min(1).max(FOLDER_PAGE_MAX).optional(),
+    foldersOnly: z.boolean().optional(),
+  }),
+  /** Makes a folder inside a root; one already there is fine. */
+  'fs.createFolder': z.strictObject({ parent: z.string().min(1), name: z.string().trim().min(1).max(255) }),
+  /** Lets the dashboard browse one more folder. Only on the device itself, never through the relay. */
+  'fs.addRoot': z.strictObject({ path: z.string().trim().min(1) }),
+  /** Stops browsing an added folder. Only on the device itself, never through the relay. */
+  'fs.removeRoot': z.strictObject({ path: z.string().min(1) }),
   /** Shows the OS folder chooser on the device's own screen. Only offered on the local dashboard. */
   'fs.pickNative': z.strictObject({ start: z.string().optional(), prompt: z.string().optional() }),
 
@@ -175,8 +189,12 @@ export interface RpcResults {
   'settings.get': SettingsDto
   'settings.update': SettingsDto
   'notifications.test': null
-  'fs.list': FolderListing
-  'fs.mkdir': FolderListing
+  'fs.roots': FolderRootsDto
+  'fs.browse': FolderPageDto
+  /** The new folder's path. */
+  'fs.createFolder': { path: string }
+  'fs.addRoot': FolderRootsDto
+  'fs.removeRoot': FolderRootsDto
   'fs.pickNative': { path: string | null }
   'updates.status': UpdateStatusDto
   'updates.check': UpdateStatusDto

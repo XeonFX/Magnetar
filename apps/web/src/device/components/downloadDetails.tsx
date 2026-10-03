@@ -1,8 +1,11 @@
 import type { DownloadDto, DownloadFileDto } from '@magnetar/protocol'
 import { formatBytes } from '@magnetar/protocol/bytes'
-import { FileAudio, FileText, FileVideo, FolderOpen, Info, Play } from 'lucide-react'
+import { FileAudio, FileText, FileVideo, FolderOpen, FolderSearch, Info, Play } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router'
 import { errorMessage } from '../../lib/errors.ts'
+import { isWithin, separatorOf } from '../../lib/folderPaths.ts'
+import type { FilesLocation } from '../pages/FilesPage.tsx'
 import { useFormatDate, useT } from '../../lib/i18n.tsx'
 import { Modal } from '../../ui/Modal.tsx'
 import { useDevice, useDownloads } from '../DeviceContext.tsx'
@@ -19,17 +22,20 @@ export function DownloadDetailsDialog({ id, onClose }: { id: number | null; onCl
   const download = useDownloads().find(d => d.id === id) ?? null
   return (
     <Modal open={download !== null} title={t('details.title')} icon={<Info size={20} />} onClose={onClose} wide>
-      {download && <Details download={download} />}
+      {download && <Details download={download} onClose={onClose} />}
     </Modal>
   )
 }
 
-function Details({ download: d }: { download: DownloadDto }) {
+function Details({ download: d, onClose }: { download: DownloadDto; onClose: () => void }) {
   const t = useT()
   const formatDate = useFormatDate()
   const run = useRun()
-  const { connection } = useDevice()
+  const navigate = useNavigate()
+  const { connection, info, settings, basePath } = useDevice()
   const local = connection.kind === 'local'
+  // Files shows the download folder; a download saved elsewhere may be in a folder it can't browse.
+  const browsable = info?.fileBrowser === true && !!settings && isWithin(d.savePath, settings.downloadFolder, separatorOf(settings.downloadFolder))
   const facts: [string, string][] = [
     [t('info.size'), d.totalBytes > 0 ? formatBytes(d.totalBytes) : '—'],
     [t('details.uploaded'), formatBytes(d.uploadedBytes)],
@@ -52,6 +58,11 @@ function Details({ download: d }: { download: DownloadDto }) {
       </dl>
       <div className="mb-5 flex flex-wrap items-center gap-2">
         <span className="muted min-w-0 flex-1 break-all font-mono text-xs">{d.savePath}</span>
+        {browsable && (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => { onClose(); navigate(`${basePath}/files`, { state: { path: d.savePath } satisfies FilesLocation }) }}>
+            <FolderSearch size={14} />{t('files.showInFiles')}
+          </button>
+        )}
         {local && (
           <button type="button" className="btn btn-sm" onClick={() => void run(() => connection.call('downloads.reveal', { id: d.id }))}>
             <FolderOpen size={14} />{t('details.reveal')}
@@ -63,10 +74,11 @@ function Details({ download: d }: { download: DownloadDto }) {
   )
 }
 
-function fileIcon(file: DownloadFileDto) {
-  if (file.media === 'audio') return <FileAudio size={16} className="shrink-0 text-accent" />
-  if (file.media === 'video') return <FileVideo size={16} className="shrink-0 text-info" />
-  return <FileText size={16} className="muted shrink-0" />
+/** A file's icon by what a browser can play of it, the same in a download's details and in Files. */
+export function MediaIcon({ media, size = 16 }: { media: 'video' | 'audio' | null; size?: number }) {
+  if (media === 'audio') return <FileAudio size={size} className="shrink-0 text-accent" aria-hidden />
+  if (media === 'video') return <FileVideo size={size} className="shrink-0 text-info" aria-hidden />
+  return <FileText size={size} className="muted shrink-0" aria-hidden />
 }
 
 /** The torrent's files with a checkbox each; the choice is saved with one button, not per click. */
@@ -136,7 +148,7 @@ function FileList({ download: d }: { download: DownloadDto }) {
                 <input type="checkbox" className="checkbox checkbox-sm checkbox-primary" checked={selected.has(file.index)}
                   aria-label={t('details.fileChoose', file.path)} onChange={() => toggle(file.index)} />
               )}
-              {fileIcon(file)}
+              <MediaIcon media={file.media} />
               <div className="min-w-0 flex-1">
                 <div className="break-release text-sm leading-snug">{file.path}</div>
                 <div className="muted mt-0.5 text-xs tabular-nums">

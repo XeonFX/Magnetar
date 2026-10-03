@@ -1,6 +1,7 @@
 use std::path::{Component, Path, PathBuf};
 
 use crate::error::{ApiError, ApiResult};
+use crate::system::folders::{Root, browsable};
 
 /// Confines an agent-chosen save folder to the download root.
 ///
@@ -9,15 +10,47 @@ use crate::error::{ApiError, ApiResult};
 /// attacker-named files anywhere the user can write (a LaunchAgents folder, a shell rc directory).
 /// People choosing a folder in the dashboard are not restricted.
 pub fn resolve_agent_folder(requested: Option<&str>, download_root: &str) -> ApiResult<Option<String>> {
-    let Some(requested) = requested.map(str::trim).filter(|r| !r.is_empty()) else { return Ok(None) };
-    let (candidate, root) = match (canonicalize(Path::new(requested), 0), canonicalize(Path::new(download_root), 0)) {
-        (Ok(candidate), Ok(root)) => (candidate, root),
-        _ => return Err(ApiError::bad(format!("'{requested}' is not a usable folder path."))),
-    };
-    if !candidate.starts_with(&root) {
-        return Err(ApiError::bad(format!(
+    let outside = |requested: &str| {
+        format!(
             "Downloads can only be saved inside the configured download folder ('{download_root}'). '{requested}' is outside it. Use an absolute path inside that folder, or change the download folder in Settings."
-        )));
+        )
+    };
+    confine_folder(requested, &[Path::new(download_root)], |_| true, outside)
+}
+
+/// Confines a folder chosen through the relay to the folders the dashboard may browse (`system::folders::roots`), by
+/// the browser's own rule: below a root, only names it shows (none hidden).
+///
+/// A browser through the relay runs the website's code, which the device can't vouch for (docs/ARCHITECTURE.md): it
+/// may save downloads and move the download folder only inside what it can already see, so that choosing a folder
+/// never widens what it can browse. The dashboard on the device itself chooses freely.
+pub fn resolve_remote_folder(requested: Option<&str>, roots: &[Root]) -> ApiResult<Option<String>> {
+    let roots: Vec<&Path> = roots.iter().map(|root| root.path.as_path()).collect();
+    let shown = |below: &Path| below.components().all(|c| matches!(c, Component::Normal(name) if browsable(name)));
+    let outside = |requested: &str| {
+        format!(
+            "From another device, folders can only be chosen inside the download folder or a folder added to Files on the computer running Magnetar. '{requested}' is outside them. Add it there first, or choose a folder inside one of them."
+        )
+    };
+    confine_folder(requested, &roots, shown, outside)
+}
+
+/// `requested`, every link along it resolved, when that is inside one of `roots` (resolved the same way) by names
+/// `allowed` takes; else the error `outside` words. A root that can't be resolved confines nothing.
+fn confine_folder(
+    requested: Option<&str>,
+    roots: &[&Path],
+    allowed: impl Fn(&Path) -> bool,
+    outside: impl FnOnce(&str) -> String,
+) -> ApiResult<Option<String>> {
+    let Some(requested) = requested.map(str::trim).filter(|r| !r.is_empty()) else { return Ok(None) };
+    let Ok(candidate) = canonicalize(Path::new(requested), 0) else {
+        return Err(ApiError::bad(format!("'{requested}' is not a usable folder path.")));
+    };
+    let inside =
+        roots.iter().filter_map(|root| canonicalize(root, 0).ok()).any(|root| candidate.strip_prefix(root).is_ok_and(&allowed));
+    if !inside {
+        return Err(ApiError::bad(outside(requested)));
     }
     Ok(Some(candidate.to_string_lossy().into_owned()))
 }
@@ -81,5 +114,44 @@ mod tests {
             assert!(resolve(&escape).unwrap_err().message.contains("only be saved inside"), "{}", escape.display());
         }
         assert!(resolve(&root.join("file.txt/x")).unwrap_err().message.contains("not a usable folder"));
+    }
+
+    #[test]
+    fn confines_relayed_folders_to_every_root_and_nothing_else() {
+        let base = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(base.path()).unwrap();
+        let (downloads, media, outside) = (base.join("dl"), base.join("media"), base.join("outside"));
+        for folder in [&downloads, &media, &outside] {
+            std::fs::create_dir_all(folder).unwrap();
+        }
+        std::os::unix::fs::symlink(&outside, media.join("escape")).unwrap();
+        let settings = crate::settings::AppSettings {
+            download_folder: downloads.display().to_string(),
+            browse_folders: vec![media.display().to_string(), "relative/not/a/root".into()],
+            ..Default::default()
+        };
+        let roots = crate::system::folders::roots(&settings);
+        assert_eq!(roots.len(), 2, "a relative folder is no root");
+        let resolve = |p: &Path| resolve_remote_folder(Some(p.to_str().unwrap()), &roots);
+
+        assert_eq!(resolve(&downloads.join("new")).unwrap().as_deref(), downloads.join("new").to_str());
+        assert_eq!(resolve(&media.join("shows/x")).unwrap().as_deref(), media.join("shows/x").to_str());
+        assert_eq!(resolve(&media.join("a/../b")).unwrap().as_deref(), media.join("b").to_str());
+        assert_eq!(resolve_remote_folder(None, &roots).unwrap(), None);
+        for escape in [
+            outside.clone(),
+            base.clone(),
+            PathBuf::from("/"),
+            media.join("escape/x"),
+            media.join("../outside"),
+            base.join("dl-sibling"),
+            // What the browser doesn't show can't be chosen either.
+            downloads.join(".hidden"),
+            media.join("shows/.config/x"),
+        ] {
+            assert!(resolve(&escape).unwrap_err().message.starts_with("From another device"), "{}", escape.display());
+        }
+        assert!(resolve_remote_folder(Some("relative/x"), &roots).is_err());
+        assert!(resolve_remote_folder(Some(downloads.to_str().unwrap()), &[]).is_err(), "no roots confine everything");
     }
 }

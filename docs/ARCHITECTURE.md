@@ -197,6 +197,18 @@ builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the ser
   (`packages/protocol/src/torrentUpload.ts`). The app keeps pieces per connection (`downloads/upload.rs`), at most
   two files at once, drops a file whose pieces arrive out of order or short, and lets them go when the connection
   closes.
+- **Files** (`system/folders.rs`): the dashboard browses only its roots, the download folder and the folders added
+  on the device itself (`fs.addRoot` and `fs.removeRoot`, refused through the relay; `browse_folders` in the settings, outside
+  `SettingsPatch`). A requested path must be a root followed by plain names (no `..`, no name starting with a dot,
+  no Windows verbatim, device or stream spellings); it is resolved to learn where links lead, refused when that is
+  outside the root, and opened from a cap-std handle on the root, so a link swapped in meanwhile is refused while
+  opening. Listing only reads names, kinds, sizes and dates, in pages of at most 200 out of the first 50,000 entries
+  of a folder, folders first and by name as people read it; the only change is `fs.createFolder` inside a root.
+  Errors never repeat the system's message. Entries that are a download's folder or files say which, so the page
+  plays them through the usual `stream.*` calls. What a relayed browser chooses as a folder (the download folder,
+  a download's or a series' save folder) must be inside a root (`Caller::Remote`, `api/save_folder.rs`), so
+  choosing never widens what it can browse; when the download folder moves, the old one stays as an added folder.
+  The page keeps the folder shown in the history entry's state, never in the address the Worker sees.
 - **Opening magnet links and .torrent files**: the macOS bundle declares both and becomes the default through Launch
   Services; Windows registers per-user classes, Linux a desktop entry set with xdg-mime (`system/handlers.rs`). The
   app, or the running instance, opens the dashboard at `/?add=…` or `/?torrent=…`, which fills in the add dialog.

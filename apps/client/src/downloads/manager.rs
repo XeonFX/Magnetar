@@ -1,5 +1,6 @@
-use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::ffi::OsStr;
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::Duration;
@@ -21,10 +22,12 @@ use crate::notifications::NotificationDispatcher;
 use crate::paths::Paths;
 use crate::protocol::encoding::now_iso;
 use crate::protocol::{
-    DownloadDto, DownloadFileDto, DownloadStatus, EngineState, FileSelectionDto, PostDownloadAction, TransferStatusDto,
+    DownloadDto, DownloadFileDto, DownloadStatus, EngineState, EntryDownloadDto, FileSelectionDto, PostDownloadAction,
+    TransferStatusDto,
 };
 use crate::search::magnet::{build_magnet, extract_info_hash, magnet_name, normalize_info_hash};
 use crate::settings::{AppSettings, SettingsService};
+use crate::system::folders::normalize;
 
 /// A dead torrent otherwise sits on "Fetching metadata" forever with no feedback.
 pub const METADATA_TIMEOUT: Duration = Duration::from_secs(3 * 60);
@@ -216,6 +219,12 @@ struct FilesOf {
     engaged: bool,
 }
 
+/// Where a torrent's files go below its save folder: its own folder (`Metadata::content_folder`) and their paths.
+struct Layout {
+    content_folder: Option<PathBuf>,
+    files: Vec<PathBuf>,
+}
+
 pub struct DownloadFile {
     pub name: String,
     pub size: u64,
@@ -237,6 +246,8 @@ pub struct DownloadManager {
     items: Mutex<BTreeMap<i64, Item>>,
     /// Parsed .torrent files, by info hash: the file list is read every few seconds while shown.
     metadata: Mutex<HashMap<String, Arc<Metadata>>>,
+    /// Each torrent's folder and files, by info hash, for the file browser.
+    layouts: Mutex<HashMap<String, Arc<Layout>>>,
     transfer: Mutex<TransferStatusDto>,
     changed: Notify,
     shutting_down: AtomicBool,
@@ -268,6 +279,7 @@ impl DownloadManager {
             torrent_session: paths.torrent_session.clone(),
             items: Mutex::default(),
             metadata: Mutex::default(),
+            layouts: Mutex::default(),
             transfer: Mutex::new(TransferStatusDto {
                 engine: state,
                 message: None,
@@ -852,6 +864,63 @@ impl DownloadManager {
         })
     }
 
+    /// Which of `names`, entries of `folder`, are a download's own folder or one of its files: for the file browser.
+    /// Paths compare by their words (`system::folders::normalize`), so a download saved through another spelling of
+    /// the folder (a link to it) isn't recognised there. Downloads whose details haven't arrived have no files yet.
+    pub fn in_folder(&self, folder: &Path, names: &HashSet<&str>) -> HashMap<String, EntryDownloadDto> {
+        let mut found = HashMap::new();
+        if names.is_empty() {
+            return found;
+        }
+        let candidates: Vec<(i64, String, PathBuf)> = self
+            .items()
+            .values()
+            .filter_map(|item| Some((item.id, item.info_hash.clone(), normalize(&item.save_path)?)))
+            .filter(|(_, _, save_path)| folder.starts_with(save_path))
+            .collect();
+        for (id, hash, save_path) in candidates {
+            let Some(layout) = self.layout(&hash) else { continue };
+            let mut claim = |name: &OsStr, index: Option<usize>| {
+                if let Some(name) = name.to_str().filter(|name| names.contains(name)) {
+                    found.entry(name.to_owned()).or_insert(EntryDownloadDto { id, index });
+                }
+            };
+            if folder == save_path
+                && let Some(Component::Normal(name)) = layout.content_folder.as_deref().and_then(|f| f.components().next())
+            {
+                claim(name, None);
+            }
+            let output = layout.content_folder.as_deref().map_or_else(|| save_path.clone(), |f| save_path.join(f));
+            let Ok(inside) = folder.strip_prefix(output) else { continue };
+            for (index, file) in layout.files.iter().enumerate() {
+                if let Some(name) = file.file_name().filter(|_| file.parent() == Some(inside)) {
+                    claim(name, Some(index));
+                }
+            }
+        }
+        found
+    }
+
+    /// A torrent's folder and files, kept for every torrent once read: browsing a folder of many downloads then reads
+    /// no .torrent file again, where the metadata cache keeps only a few whole torrents.
+    fn layout(&self, hash: &str) -> Option<Arc<Layout>> {
+        let key = hash.to_lowercase();
+        if let Some(found) = self.layouts.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+            return Some(found.clone());
+        }
+        // Past the metadata cache, which keeps the torrents whose files are on screen: browsing must not evict them.
+        let cached = self.metadata.lock().unwrap_or_else(|e| e.into_inner()).get(&key).cloned();
+        let layout = Arc::new(match cached {
+            Some(m) => Layout { content_folder: m.content_folder().map(Path::to_path_buf), files: m.files.clone() },
+            None => {
+                let m = self.read_metadata(hash)?;
+                Layout { content_folder: m.content_folder().map(Path::to_path_buf), files: m.files }
+            }
+        });
+        self.layouts.lock().unwrap_or_else(|e| e.into_inner()).insert(key, layout.clone());
+        Some(layout)
+    }
+
     /// How much of each file is really there, and whether that is settled. The engine sets every
     /// chosen file to its full length when a torrent starts, so the length on disk says nothing: a
     /// finished download's own state does, or else the engine's count, or the pieces it saved. While
@@ -909,8 +978,7 @@ impl DownloadManager {
         if let Some(found) = self.metadata.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
             return Some(found.clone());
         }
-        let parsed =
-            Arc::new(std::fs::read(self.cached_torrent_path(hash)).ok().and_then(|bytes| Metadata::from_torrent(bytes).ok())?);
+        let parsed = Arc::new(self.read_metadata(hash)?);
         let mut cache = self.metadata.lock().unwrap_or_else(|e| e.into_inner());
         // Small: parsing again is cheap, holding every torrent isn't. Making room drops one, not all.
         if cache.len() >= METADATA_CACHE
@@ -920,6 +988,11 @@ impl DownloadManager {
         }
         cache.insert(key, parsed.clone());
         Some(parsed)
+    }
+
+    /// The cached .torrent file parsed, without keeping it.
+    fn read_metadata(&self, hash: &str) -> Option<Metadata> {
+        std::fs::read(self.cached_torrent_path(hash)).ok().and_then(|bytes| Metadata::from_torrent(bytes).ok())
     }
 
     /// Starts following a download in the engine: metadata from the cache or the swarm, then the
