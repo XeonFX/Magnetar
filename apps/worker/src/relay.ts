@@ -36,14 +36,20 @@ export class DeviceRelay extends DurableObject<Env> {
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(RELAY_PING, RELAY_PONG))
   }
 
-  /** The device's connection; a replaced one may still be listed while it closes. */
+  /** The sockets under `tag` that are open: one the relay closed stays listed until its other end answers the close. */
+  private openSockets(tag: string): WebSocket[] {
+    return this.ctx.getWebSockets(tag).filter(isOpen)
+  }
+
+  /** The device's connection: the newest, as a replaced one may still be listed. */
   private device(): WebSocket | undefined {
-    return this.ctx.getWebSockets('device').find(isOpen)
+    return this.ctx.getWebSockets('device').findLast(isOpen)
   }
 
   /**
-   * Sends to an open socket. What is meant for a closing one goes nowhere: whoever closed it has told the other side, or
-   * its close event will. A socket that refuses a send although it reads as open is lost, and closed as such.
+   * Sends to an open socket (callers pick open ones; this checks again). What is meant for a closing one goes nowhere:
+   * whoever closed it has told the other side, or its close event will. A socket that refuses a send although it reads
+   * as open is lost, and closed as such.
    */
   private send(ws: WebSocket, data: string | Uint8Array): void {
     if (ws.readyState !== WebSocket.OPEN) return
@@ -65,20 +71,18 @@ export class DeviceRelay extends DurableObject<Env> {
     const [client, server] = [pair[0], pair[1]]
 
     if (role === 'device') {
-      // A reconnecting device replaces its old socket; with the new one open, that is no going offline.
-      const replaced = this.ctx.getWebSockets('device')
+      // A reconnecting device replaces its old socket, which is no going offline.
+      for (const old of this.ctx.getWebSockets('device')) this.close(old, RELAY_CLOSE.replaced, 'Replaced by a newer connection')
       this.ctx.acceptWebSocket(server, ['device'])
       server.serializeAttachment({ role: 'device' } satisfies Attachment)
-      for (const old of replaced) await this.closeByRelay(old, RELAY_CLOSE.replaced, 'Replaced by a newer connection')
       await this.ctx.storage.put('deviceId', deviceId)
-      // Not the dashboards the relay closed: the device was told they are gone, and their late close events say nothing.
       for (const { ws, attachment } of this.openBrowsers()) {
         this.sendJson(server, { t: 'open', c: attachment.connectionId })
         this.sendJson(ws, { t: 'device', online: true })
       }
       await this.setOnline(deviceId, true)
     } else {
-      if (this.openBrowsers().length >= MAX_BROWSERS) return new Response('Too many open dashboards', { status: 429 })
+      if (this.openSockets('browser').length >= MAX_BROWSERS) return new Response('Too many open dashboards', { status: 429 })
       // Raw bytes on the wire (the frame prefix), so base64url rather than a base58 id.
       const connectionId = randomToken(16)
       this.ctx.acceptWebSocket(server, ['browser', `b:${connectionId}`])
@@ -113,7 +117,7 @@ export class DeviceRelay extends DurableObject<Env> {
       }
       if (control.t === 'close') {
         // The device knows: its close event need not tell it.
-        for (const browser of this.ctx.getWebSockets(`b:${control.c}`)) this.close(browser, RELAY_CLOSE.closedByDevice, 'Closed by the device')
+        for (const browser of this.openSockets(`b:${control.c}`)) this.close(browser, RELAY_CLOSE.closedByDevice, 'Closed by the device')
       } else if (control.t === 'hello') {
         const deviceId = await this.ctx.storage.get<string>('deviceId')
         if (deviceId && typeof control.version === 'string') {
@@ -131,7 +135,7 @@ export class DeviceRelay extends DurableObject<Env> {
     } catch {
       return
     }
-    for (const browser of this.ctx.getWebSockets(`b:${unwrapped.connectionId}`)) this.send(browser, unwrapped.payload)
+    for (const browser of this.openSockets(`b:${unwrapped.connectionId}`)) this.send(browser, unwrapped.payload)
   }
 
   override async webSocketClose(ws: WebSocket): Promise<void> {
@@ -162,8 +166,8 @@ export class DeviceRelay extends DurableObject<Env> {
   private async left(ws: WebSocket, attachment: Attachment): Promise<void> {
     if (attachment.role === 'browser') return this.notifyClosed(attachment.connectionId)
     // Another connection of the device is still open: it was replaced, not offline.
-    if (this.ctx.getWebSockets('device').some(other => other !== ws && isOpen(other))) return
-    for (const browser of this.ctx.getWebSockets('browser')) this.sendJson(browser, { t: 'device', online: false })
+    if (this.openSockets('device').some(other => other !== ws)) return
+    for (const browser of this.openSockets('browser')) this.sendJson(browser, { t: 'device', online: false })
     const deviceId = await this.ctx.storage.get<string>('deviceId')
     if (deviceId) await this.setOnline(deviceId, false)
   }
@@ -181,7 +185,7 @@ export class DeviceRelay extends DurableObject<Env> {
   /** The account signed out: closes its dashboards opened with one of `sessions` (every one without). */
   async signOut(sessions?: string[]): Promise<void> {
     for (const { ws, attachment } of this.openBrowsers()) {
-      if (!sessions || sessions.includes(attachment.session)) await this.closeByRelay(ws, RELAY_CLOSE.signedOut, 'Signed out')
+      if (!sessions || sessions.includes(attachment.session)) this.closeSignedOut(ws, attachment)
     }
   }
 
@@ -190,16 +194,18 @@ export class DeviceRelay extends DurableObject<Env> {
     const browsers = this.openBrowsers()
     if (!browsers.length) return
     const live = await liveSessions(this.env, [...new Set(browsers.map(({ attachment }) => attachment.session))])
-    for (const { ws, attachment } of browsers) if (!live.has(attachment.session)) await this.closeByRelay(ws, RELAY_CLOSE.signedOut, 'Signed out')
+    for (const { ws, attachment } of browsers) if (!live.has(attachment.session)) this.closeSignedOut(ws, attachment)
     if (this.openBrowsers().length) await this.ctx.storage.setAlarm(Date.now() + SESSION_CHECK_MS)
   }
 
-  /** The dashboards the relay has not closed, with their attachments. */
+  /** The open dashboards, with their attachments. */
   private openBrowsers(): { ws: WebSocket; attachment: BrowserAttachment }[] {
-    return this.ctx.getWebSockets('browser').flatMap(ws => {
-      const attachment = ws.deserializeAttachment() as Attachment
-      return attachment.role === 'browser' && !attachment.closed ? [{ ws, attachment }] : []
-    })
+    return this.openSockets('browser').map(ws => ({ ws, attachment: ws.deserializeAttachment() as BrowserAttachment }))
+  }
+
+  /** Closes a dashboard as signed out and tells the device, as the dashboard closing itself would. */
+  private closeSignedOut(ws: WebSocket, attachment: BrowserAttachment): void {
+    if (this.close(ws, RELAY_CLOSE.signedOut, 'Signed out')) this.notifyClosed(attachment.connectionId)
   }
 
   /** Tells the device a dashboard is gone. */
