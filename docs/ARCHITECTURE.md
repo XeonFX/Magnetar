@@ -233,4 +233,7 @@ builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the ser
 - **Telemetry**: logged errors are scrubbed (quoted text, paths, URLs, addresses, hashes, tokens) and sent, at most
   10 an hour, to the Worker, which forwards them to CodeFusion Console. Off in development; switchable in Settings.
   What the computer's surroundings cause (`log::SURROUNDINGS`: dropped connections, full disks) is logged as a warning
-  and not sent: Magnetar's own errors through `log_failure!`, by their type; librqbit's by their text.
+  and not sent: Magnetar's own errors through `log_failure!`, by their type; librqbit's by their text. A full disk
+  among them also raises `TransferStatusDto.diskFull` (`downloads::transfer::disk_full_notice`: the folder with least
+  room of the download folder and the app's data, until it has a gigabyte free), which the Downloads page shows as
+  "Disk full: free space on <drive> to keep downloading".
