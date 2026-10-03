@@ -140,7 +140,10 @@ function streams(client: ReturnType<typeof page>) {
 }
 
 describe('playing a file through the relay', () => {
-  const movie = Uint8Array.from({ length: 5 * CHUNK + 123 }, (_, i) => i % 251)
+  const movie = new Uint8Array(5 * CHUNK + 123)
+  for (let i = 0; i < movie.length; i++) movie[i] = i % 251
+  /** Compared as bytes: toEqual walks megabytes element by element. */
+  const same = (body: ArrayBuffer, bytes: Uint8Array) => expect(Buffer.from(body).equals(Buffer.from(bytes))).toBe(true)
 
   test('a range from the start answers at most MAX_RANGE bytes, read from the page a chunk at a time', async () => {
     const tab = page({ k1: { bytes: movie, type: 'video/mp4' } })
@@ -152,14 +155,14 @@ describe('playing a file through the relay', () => {
       'content-length': String(MAX_RANGE),
       'accept-ranges': 'bytes',
     })
-    expect(new Uint8Array(await response.arrayBuffer())).toEqual(movie.slice(0, MAX_RANGE))
+    same(await response.arrayBuffer(), movie.subarray(0, MAX_RANGE))
     expect(tab.reads.every(read => read.length <= CHUNK)).toBe(true)
   })
 
   test('the end of the file, asked for after a seek, is exactly what is left', async () => {
     const response = await streams(page({ k1: { bytes: movie, type: 'video/mp4' } }))(`${SITE}/__stream/k1/x`, { range: `bytes=${movie.length - 200}-` })!
     expect(response.headers.get('content-range')).toBe(`bytes ${movie.length - 200}-${movie.length - 1}/${movie.length}`)
-    expect(new Uint8Array(await response.arrayBuffer())).toEqual(movie.slice(-200))
+    same(await response.arrayBuffer(), movie.subarray(-200))
   })
 
   test('without a range the whole file comes, as 200', async () => {
@@ -167,7 +170,7 @@ describe('playing a file through the relay', () => {
     const response = await streams(page({ k1: { bytes: small, type: 'text/vtt' } }))(`${SITE}/__stream/k1/a.srt`)!
     expect(response.status).toBe(200)
     expect(response.headers.get('content-range')).toBeNull()
-    expect(new Uint8Array(await response.arrayBuffer())).toEqual(small)
+    same(await response.arrayBuffer(), small)
   })
 
   test('a range past the end is refused with the size', async () => {
