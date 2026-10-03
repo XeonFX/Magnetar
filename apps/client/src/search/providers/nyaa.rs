@@ -78,9 +78,10 @@ pub fn parse_rows(html: &str) -> Vec<TorrentSearchResult> {
                 return None; // links, size, date, seeders, leechers
             }
             let name = text(title_link);
+            let magnet = build_magnet(&hash, &name, &TRACKERS)?;
             Some(TorrentSearchResult {
-                magnet_uri: build_magnet(&hash, &name, &TRACKERS),
-                info_hash: hash,
+                info_hash: magnet.info_hash,
+                magnet_uri: magnet.uri,
                 size_bytes: parse_bytes(&cells[1]),
                 seeders: text_to_int(&cells[3]),
                 leechers: text_to_int(&cells[4]),

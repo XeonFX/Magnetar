@@ -30,6 +30,9 @@ Read docs/MAP.md before exploring; update it when you move or add something it n
   (`npm run screenshots -w @magnetar/e2e -- --only=<shot>`, README "Development").
 - Never let librqbit delete files (`Session::delete(.., true)` also removes an emptied output folder, which can be the
   user's download folder); `downloads::engine::delete_files` does it.
+- Torrent bytes from outside (uploads, the cache, the engine's session) go through `downloads::bencode::check` before
+  anything parses them: the parser recurses per nesting level. Until librqbit releases rqbit #660, its bencode crate
+  is 9.0.1 plus that fix from `vendor/librqbit-bencode` (`[patch.crates-io]`; docs/upstream/librqbit-bencode-depth.md).
 - librqbit restores the torrents it had (`session/`) on start; the downloads table decides what runs
   (`Engine::reconcile`). Pause with `Engine::pause` so fast-resume data survives; `Engine::remove` drops it. Call
   either while the downloads are still locked: the torrent then counts as leaving before an attach could take it up.

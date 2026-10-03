@@ -39,14 +39,11 @@ pub fn parse(json: &str) -> anyhow::Result<Vec<TorrentSearchResult>> {
     Ok(rows
         .iter()
         .filter_map(|row| {
-            let hash = as_trimmed_str(&row["infohash"]);
-            if hash.is_empty() {
-                return None;
-            }
             let name = row["name"].as_str().unwrap_or_default();
+            let magnet = build_magnet(as_trimmed_str(&row["infohash"]), name, &DEFAULT_TRACKERS)?;
             Some(TorrentSearchResult {
-                info_hash: hash.to_owned(),
-                magnet_uri: build_magnet(hash, name, &DEFAULT_TRACKERS),
+                info_hash: magnet.info_hash,
+                magnet_uri: magnet.uri,
                 size_bytes: to_number(&row["size_bytes"]).max(0.0) as u64,
                 seeders: to_int(&row["seeders"]),
                 leechers: to_int(&row["leechers"]),

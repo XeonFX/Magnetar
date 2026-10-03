@@ -77,11 +77,11 @@ pub fn parse_page(json: &str) -> anyhow::Result<Page> {
         .iter()
         .filter_map(|row| {
             // n=name, h=info hash, s=size, se=seeders, le=leechers, a=added (unix), pk=detail id
-            let hash = as_trimmed_str(&row["h"]);
             let name = row["n"].as_str().unwrap_or_default();
-            if hash.is_empty() || name.trim().is_empty() {
+            if name.trim().is_empty() {
                 return None;
             }
+            let magnet = build_magnet(as_trimmed_str(&row["h"]), name, &DEFAULT_TRACKERS)?;
             // The slug is required by the route but not validated.
             let details_url = match &row["pk"] {
                 Value::String(pk) => Some(format!("{BASE_URL}/post-detail/{pk}/x/")),
@@ -89,8 +89,8 @@ pub fn parse_page(json: &str) -> anyhow::Result<Page> {
                 _ => None,
             };
             Some(TorrentSearchResult {
-                info_hash: hash.to_owned(),
-                magnet_uri: build_magnet(hash, name, &DEFAULT_TRACKERS),
+                info_hash: magnet.info_hash,
+                magnet_uri: magnet.uri,
                 size_bytes: to_number(&row["s"]).max(0.0) as u64,
                 seeders: to_int(&row["se"]),
                 leechers: to_int(&row["le"]),
