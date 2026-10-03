@@ -38,7 +38,7 @@ async fn start_app_and_engine(paths: &Paths) -> (Arc<App>, Arc<Engine>) {
         show_lookups: false,
     })
     .unwrap();
-    app.settings.update(|s| s.post_download_action = PostDownloadAction::KeepSeeding);
+    app.settings.update(|s| s.post_download_action = PostDownloadAction::KeepSeeding).unwrap();
     app.start();
     (app, engine)
 }
@@ -265,10 +265,12 @@ async fn downloads_wait_for_the_chosen_interface_and_stop_without_it() {
         show_lookups: false,
     })
     .unwrap();
-    app.settings.update(|s| {
-        s.network_interface = "magnetar-missing0".into();
-        s.download_folder = dir.path().join("Downloads").display().to_string();
-    });
+    app.settings
+        .update(|s| {
+            s.network_interface = "magnetar-missing0".into();
+            s.download_folder = dir.path().join("Downloads").display().to_string();
+        })
+        .unwrap();
     app.start();
     let wait_engine = |state: EngineState| {
         let app = app.clone();
@@ -297,12 +299,12 @@ async fn downloads_wait_for_the_chosen_interface_and_stop_without_it() {
         .unwrap();
     assert_eq!(added.status, DownloadStatus::Queued, "no engine, no traffic");
 
-    app.settings.update(|s| s.network_interface = loopback.into());
+    app.settings.update(|s| s.network_interface = loopback.into()).unwrap();
     wait_engine(EngineState::Running).await;
     wait_for(&app, added.id, DownloadStatus::FetchingMetadata).await;
     assert_eq!(app.downloads.transfer_status().network_interface.as_deref(), Some(loopback));
 
-    app.settings.update(|s| s.network_interface = "magnetar-missing0".into());
+    app.settings.update(|s| s.network_interface = "magnetar-missing0".into()).unwrap();
     wait_engine(EngineState::WaitingForNetwork).await;
     wait_for(&app, added.id, DownloadStatus::Queued).await;
     bounded!(app.stop());

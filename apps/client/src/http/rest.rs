@@ -121,7 +121,7 @@ pub async fn handle(
     match result {
         Ok(value) => (StatusCode::OK, value),
         Err(error) if error.is_internal() => {
-            tracing::error!("Agent API {method} {path} failed: {}", error.message);
+            crate::log_failure!(&error, "Agent API {method} {path} failed: {}", error.message);
             (StatusCode::INTERNAL_SERVER_ERROR, json!({ "error": "Internal error." }))
         }
         Err(error) => {

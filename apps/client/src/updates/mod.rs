@@ -42,6 +42,10 @@ const MAX_NOTES: usize = 64 * 1024;
 const MAX_CHANGELOG: usize = 256 * 1024;
 /// The version people were last told about, so a restart doesn't tell them again.
 const NOTIFIED_KEY: &str = "updates.notified_version";
+/// Far more than a release's file (about 20 MB), so a server that never stops sending is cut off.
+const MAX_ASSET: u64 = 256 * 1024 * 1024;
+/// The checksums and their signature: a few lines each.
+const MAX_MANIFEST: u64 = 64 * 1024;
 
 /// A release as the changelog shows it, and where its files are.
 #[derive(Clone)]
@@ -576,11 +580,7 @@ impl UpdateService {
     /// if the swap fails, this one resumes them.
     async fn stage(&self, update: &Release, staging: &Path) -> anyhow::Result<()> {
         std::fs::create_dir_all(staging)?;
-        let asset_name = update.asset_name.as_deref().expect("checked by can_self_install");
-        let asset = self.download(update.asset_url.as_deref().unwrap_or_default(), Duration::from_secs(600)).await?;
-        self.verify(&asset, asset_name, update).await?;
-        let asset_path = staging.join(asset_name);
-        std::fs::write(&asset_path, &asset)?;
+        let asset_path = fetch_verified(&self.http, update, staging, RELEASE_PUBLIC_KEY, MAX_ASSET).await?;
         let mac_installer = if PLATFORM == "macos" { Some(MacInstaller::prepare(&asset_path, staging).await?) } else { None };
         self.downloads.pause_for_update().await;
         let swapped = match mac_installer {
@@ -593,27 +593,86 @@ impl UpdateService {
         }
         swapped
     }
+}
 
-    async fn download(&self, url: &str, timeout: Duration) -> anyhow::Result<Vec<u8>> {
-        let response = self.http.get(url).timeout(timeout).send().await?;
-        anyhow::ensure!(response.status().is_success(), "Download failed: HTTP {}", response.status().as_u16());
-        Ok(response.bytes().await?.to_vec())
-    }
+/// `name` if it is a bare file name, the same on every system: no folders, `..`, drive or other punctuation.
+fn plain_file_name(name: &str) -> Option<&str> {
+    // Windows' device names stay devices whatever the extension: `NUL.exe` is the null device.
+    let stem = name.split('.').next().unwrap_or_default().to_ascii_uppercase();
+    let device = ["CON", "PRN", "AUX", "NUL"].contains(&stem.as_str())
+        || (stem.len() == 4 && (stem.starts_with("COM") || stem.starts_with("LPT")) && stem.as_bytes()[3].is_ascii_digit());
+    let plain = !name.is_empty()
+        && !name.ends_with('.')
+        && !device
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._+-".contains(&b));
+    plain.then_some(name)
+}
 
-    /// The asset's SHA-256 must be in the manifest, and the manifest signed by the release key.
-    async fn verify(&self, asset: &[u8], asset_name: &str, update: &Release) -> anyhow::Result<()> {
-        let (Some(manifest_url), Some(signature_url)) = (&update.manifest_url, &update.signature_url) else {
-            anyhow::bail!("Release {} is not signed; update refused.", update.info.tag);
-        };
-        let manifest = self.download(manifest_url, Duration::from_secs(30)).await?;
-        let signature = self.download(signature_url, Duration::from_secs(30)).await?;
-        verify_manifest(&manifest, String::from_utf8_lossy(&signature).trim(), RELEASE_PUBLIC_KEY)?;
-        let expected = find_checksum(&String::from_utf8_lossy(&manifest), asset_name)
-            .ok_or_else(|| anyhow::anyhow!("{MANIFEST} has no entry for {asset_name}"))?;
-        let actual: String = Sha256::digest(asset).iter().map(|b| format!("{b:02x}")).collect();
-        anyhow::ensure!(actual == expected, "Checksum mismatch for {asset_name}; update refused.");
-        Ok(())
+/// Downloads `url` into memory, refusing more than `max` bytes.
+async fn download_small(http: &reqwest::Client, url: &str, max: u64) -> anyhow::Result<Vec<u8>> {
+    let mut response = http.get(url).timeout(Duration::from_secs(30)).send().await?.error_for_status()?;
+    anyhow::ensure!(response.content_length().is_none_or(|length| length <= max), "{url} is too large");
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        body.extend_from_slice(&chunk);
+        anyhow::ensure!(body.len() as u64 <= max, "{url} is too large");
     }
+    Ok(body)
+}
+
+/// Downloads `url` to `path`, at most `max` bytes, and returns its SHA-256 in hex.
+async fn download_to(http: &reqwest::Client, url: &str, path: &Path, max: u64) -> anyhow::Result<String> {
+    use tokio::io::AsyncWriteExt;
+    let mut response = http.get(url).timeout(Duration::from_secs(600)).send().await?.error_for_status()?;
+    anyhow::ensure!(
+        response.content_length().is_none_or(|length| length <= max),
+        "The update is larger than any release; refused."
+    );
+    let mut file = tokio::fs::File::create(path).await?;
+    let (mut hash, mut written) = (Sha256::new(), 0u64);
+    while let Some(chunk) = response.chunk().await? {
+        written += chunk.len() as u64;
+        anyhow::ensure!(written <= max, "The update is larger than any release; refused.");
+        hash.update(&chunk);
+        file.write_all(&chunk).await?;
+    }
+    file.sync_all().await?;
+    Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Downloads `release`'s asset into `staging` and returns where it is, once it is known to be what the release key
+/// signed: the manifest's signature is checked first, then the asset's SHA-256 against it, before anything uses it.
+/// Nothing is left in `staging` when that fails.
+async fn fetch_verified(
+    http: &reqwest::Client,
+    release: &Release,
+    staging: &Path,
+    public_key: &str,
+    max_asset: u64,
+) -> anyhow::Result<PathBuf> {
+    let tag = &release.info.tag;
+    let asset_name = release.asset_name.as_deref().unwrap_or_default();
+    let asset_name = plain_file_name(asset_name)
+        .ok_or_else(|| anyhow::anyhow!("Release {tag} names its file {asset_name:?}; update refused."))?;
+    let (Some(asset_url), Some(manifest_url), Some(signature_url)) =
+        (&release.asset_url, &release.manifest_url, &release.signature_url)
+    else {
+        anyhow::bail!("Release {tag} is not signed; update refused.");
+    };
+    let manifest = download_small(http, manifest_url, MAX_MANIFEST).await?;
+    let signature = download_small(http, signature_url, MAX_MANIFEST).await?;
+    verify_manifest(&manifest, String::from_utf8_lossy(&signature).trim(), public_key)?;
+    let expected = find_checksum(&String::from_utf8_lossy(&manifest), asset_name)
+        .ok_or_else(|| anyhow::anyhow!("{MANIFEST} has no entry for {asset_name}"))?;
+    let path = staging.join(asset_name);
+    let checked = download_to(http, asset_url, &path, max_asset).await.and_then(|actual| {
+        (actual == expected).then_some(()).ok_or_else(|| anyhow::anyhow!("Checksum mismatch for {asset_name}; update refused."))
+    });
+    if let Err(error) = checked {
+        let _ = std::fs::remove_file(&path);
+        return Err(error);
+    }
+    Ok(path)
 }
 
 pub fn verify_manifest(manifest: &[u8], signature: &str, public_key: &str) -> anyhow::Result<()> {
@@ -810,6 +869,7 @@ mod tests {
     use ed25519_dalek::{Signer, SigningKey};
 
     use std::collections::{BTreeMap, HashMap};
+    use std::sync::{Arc, Mutex};
 
     use super::*;
     use crate::protocol::encoding::to_base64url;
@@ -1038,5 +1098,170 @@ mod tests {
         assert!(verify_manifest(b"tampered", &signature, &public).is_err());
         let other = to_base64url(SigningKey::from_bytes(&[8; 32]).verifying_key().as_bytes());
         assert!(verify_manifest(manifest, &signature, &other).is_err());
+    }
+
+    type Files = Arc<HashMap<String, Vec<u8>>>;
+    type Asked = Arc<Mutex<Vec<String>>>;
+
+    /// A release server of the test's own: its files by path, and the paths asked for.
+    struct Server {
+        url: String,
+        asked: Arc<Mutex<Vec<String>>>,
+    }
+
+    async fn server(files: Vec<(&'static str, Vec<u8>)>) -> Server {
+        use axum::extract::{Path as UrlPath, State};
+        use axum::response::IntoResponse;
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let files: Files = Arc::new(files.into_iter().map(|(n, b)| (n.to_owned(), b)).collect());
+        let router = axum::Router::new()
+            .route(
+                "/{name}",
+                axum::routing::get(|State((files, asked)): State<(Files, Asked)>, UrlPath(name): UrlPath<String>| async move {
+                    asked.lock().unwrap().push(name.clone());
+                    match files.get(&name) {
+                        // `stream`: sent in pieces, without saying its length first.
+                        Some(body) if name == "stream" => {
+                            let pieces: Vec<Result<Vec<u8>, std::io::Error>> =
+                                body.chunks(1000).map(|c| Ok(c.to_vec())).collect();
+                            axum::body::Body::from_stream(futures::stream::iter(pieces)).into_response()
+                        }
+                        Some(body) => body.clone().into_response(),
+                        None => axum::http::StatusCode::NOT_FOUND.into_response(),
+                    }
+                }),
+            )
+            .with_state((files, asked.clone()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        Server { url, asked }
+    }
+
+    const ASSET: &str = "Magnetar-9.0.0-linux-x64";
+
+    /// A signed release of `asset` whose manifest lists `listed` (its name, its content).
+    async fn signed_release(name: &str, asset: &[u8], listed: (&str, &[u8]), key: [u8; 32]) -> (Release, Server, String) {
+        let signing = SigningKey::from_bytes(&[7; 32]);
+        let digest: String = Sha256::digest(listed.1).iter().map(|b| format!("{b:02x}")).collect();
+        let manifest = format!("{digest}  {}\n", listed.0).into_bytes();
+        let signature = to_base64url(&SigningKey::from_bytes(&key).sign(&manifest).to_bytes()).into_bytes();
+        let server = server(vec![("asset", asset.to_vec()), ("manifest", manifest), ("signature", signature)]).await;
+        let mut release = release("");
+        release.asset_name = Some(name.to_owned());
+        release.asset_url = Some(format!("{}/asset", server.url));
+        release.manifest_url = Some(format!("{}/manifest", server.url));
+        release.signature_url = Some(format!("{}/signature", server.url));
+        (release, server, to_base64url(signing.verifying_key().as_bytes()))
+    }
+
+    fn staged(dir: &Path) -> Vec<String> {
+        std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect()
+    }
+
+    #[tokio::test]
+    async fn an_update_is_downloaded_only_once_its_signed_manifest_checks_out() {
+        let http = reqwest::Client::new();
+        let staging = tempfile::tempdir().unwrap();
+
+        let (good, _, key) = signed_release(ASSET, b"new version", (ASSET, b"new version"), [7; 32]).await;
+        let path = fetch_verified(&http, &good, staging.path(), &key, 1024).await.unwrap();
+        assert_eq!((path.clone(), std::fs::read(&path).unwrap()), (staging.path().join(ASSET), b"new version".to_vec()));
+        std::fs::remove_file(path).unwrap();
+
+        // Signed with another key: refused before the asset is even asked for.
+        let (forged, server, key) = signed_release(ASSET, b"evil", (ASSET, b"evil"), [8; 32]).await;
+        let error = fetch_verified(&http, &forged, staging.path(), &key, 1024).await.unwrap_err();
+        assert!(error.to_string().contains("signature does not match"), "{error}");
+        assert_eq!(*server.asked.lock().unwrap(), ["manifest", "signature"]);
+
+        // Signed, but the file is not the one listed: nothing is left behind.
+        let (swapped, _, key) = signed_release(ASSET, b"evil", (ASSET, b"new version"), [7; 32]).await;
+        let error = fetch_verified(&http, &swapped, staging.path(), &key, 1024).await.unwrap_err();
+        assert!(error.to_string().contains("Checksum mismatch"), "{error}");
+        // Listed under another name.
+        let (other, _, key) =
+            signed_release(ASSET, b"new version", ("Magnetar-9.0.0-linux-arm64", b"new version"), [7; 32]).await;
+        assert!(fetch_verified(&http, &other, staging.path(), &key, 1024).await.is_err());
+        // Unsigned.
+        let mut unsigned = good.clone();
+        unsigned.signature_url = None;
+        assert!(
+            fetch_verified(&http, &unsigned, staging.path(), &key, 1024).await.unwrap_err().to_string().contains("not signed")
+        );
+        assert_eq!(staged(staging.path()), Vec::<String>::new());
+    }
+
+    #[tokio::test]
+    async fn an_update_larger_than_any_release_is_cut_off_and_removed() {
+        let http = reqwest::Client::new();
+        let staging = tempfile::tempdir().unwrap();
+        let big = vec![b'x'; 4096];
+        let (release, _, key) = signed_release(ASSET, &big, (ASSET, &big), [7; 32]).await;
+        assert!(fetch_verified(&http, &release, staging.path(), &key, 4096).await.is_ok());
+        std::fs::remove_file(staging.path().join(ASSET)).unwrap();
+        let error = fetch_verified(&http, &release, staging.path(), &key, 4095).await.unwrap_err();
+        assert!(error.to_string().contains("larger than any release"), "{error}");
+        assert_eq!(staged(staging.path()), Vec::<String>::new());
+        // Without a length up front, it is cut off as it arrives.
+        let streamed = server(vec![("stream", big.clone())]).await;
+        let path = staging.path().join(ASSET);
+        let url = format!("{}/stream", streamed.url);
+        assert_eq!(download_to(&http, &url, &path, 4096).await.unwrap().len(), 64);
+        assert!(download_to(&http, &url, &path, 4095).await.unwrap_err().to_string().contains("larger than any release"));
+
+        // A manifest past what one could be is not read in whole.
+        let server = server(vec![("manifest", vec![b'a'; MAX_MANIFEST as usize + 1])]).await;
+        assert!(download_small(&http, &format!("{}/manifest", server.url), MAX_MANIFEST).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_release_naming_its_file_as_a_path_is_refused_before_anything_is_downloaded() {
+        let http = reqwest::Client::new();
+        let parent = tempfile::tempdir().unwrap();
+        let staging = parent.path().join("staging");
+        std::fs::create_dir(&staging).unwrap();
+        for name in [
+            "../Magnetar-9.0.0-linux-x64",
+            "/tmp/Magnetar-linux-x64",
+            "C:\\Windows\\Magnetar-windows-x64.exe",
+            "C:Magnetar.exe",
+            "a/b",
+            "a\\b",
+            "..",
+            ".",
+            "",
+            "Magnetar\0.exe",
+            "NUL",
+            "nul.exe",
+            "COM1.zip",
+            "Magnetar.exe.",
+        ] {
+            let (release, server, key) = signed_release(name, b"new", (name, b"new"), [7; 32]).await;
+            let error = fetch_verified(&http, &release, &staging, &key, 1024).await.unwrap_err();
+            assert!(error.to_string().contains("update refused"), "{name}: {error}");
+            assert!(server.asked.lock().unwrap().is_empty(), "{name}: nothing downloaded");
+        }
+        assert_eq!(staged(parent.path()), ["staging"]);
+        assert_eq!(staged(&staging), Vec::<String>::new());
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn a_plain_file_name_stays_in_its_folder(name in "\\PC{0,40}") {
+            if let Some(name) = plain_file_name(&name) {
+                let joined = Path::new("staging").join(name);
+                proptest::prop_assert_eq!(joined.parent(), Some(Path::new("staging")));
+                proptest::prop_assert_eq!(joined.file_name().and_then(|n| n.to_str()), Some(name));
+            }
+        }
+    }
+
+    #[test]
+    fn release_file_names_are_plain() {
+        for name in ["Magnetar-1.2.0-macos-arm64.zip", "Magnetar-1.2.0-rc.1+build.5-windows-x64.exe", "Magnetar-1.2.0-linux-x64"]
+        {
+            assert_eq!(plain_file_name(name), Some(name));
+        }
     }
 }

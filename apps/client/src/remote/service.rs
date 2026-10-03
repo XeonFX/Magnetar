@@ -338,13 +338,17 @@ impl RemoteService {
         match answer.map(serde_json::from_value::<PairPollResponse>) {
             _ if cancel.is_cancelled() => return true,
             Ok(Ok(PairPollResponse::Approved { device_id, device_token, device_name, account_email })) => {
+                // Unsaved, the token is not confirmed either: the Worker hands it to the next poll again.
+                if let Err(error) = self.secrets.set(SecretName::DeviceToken, &device_token) {
+                    crate::log_failure!(&error, "Could not save the device token: {error}");
+                    return false;
+                }
                 self.kv.set("remote.deviceId", Some(&device_id));
                 // The name the account gave it, made unique there.
                 if let Some(name) = &device_name {
                     self.kv.set("remote.deviceName", Some(name));
                 }
                 self.kv.set("remote.accountEmail", Some(&account_email));
-                self.secrets.set(SecretName::DeviceToken, &device_token);
                 self.keys.activate(&key_id);
                 self.state().pairing = None;
                 tracing::info!("Paired with {account_email} as device {device_id}");
@@ -478,7 +482,10 @@ impl RemoteService {
     fn forget(&self) {
         self.kv.set("remote.deviceId", None);
         self.kv.set("remote.accountEmail", None);
-        self.secrets.set(SecretName::DeviceToken, "");
+        // Without its id the token is never used again; a copy left in a database that refused the write is harmless.
+        if let Err(error) = self.secrets.set(SecretName::DeviceToken, "") {
+            crate::log_failure!(&error, "Could not delete the device token: {error}");
+        }
         self.keys.revoke_all();
         {
             let mut state = self.state();
@@ -904,6 +911,33 @@ mod tests {
                 ("/api/pair/ack".to_owned(), poll_body())
             ]
         );
+        service.stop();
+    }
+
+    #[tokio::test]
+    async fn a_token_that_could_not_be_saved_is_not_confirmed_and_is_collected_again() {
+        let cloud = fake_cloud(vec![approved(), approved()], 200).await;
+        let (service, _dir) = service_at(&cloud.url);
+        let service = Arc::new(service);
+        pending_pairing(&service, 5);
+        let cancel = CancellationToken::new();
+        let db = service.keys.db();
+        db.lock()
+            .execute_batch(
+                "CREATE TEMP TRIGGER no_secret_insert BEFORE INSERT ON secrets BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END;",
+            )
+            .unwrap();
+
+        assert!(!service.poll_pairing_once(&cancel).await, "an unsaved token keeps the pairing");
+        assert_eq!(service.device_id(), None);
+        assert!(service.state().pairing.is_some());
+        assert_eq!(cloud.requests.lock().unwrap().iter().filter(|r| r.0 == "/api/pair/ack").count(), 0);
+
+        db.lock().execute_batch("DROP TRIGGER no_secret_insert;").unwrap();
+        assert!(service.poll_pairing_once(&cancel).await);
+        assert_eq!(service.device_id().as_deref(), Some("d_1"));
+        assert_eq!(service.secrets.get(SecretName::DeviceToken), "token-1");
+        assert_eq!(cloud.requests.lock().unwrap().last().map(|r| r.0.clone()).as_deref(), Some("/api/pair/ack"));
         service.stop();
     }
 

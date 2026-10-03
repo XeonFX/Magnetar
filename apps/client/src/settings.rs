@@ -1,9 +1,10 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 
 use crate::db::{Db, SecretName, SecretStore};
+use crate::error::{ApiError, ApiResult};
 use crate::events::EventBus;
 use crate::paths::default_download_folder;
 use crate::protocol::{AltSpeedMode, PostDownloadAction, SettingsDto, SettingsPatch};
@@ -99,51 +100,83 @@ pub struct SettingsService {
     pub secrets: Arc<SecretStore>,
     events: EventBus,
     cached: Mutex<Option<AppSettings>>,
+    /// Held for a whole change, from reading the settings to caching what was saved: concurrent
+    /// changes apply one after the other, each to the settings the one before saved.
+    writing: Mutex<()>,
 }
+
+const SAVE_SETTINGS: &str = "INSERT INTO settings (id, json) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET json = excluded.json";
 
 impl SettingsService {
     pub fn new(db: Db, secrets: Arc<SecretStore>, events: EventBus) -> Self {
-        Self { db, secrets, events, cached: Mutex::new(None) }
+        Self { db, secrets, events, cached: Mutex::new(None), writing: Mutex::new(()) }
     }
 
-    pub fn get(&self) -> AppSettings {
-        let mut cached = self.cached.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(settings) = cached.as_ref() {
-            return settings.clone();
+    fn cached(&self) -> MutexGuard<'_, Option<AppSettings>> {
+        self.cached.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The saved settings: cached once read. A row that no longer parses is the defaults; a database
+    /// that can't be read is an error, and nothing is cached.
+    fn load(&self) -> rusqlite::Result<AppSettings> {
+        if let Some(settings) = self.cached().as_ref() {
+            return Ok(settings.clone());
         }
         let row: Option<String> =
-            self.db.lock().query_row("SELECT json FROM settings WHERE id = 1", [], |r| r.get(0)).optional().ok().flatten();
-        let settings = row.and_then(|json| serde_json::from_str(&json).ok()).unwrap_or_default();
-        *cached = Some(settings);
-        cached.clone().unwrap()
+            self.db.lock().query_row("SELECT json FROM settings WHERE id = 1", [], |r| r.get(0)).optional()?;
+        let settings = match row.map(|json| serde_json::from_str::<AppSettings>(&json)) {
+            Some(Ok(settings)) => settings,
+            Some(Err(error)) => {
+                tracing::warn!("The saved settings could not be read, so the defaults apply: {error}");
+                AppSettings::default()
+            }
+            None => AppSettings::default(),
+        };
+        Ok(self.cached().get_or_insert(settings).clone())
     }
 
-    /// Writes a change to the non-secret settings and tells every dashboard.
-    pub fn update(&self, change: impl FnOnce(&mut AppSettings)) -> AppSettings {
-        let mut next = self.get();
-        change(&mut next);
-        let json = serde_json::to_string(&next).expect("settings serialize");
-        let saved = self
-            .db
-            .lock()
-            .execute("INSERT INTO settings (id, json) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET json = excluded.json", [json]);
-        *self.cached.lock().unwrap_or_else(|e| e.into_inner()) = Some(next.clone());
-        if let Err(error) = saved {
-            crate::log_failure!(&error, "Could not save settings: {error}");
-        }
+    /// The settings; the defaults while the database can't be read (not remembered: the next call reads again).
+    pub fn get(&self) -> AppSettings {
+        self.load().unwrap_or_else(|error| {
+            // A warning: reporting an error reads the settings again (telemetry.rs).
+            tracing::warn!("Could not read the settings: {error}");
+            AppSettings::default()
+        })
+    }
+
+    /// Changes the non-secret settings, saves them and tells every dashboard. Returns what was saved;
+    /// on an error nothing changed.
+    pub fn update(&self, change: impl FnOnce(&mut AppSettings)) -> rusqlite::Result<AppSettings> {
+        self.update_with(&[], change)
+    }
+
+    /// `update`, saving `secrets` in the same transaction: both are saved or neither.
+    pub fn update_with(
+        &self,
+        secrets: &[(SecretName, &str)],
+        change: impl FnOnce(&mut AppSettings),
+    ) -> rusqlite::Result<AppSettings> {
+        let saved = {
+            let _writing = self.writing.lock().unwrap_or_else(|e| e.into_inner());
+            let mut next = self.load()?;
+            change(&mut next);
+            let json = serde_json::to_string(&next).expect("settings serialize");
+            self.secrets.set_with(secrets, |tx| tx.execute(SAVE_SETTINGS, [json]).map(drop))?;
+            *self.cached() = Some(next.clone());
+            next
+        };
         self.events.emit("settings.changed", self.to_dto());
-        next
+        Ok(saved)
     }
 
-    /// Applies a validated patch from the dashboard, secrets included.
-    pub fn apply_patch(&self, patch: SettingsPatch) -> SettingsDto {
-        if let Some(password) = &patch.smtp_password {
-            self.secrets.set(SecretName::SmtpPassword, password);
-        }
-        if let Some(token) = &patch.telegram_bot_token {
-            self.secrets.set(SecretName::TelegramBotToken, token);
-        }
-        self.update(|s| {
+    /// Applies a validated patch from the dashboard, secrets included: all of it is saved, or none.
+    pub fn apply_patch(&self, mut patch: SettingsPatch) -> ApiResult<SettingsDto> {
+        let (password, token) = (patch.smtp_password.take(), patch.telegram_bot_token.take());
+        let secrets: Vec<(SecretName, &str)> = [(SecretName::SmtpPassword, &password), (SecretName::TelegramBotToken, &token)]
+            .into_iter()
+            .filter_map(|(name, value)| Some((name, value.as_deref()?)))
+            .collect();
+        self.update_with(&secrets, |s| {
             macro_rules! apply {
                 ($($field:ident),*) => { $(if let Some(value) = patch.$field { s.$field = value; })* };
             }
@@ -181,8 +214,9 @@ impl SettingsService {
             if let Some(port) = patch.smtp_port {
                 s.smtp_port = port as u16;
             }
-        });
-        self.to_dto()
+        })
+        .map_err(saving_failed)?;
+        Ok(self.to_dto())
     }
 
     pub fn is_provider_enabled(&self, name: &str) -> bool {
@@ -225,5 +259,158 @@ impl SettingsService {
             telegram_chat_id: s.telegram_chat_id,
             error_reports_enabled: s.error_reports_enabled,
         }
+    }
+}
+
+/// A change that could not be saved, as its caller is told.
+pub fn saving_failed(error: rusqlite::Error) -> ApiError {
+    ApiError::internal_from(format!("The change could not be saved, so nothing changed: {error}"), error)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::db::SecretBox;
+
+    struct Store {
+        dir: tempfile::TempDir,
+        db: Db,
+        settings: Arc<SettingsService>,
+    }
+
+    impl Store {
+        fn new() -> Self {
+            let dir = tempfile::tempdir().unwrap();
+            let db = Db::open(&dir.path().join("magnetar.db")).unwrap();
+            let settings = Self::service(&dir, &db);
+            Self { dir, db, settings }
+        }
+
+        fn service(dir: &tempfile::TempDir, db: &Db) -> Arc<SettingsService> {
+            let sealer = Arc::new(SecretBox::open(&dir.path().join("secret.key")).unwrap());
+            Arc::new(SettingsService::new(db.clone(), Arc::new(SecretStore::new(db.clone(), sealer)), EventBus::default()))
+        }
+
+        /// The same database read by a service that has cached nothing, as after a restart.
+        fn reopened(&self) -> Arc<SettingsService> {
+            Self::service(&self.dir, &Db::open(&self.dir.path().join("magnetar.db")).unwrap())
+        }
+
+        /// Every write fails from now on, as on a read-only volume.
+        fn read_only(&self) {
+            self.db.lock().pragma_update(None, "query_only", true).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_change_that_cannot_be_saved_changes_nothing_and_says_so() {
+        let store = Store::new();
+        store.settings.update(|s| s.download_limit = 100).unwrap();
+        let mut events = store.settings.events.subscribe();
+        store.read_only();
+
+        assert!(store.settings.update(|s| s.download_limit = 200).is_err());
+        let patch = SettingsPatch { upload_limit: Some(5), ..Default::default() };
+        let error = store.settings.apply_patch(patch).unwrap_err();
+        assert!(error.is_internal() && error.message.contains("nothing changed"), "{error}");
+
+        assert_eq!((store.settings.get().download_limit, store.settings.get().upload_limit), (100, 0));
+        assert!(events.try_recv().is_err(), "no dashboard is told of a change that did not happen");
+        assert_eq!(store.reopened().get().download_limit, 100);
+    }
+
+    #[test]
+    fn a_patch_saves_its_secrets_and_settings_together_or_neither() {
+        let store = Store::new();
+        // Only the settings row refuses the write: the secret written before it in the same patch must not stay.
+        store
+            .db
+            .lock()
+            .execute_batch(
+                "CREATE TEMP TRIGGER no_settings_insert BEFORE INSERT ON settings BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END;
+                 CREATE TEMP TRIGGER no_settings_update BEFORE UPDATE ON settings BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END;",
+            )
+            .unwrap();
+        let patch = SettingsPatch {
+            smtp_password: Some("hunter2".into()),
+            email_to: Some("me@example.com".into()),
+            ..Default::default()
+        };
+        assert!(store.settings.apply_patch(patch).is_err());
+        assert!(!store.settings.secrets.has(SecretName::SmtpPassword));
+        assert!(!store.reopened().secrets.has(SecretName::SmtpPassword));
+        assert_eq!(store.settings.get().email_to, "");
+
+        store.db.lock().execute_batch("DROP TRIGGER no_settings_insert; DROP TRIGGER no_settings_update;").unwrap();
+        let patch = SettingsPatch {
+            smtp_password: Some("hunter2".into()),
+            email_to: Some("me@example.com".into()),
+            ..Default::default()
+        };
+        let saved = store.settings.apply_patch(patch).unwrap();
+        assert!(saved.smtp_password_set);
+        let reopened = store.reopened();
+        assert_eq!(
+            (reopened.secrets.get(SecretName::SmtpPassword), reopened.get().email_to),
+            ("hunter2".into(), "me@example.com".into())
+        );
+    }
+
+    #[test]
+    fn concurrent_changes_each_apply_to_what_the_one_before_saved() {
+        let store = Store::new();
+        let threads: Vec<_> = (0..8)
+            .map(|i| {
+                let settings = store.settings.clone();
+                std::thread::spawn(move || {
+                    settings
+                        .update(|s| {
+                            // Wide open for another change to read the same settings meanwhile.
+                            std::thread::sleep(Duration::from_millis(5));
+                            s.download_limit += 1;
+                            s.disabled_providers.push(format!("p{i}"));
+                        })
+                        .unwrap();
+                })
+            })
+            .collect();
+        let other_field = {
+            let settings = store.settings.clone();
+            std::thread::spawn(move || settings.apply_patch(SettingsPatch { language: Some("pl".into()), ..Default::default() }))
+        };
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        other_field.join().unwrap().unwrap();
+        for settings in [store.settings.get(), store.reopened().get()] {
+            assert_eq!(settings.download_limit, 8);
+            assert_eq!(settings.disabled_providers.len(), 8);
+            assert_eq!(settings.language, "pl");
+        }
+    }
+
+    #[test]
+    fn settings_that_cannot_be_read_are_neither_remembered_as_the_defaults_nor_overwritten() {
+        let store = Store::new();
+        store.settings.update(|s| s.seed_ratio = 3.0).unwrap();
+        let fresh = store.reopened();
+        // A database that can't be read for a moment: the defaults stand in, and a change is refused.
+        store.db.lock().execute_batch("ALTER TABLE settings RENAME TO settings_away").unwrap();
+        assert_eq!(fresh.get().seed_ratio, AppSettings::default().seed_ratio);
+        assert!(fresh.update(|s| s.download_limit = 1).is_err());
+        store.db.lock().execute_batch("ALTER TABLE settings_away RENAME TO settings").unwrap();
+        assert_eq!(fresh.get().seed_ratio, 3.0);
+        assert_eq!(fresh.get().download_limit, 0);
+    }
+
+    #[test]
+    fn a_settings_row_that_no_longer_parses_is_the_defaults_and_can_be_saved_over() {
+        let store = Store::new();
+        store.db.lock().execute("INSERT INTO settings (id, json) VALUES (1, '{not json')", []).unwrap();
+        assert_eq!(store.settings.get().language, "en");
+        store.settings.update(|s| s.language = "de".into()).unwrap();
+        assert_eq!(store.reopened().get().language, "de");
     }
 }
