@@ -38,13 +38,13 @@ interface StreamMeta {
 }
 
 /** Asks a page something and waits for its answer on a private channel; null when it does not answer in time. */
-function ask<T>(client: PageClient, message: unknown, timeout = ASK_TIMEOUT_MS): Promise<T | null> {
+function ask<T>(client: PageClient, message: unknown): Promise<T | null> {
   return new Promise(resolve => {
     const channel = new MessageChannel()
     const timer = setTimeout(() => {
       channel.port1.close()
       resolve(null)
-    }, timeout)
+    }, ASK_TIMEOUT_MS)
     channel.port1.onmessage = event => {
       clearTimeout(timer)
       channel.port1.close()

@@ -57,25 +57,33 @@ export async function ensureServiceWorker(): Promise<ServiceWorkerRegistration> 
 
 /**
  * Opens one file of a download for playback: on this computer a direct link to the app, through
- * the relay a service-worker URL whose bytes are read from the device piece by piece.
+ * the relay a service-worker URL whose bytes are read from the device piece by piece. Once `signal`
+ * aborts, a stream that opens is closed at once and the call rejects with the abort reason.
  */
-export async function openStream(connection: RpcClient, id: number, index: number, name: string): Promise<OpenedStream> {
+export async function openStream(connection: RpcClient, id: number, index: number, name: string, signal?: AbortSignal): Promise<OpenedStream> {
+  let stream: OpenedStream
   if (connection.kind === 'local') {
     const { url } = await connection.call('downloads.streamUrl', { id, index })
-    return { url, type: '', close: () => {} }
+    stream = { url, type: '', close: () => {} }
+  } else {
+    await ensureServiceWorker()
+    const opened = await connection.call('stream.open', { id, index })
+    const key = crypto.randomUUID()
+    relayed.set(key, { connection, streamId: opened.streamId, size: opened.size, type: opened.type })
+    stream = {
+      url: `/__stream/${key}/${encodeURIComponent(name)}`,
+      type: opened.type,
+      close: () => {
+        relayed.delete(key)
+        void connection.call('stream.close', { streamId: opened.streamId }).catch(() => {})
+      },
+    }
   }
-  await ensureServiceWorker()
-  const opened = await connection.call('stream.open', { id, index })
-  const key = crypto.randomUUID()
-  relayed.set(key, { connection, streamId: opened.streamId, size: opened.size, type: opened.type })
-  return {
-    url: `/__stream/${key}/${encodeURIComponent(name)}`,
-    type: opened.type,
-    close: () => {
-      relayed.delete(key)
-      void connection.call('stream.close', { streamId: opened.streamId }).catch(() => {})
-    },
+  if (signal?.aborted) {
+    stream.close()
+    throw signal.reason
   }
+  return stream
 }
 
 /**
@@ -87,10 +95,9 @@ export async function loadSubtitles(connection: RpcClient, id: number, files: Do
   const made: string[] = []
   const loaded = await Promise.all(files.map(async file => {
     try {
-      const stream = await openStream(connection, id, file.index, file.path.split('/').pop()!)
+      const stream = await openStream(connection, id, file.index, file.path.split('/').pop()!, signal)
       let text: string
       try {
-        if (signal.aborted) return null
         text = await (await fetch(stream.url, { signal })).text()
       } finally {
         stream.close()

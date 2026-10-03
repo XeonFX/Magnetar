@@ -63,8 +63,7 @@ function Player({ target, finished }: { target: PlayTarget; finished: boolean })
     const { signal } = abort
     let main: OpenedStream | null = null
     let blobs: string[] = []
-    void openStream(connection, target.downloadId, target.file.index, target.file.path.split('/').pop()!).then(async opened => {
-      if (signal.aborted) return opened.close()
+    void openStream(connection, target.downloadId, target.file.index, target.file.path.split('/').pop()!, signal).then(async opened => {
       main = opened
       setStream(opened)
       const loaded = await loadSubtitles(connection, target.downloadId, target.subtitles, signal)
