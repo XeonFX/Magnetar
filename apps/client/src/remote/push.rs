@@ -5,6 +5,7 @@
 
 use rusqlite::params;
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use crate::db::Db;
 use crate::error::{ApiError, ApiResult};
@@ -16,14 +17,36 @@ pub struct PushSubscription {
     pub auth: String,
 }
 
-/// What a notification shows, as the website's service worker reads it.
-#[derive(Serialize)]
+/// What a notification shows, as the website's service worker reads it (`handlePushes` of
+/// `@codefusion-cc/web-push`): title, body, where a click goes, and a tag for a finished download.
 pub struct PushPayload<'a> {
     pub title: &'a str,
     pub body: &'a str,
     pub kind: &'a str,
     /// Where a click takes the browser: this device's dashboard.
     pub url: String,
+}
+
+impl Serialize for PushPayload<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        #[derive(Serialize)]
+        struct Wire<'a> {
+            title: &'a str,
+            body: &'a str,
+            kind: &'a str,
+            url: &'a str,
+            /// A newer notification with the same tag replaces the older one: a download finishing again says so once.
+            /// A digest of the name rather than the name: the worker keeps 200 characters of a tag, and a push carries
+            /// at most 3993 bytes, which a long name twice over would pass.
+            #[serde(skip_serializing_if = "Option::is_none")]
+            tag: Option<String>,
+        }
+        let tag = (self.kind == "completed").then(|| {
+            let digest = Sha256::digest(self.body.as_bytes());
+            format!("magnetar-{}", digest[..12].iter().map(|b| format!("{b:02x}")).collect::<String>())
+        });
+        Wire { title: self.title, body: self.body, kind: self.kind, url: &self.url, tag }.serialize(serializer)
+    }
 }
 
 /// Push services this app sends to: the ones the Worker's `@codefusion-cc/web-push` sends to, which
@@ -119,5 +142,42 @@ mod tests {
         ] {
             assert!(!is_push_service(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_finished_download_replaces_its_earlier_notification_and_nothing_else_does() {
+        let payload = |kind, body| PushPayload { title: "Download complete", body, kind, url: "/office".into() };
+        let tag = |kind, body| serde_json::to_value(payload(kind, body)).unwrap().get("tag").cloned();
+        let value = serde_json::to_value(payload("completed", "Movie.2024")).unwrap();
+        assert_eq!(value["title"], "Download complete");
+        assert_eq!(value["body"], "Movie.2024");
+        assert_eq!(value["kind"], "completed");
+        assert_eq!(value["url"], "/office");
+        let movie = tag("completed", "Movie.2024").unwrap();
+        assert_eq!(Some(movie.clone()), tag("completed", "Movie.2024"));
+        assert_ne!(Some(movie.clone()), tag("completed", "Movie.2025"));
+        assert!(movie.as_str().unwrap().starts_with("magnetar-"));
+        for kind in ["started", "update", "test"] {
+            assert_eq!(tag(kind, "Movie.2024"), None, "{kind}");
+        }
+    }
+
+    #[test]
+    fn a_long_name_keeps_its_tag_short_and_its_own() {
+        let long = |last: char| format!("{}{last}", "Série.Ünïcode.".repeat(150));
+        let (a, b) = (long('a'), long('b'));
+        let tag = |body: &str| {
+            serde_json::to_value(PushPayload { title: "Download complete", body, kind: "completed", url: "/office".into() })
+                .unwrap()["tag"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        };
+        assert!(tag(&a).len() <= 200);
+        assert_ne!(tag(&a), tag(&b));
+        let payload =
+            serde_json::to_vec(&PushPayload { title: "Download complete", body: &a, kind: "completed", url: "/office".into() })
+                .unwrap();
+        assert!(payload.len() < a.len() + 300, "the name is sent once");
     }
 }

@@ -25,13 +25,18 @@ function open(): Promise<IDBDatabase> {
   })
 }
 
+/**
+ * Runs one request in a transaction and resolves with its result once the transaction has committed: a request
+ * can succeed and its transaction still abort (a full disk), and then nothing was stored.
+ */
 async function transaction<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   const db = await open()
   try {
     return await new Promise<T>((resolve, reject) => {
-      const request = run(db.transaction(STORE, mode).objectStore(STORE))
-      request.onsuccess = () => resolve(request.result)
-      request.onerror = () => reject(request.error)
+      const tx = db.transaction(STORE, mode)
+      const request = run(tx.objectStore(STORE))
+      tx.oncomplete = () => resolve(request.result)
+      tx.onerror = tx.onabort = () => reject(tx.error ?? request.error ?? new Error('The browser could not store the key'))
     })
   } finally {
     db.close()
@@ -88,4 +93,16 @@ export function parkedKey(kind: PendingKey['kind'], target: string): { keyId: st
 
 export function clearParkedKey(): void {
   sessionStorage.removeItem(PENDING)
+}
+
+/**
+ * Stores the key parked for `kind` and `target` as `deviceId`'s, and lets go of the parked copy only once it is
+ * stored, so a failed save can be tried again. Resolves whether a key was parked.
+ */
+export async function adoptParkedKey(kind: PendingKey['kind'], target: string, deviceId: string): Promise<boolean> {
+  const parked = parkedKey(kind, target)
+  if (!parked) return false
+  await saveDeviceKey(deviceId, parked.keyId, parked.key)
+  clearParkedKey()
+  return true
 }

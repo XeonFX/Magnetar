@@ -1,5 +1,5 @@
 import { X } from 'lucide-react'
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { useT } from '../lib/i18n.tsx'
 
 /**
@@ -18,6 +18,8 @@ export function Modal({ open, title, icon, onClose, children, actions, wide = fa
 }) {
   const t = useT()
   const ref = useRef<HTMLDialogElement>(null)
+  // The visible title names the dialog for screen readers.
+  const titleId = useId()
   // The browser fires "close" later, as a task: one this component caused must not close a dialog
   // that has opened again in the meantime.
   const closingItself = useRef(false)
@@ -39,12 +41,12 @@ export function Modal({ open, title, icon, onClose, children, actions, wide = fa
   }
 
   return (
-    <dialog ref={ref} className="modal modal-bottom sm:modal-middle" onClose={closed}>
+    <dialog ref={ref} className="modal modal-bottom sm:modal-middle" aria-labelledby={titleId} onClose={closed}>
       {open && (
         <div className={`modal-box ${wide ? 'sm:max-w-2xl' : 'sm:max-w-lg'} p-0`}>
           <div className="flex items-center gap-2 border-b border-base-300 px-5 py-4">
             {icon}
-            <h3 className="flex-1 text-lg font-semibold">{title}</h3>
+            <h3 id={titleId} className="break-release min-w-0 flex-1 text-lg font-semibold">{title}</h3>
             <button type="button" className="btn btn-ghost btn-sm btn-circle" aria-label={t('common.close')} onClick={onClose}><X size={18} /></button>
           </div>
           <div className="max-h-[70vh] overflow-y-auto px-5 py-4">{children}</div>
