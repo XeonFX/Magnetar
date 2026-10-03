@@ -351,8 +351,13 @@ async function dashboardOnDeadApp(): Promise<{ user: User; device: Device; page:
 }
 
 /** A dead dashboard on the device; its connection id, as the app is told it. */
+/** The dead connections' Responses, kept so the runtime cannot collect their sockets and disconnect the relay's end. */
+const deadConnections: Response[] = []
+
 async function deadDashboard(user: User, device: Device, app: Socket): Promise<string> {
-  expect((await connectBrowser(user, device.deviceId)).status).toBe(101)
+  const response = await connectBrowser(user, device.deviceId)
+  expect(response.status).toBe(101)
+  deadConnections.push(response)
   const open = await app.nextJson<{ t: string; c: string }>()
   expect(open.t).toBe('open')
   return open.c
