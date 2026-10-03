@@ -45,8 +45,7 @@
     "ORIGIN": "https://magnetar.codefusion.cc",
     // The OAuth client created for this app in Google Cloud Console (public; no client secret is used).
     "GOOGLE_CLIENT_ID": "724645084534-gg1qlhb0htm981ogdl430hsd6qfa80nu.apps.googleusercontent.com"
-    // Web Push: the VAPID key is a secret, made and stored with
-    // `npx -p @codefusion-cc/web-push codefusion-vapid | npx wrangler secret put VAPID_PRIVATE_KEY`.
+    // Web Push: the VAPID key is a secret, made and stored as docs/DEPLOY.md says (Browser notifications).
     // Without it browser notifications are off.
   },
   "env": {
