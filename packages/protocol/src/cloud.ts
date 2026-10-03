@@ -58,6 +58,16 @@ export interface PairApproveResponse {
   deviceName: string
 }
 
+/** Device → Worker: `/api/pair/poll`, and `/api/pair/ack` once the app has stored the token an approval gave it. */
+export interface PairPollRequest {
+  pairingId: string
+  pollSecret: string
+}
+
+/**
+ * `/api/pair/poll`. An approval is answered the same to every poll until the app confirms it (`/api/pair/ack`) or, for
+ * an app that never does, until ten minutes after the pairing's end; then it reads as expired.
+ */
 export type PairPollResponse =
   | { state: 'pending' }
   | { state: 'expired' }

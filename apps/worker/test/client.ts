@@ -67,6 +67,9 @@ export async function startPairing(device: { name?: unknown; platform?: unknown;
 
 export const poll = (pairing: Pairing) => call('/api/pair/poll', { method: 'POST', json: pairing })
 
+/** The app confirming it has stored the token a poll handed it. */
+export const ack = (pairing: Pairing) => call('/api/pair/ack', { method: 'POST', json: pairing })
+
 export const approve = (user: User, pairingId: string) => call(`/api/pair/${pairingId}/approve`, { method: 'POST', headers: user.headers })
 
 export interface Device {
@@ -87,6 +90,7 @@ export async function pairDevice(user: User, device?: Parameters<typeof startPai
   if (approved.status !== 200) throw new Error(`Approval failed: ${approved.status}`)
   const collected = await (await poll(pairing)).json<{ state: string; deviceId: string; deviceToken: string }>()
   if (collected.state !== 'approved') throw new Error(`Pairing is ${collected.state}`)
+  if ((await ack(pairing)).status !== 200) throw new Error('Confirming the token failed')
   return { deviceId: collected.deviceId, deviceToken: collected.deviceToken }
 }
 
