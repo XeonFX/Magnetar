@@ -71,7 +71,7 @@ export class DeviceRelay extends DurableObject<Env> {
     const [client, server] = [pair[0], pair[1]]
 
     if (role === 'device') {
-      // A reconnecting device replaces its old socket, which is no going offline.
+      // A reconnecting device replaces its old socket and stays online: no close bookkeeping.
       for (const old of this.ctx.getWebSockets('device')) this.close(old, RELAY_CLOSE.replaced, 'Replaced by a newer connection')
       this.ctx.acceptWebSocket(server, ['device'])
       server.serializeAttachment({ role: 'device' } satisfies Attachment)
