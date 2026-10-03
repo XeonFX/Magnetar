@@ -1,8 +1,8 @@
-import type { FolderEntryDto, FolderPageDto } from '@magnetar/protocol'
+import type { FolderEntryDto, FolderPageDto, FolderRootDto } from '@magnetar/protocol'
 import { CircleAlert, Download, FolderSearch } from 'lucide-react'
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
-import { baseName, isWithin } from '../../lib/folderPaths.ts'
+import { baseName, samePath } from '../../lib/folderPaths.ts'
 import { useT } from '../../lib/i18n.tsx'
 import { PageHeader } from '../../ui/controls.tsx'
 import { Empty } from '../../ui/Empty.tsx'
@@ -63,7 +63,7 @@ export function FilesPage() {
 
 function Folder({ path, roots, downloadFolder, onOpen, onHome }: {
   path: string
-  roots: NonNullable<ReturnType<typeof useRoots>['roots']>['roots']
+  roots: FolderRootDto[]
   downloadFolder: string | null
   onOpen: (path: string) => void
   onHome: () => void
@@ -72,7 +72,6 @@ function Folder({ path, roots, downloadFolder, onOpen, onHome }: {
   const run = useRun()
   const toast = useToast()
   const { connection } = useDevice()
-  const downloads = useDownloads()
   const [details, setDetails] = useState<number | null>(null)
   const [playing, setPlaying] = useState<PlayTarget | null>(null)
   const [opening, setOpening] = useState<string | null>(null)
@@ -96,7 +95,7 @@ function Folder({ path, roots, downloadFolder, onOpen, onHome }: {
   }
 
   const toolbar = (page: FolderPageDto) => {
-    const isDownloadFolder = downloadFolder !== null && isWithin(page.path, downloadFolder, page.separator) && isWithin(downloadFolder, page.path, page.separator)
+    const isDownloadFolder = downloadFolder !== null && samePath(page.path, downloadFolder, page.separator)
     return isDownloadFolder
       ? <span className="badge badge-soft badge-primary gap-1"><Download size={12} aria-hidden />{t('files.downloadFolder')}</span>
       : (
@@ -106,13 +105,18 @@ function Folder({ path, roots, downloadFolder, onOpen, onHome }: {
       )
   }
 
-  const finished = playing ? downloads.find(d => d.id === playing.downloadId) : undefined
   return (
     <>
       <FolderPanel path={path} roots={roots} onOpen={onOpen} onHome={onHome} toolbar={toolbar}
         fileActions={entry => <DownloadFileActions entry={entry} playing={opening === entry.name} onPlay={e => void play(e)} onDetails={setDetails} />} />
-      <PlayerDialog target={playing} finished={finished ? isFinished(finished) : false} onClose={() => setPlaying(null)} />
+      <Player target={playing} onClose={() => setPlaying(null)} />
       <DownloadDetailsDialog id={details} onClose={() => setDetails(null)} />
     </>
   )
+}
+
+/** The player for a file of a download; apart, so only it follows the downloads' progress each second. */
+function Player({ target, onClose }: { target: PlayTarget | null; onClose: () => void }) {
+  const download = useDownloads().find(d => d.id === target?.downloadId)
+  return <PlayerDialog target={target} finished={download ? isFinished(download) : false} onClose={onClose} />
 }

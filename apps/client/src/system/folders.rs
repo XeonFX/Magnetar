@@ -14,7 +14,7 @@ use std::ffi::OsStr;
 use std::io::ErrorKind;
 use std::path::{Component, MAIN_SEPARATOR_STR, Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use cap_std::ambient_authority;
 use cap_std::fs::Dir;
@@ -23,16 +23,17 @@ use crate::downloads::DownloadManager;
 use crate::downloads::manager::media_kind;
 use crate::downloads::transfer::free_space;
 use crate::error::{ApiError, ApiResult, ErrorCode};
+use crate::protocol::encoding::iso;
 use crate::protocol::{FolderEntryDto, FolderEntryKind, FolderPageDto, FolderRootDto, FolderRootKind, FolderRootsDto};
 use crate::settings::{AppSettings, SettingsService};
 
 /// Entries one page holds at most, and when the dashboard doesn't say.
-pub const MAX_PAGE: usize = 200;
-pub const DEFAULT_PAGE: usize = 100;
+const MAX_PAGE: usize = 200;
+const DEFAULT_PAGE: usize = 100;
 /// Entries read from one folder at most: sorting needs all of them, and a folder can hold millions.
-pub const MAX_ENTRIES: usize = 50_000;
+const MAX_ENTRIES: usize = 50_000;
 /// Folders that can be added besides the download folder.
-pub const MAX_ADDED: usize = 32;
+const MAX_ADDED: usize = 32;
 /// A path longer than any file system takes is refused before it is looked at.
 const MAX_PATH_BYTES: usize = 32 * 1024;
 /// The longest name file systems take (bytes on Linux and macOS, UTF-16 units on Windows; bytes is the stricter).
@@ -60,6 +61,17 @@ pub fn roots(settings: &AppSettings) -> Vec<Root> {
         }
     }
     roots
+}
+
+/// Moves the download folder to `folder`, the old one staying in Files as an added folder unless another root holds
+/// it: its downloads are still there, and it was browsable already, so keeping it never lets a dashboard see more.
+/// Kept even past `MAX_ADDED`, which only limits the folders added by hand: the downloads in it stay in reach.
+pub fn move_download_folder(settings: &mut AppSettings, folder: String) {
+    let old = std::mem::replace(&mut settings.download_folder, folder);
+    let roots = roots(settings);
+    if normalize(&old).is_some_and(|old| !roots.iter().any(|root| old.starts_with(&root.path))) {
+        settings.browse_folders.push(old);
+    }
 }
 
 /// An absolute path in plain words: `.` dropped, `..` taken back, a trailing separator gone, and on Windows the
@@ -101,7 +113,7 @@ fn without_verbatim(text: &str) -> std::borrow::Cow<'_, str> {
 }
 
 /// How the device writes a path for the dashboard.
-pub fn display(path: &Path) -> String {
+fn display(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
@@ -115,7 +127,7 @@ fn outside() -> ApiError {
 /// The root `requested` is in, the outermost when roots nest (so the breadcrumb starts there), and the names that
 /// lead from it to `requested`. Refused, the same way whether or not it exists, unless it is an absolute path in
 /// plain words below a root, each name one the browser shows (`browsable`).
-pub fn locate<'r>(roots: &'r [Root], requested: &str) -> ApiResult<(&'r Root, PathBuf)> {
+fn locate<'r>(roots: &'r [Root], requested: &str) -> ApiResult<(&'r Root, PathBuf)> {
     let path = Path::new(requested);
     if requested.is_empty() || requested.len() > MAX_PATH_BYTES || requested.contains('\0') || !path.is_absolute() {
         return Err(outside());
@@ -138,26 +150,29 @@ pub fn locate<'r>(roots: &'r [Root], requested: &str) -> ApiResult<(&'r Root, Pa
 
 /// A name the browser shows and opens: text (the dashboard gets paths as text), not hidden (a leading dot), and on
 /// Windows nothing it would read as something else (`windows_plain`).
-pub fn browsable(name: &OsStr) -> bool {
+pub(crate) fn browsable(name: &OsStr) -> bool {
     name.to_str().is_some_and(|name| {
         !name.is_empty() && !name.starts_with('.') && !name.contains('\0') && (!cfg!(windows) || windows_plain(name))
     })
 }
 
 /// Not a name Windows reads as something else: an alternate data stream (`name:stream`), a name it shortens
-/// (a trailing dot or space), or a device (`CON`, `NUL.txt`, `COM1`…).
-pub fn windows_plain(name: &str) -> bool {
+/// (a trailing dot or space), or a device whatever its extension (`CON`, `NUL.txt`, `COM0`…). The one list of them:
+/// update files and a torrent's files to delete are held to it too.
+pub(crate) fn windows_plain(name: &str) -> bool {
     const DEVICES: [&str; 6] = ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"];
     let stem = name.split('.').next().unwrap_or_default().trim_end_matches(' ').to_ascii_uppercase();
     let numbered = ["COM", "LPT"].iter().any(|device| {
-        stem.strip_prefix(device)
-            .is_some_and(|n| matches!(n, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"))
+        stem.strip_prefix(device).is_some_and(|n| {
+            let mut chars = n.chars();
+            matches!((chars.next(), chars.next()), (Some('0'..='9' | '¹' | '²' | '³'), None))
+        })
     });
     !name.contains(':') && !name.ends_with(['.', ' ']) && !DEVICES.contains(&stem.as_str()) && !numbered
 }
 
 /// A new folder's name, trimmed: one that every file system takes and that the browser will show.
-pub fn new_folder_name(name: &str) -> ApiResult<&str> {
+fn new_folder_name(name: &str) -> ApiResult<&str> {
     let name = name.trim();
     let fine = !name.is_empty()
         && name.len() <= MAX_NAME_BYTES
@@ -175,7 +190,7 @@ pub fn new_folder_name(name: &str) -> ApiResult<&str> {
 
 /// Names in the order people expect: case aside, and numbers by their value ("Episode 2" before "Episode 10").
 /// Names that only differ in case or leading zeros still get one order, so sorting is the same every time.
-pub fn natural_cmp(a: &str, b: &str) -> Ordering {
+fn natural_cmp(a: &str, b: &str) -> Ordering {
     let (mut left, mut right) = (a.chars().peekable(), b.chars().peekable());
     loop {
         let order = match (left.peek(), right.peek()) {
@@ -220,16 +235,14 @@ struct Facts {
     modified: Option<SystemTime>,
 }
 
-impl Facts {
-    fn of(is_dir: bool, is_file: bool, size: u64, modified: Option<SystemTime>) -> Self {
-        let kind = if is_dir {
-            Some(FolderEntryKind::Folder)
-        } else if is_file {
-            Some(FolderEntryKind::File)
-        } else {
-            None
-        };
-        Self { kind, size, modified }
+/// A folder or a file; anything else (a socket, a device) is neither.
+fn kind(is_dir: bool, is_file: bool) -> Option<FolderEntryKind> {
+    if is_dir {
+        Some(FolderEntryKind::Folder)
+    } else if is_file {
+        Some(FolderEntryKind::File)
+    } else {
+        None
     }
 }
 
@@ -253,11 +266,12 @@ impl Opened {
     /// by an absolute path: one of those counts when it leads inside the root. A link out of it, or nowhere, is None.
     fn facts(&self, name: &str) -> Option<Facts> {
         if let Ok(m) = self.dir.metadata(name) {
-            return Some(Facts::of(m.is_dir(), m.is_file(), m.len(), m.modified().ok().map(|t| t.into_std())));
+            let modified = m.modified().ok().map(|t| t.into_std());
+            return Some(Facts { kind: kind(m.is_dir(), m.is_file()), size: m.len(), modified });
         }
         let real = std::fs::canonicalize(self.here.join(name)).ok().filter(|real| real.starts_with(&self.root))?;
         let m = std::fs::metadata(real).ok()?;
-        Some(Facts::of(m.is_dir(), m.is_file(), m.len(), m.modified().ok()))
+        Some(Facts { kind: kind(m.is_dir(), m.is_file()), size: m.len(), modified: m.modified().ok() })
     }
 }
 
@@ -302,23 +316,16 @@ async fn on_disk<T: Send + 'static>(work: impl FnOnce() -> ApiResult<T> + Send +
 
 /// One page of a folder, without the downloads its entries belong to.
 #[derive(Debug)]
-pub struct Listing {
-    pub entries: Vec<FolderEntryDto>,
-    pub total: usize,
-    pub truncated: bool,
+struct Listing {
+    entries: Vec<FolderEntryDto>,
+    total: usize,
+    truncated: bool,
 }
 
 /// Lists `relative` below `root`: folders first, then files, by `natural_cmp`, `limit` from `offset` on, out of the
 /// first `max_entries` the folder gives. Hidden entries, names that aren't text, links that lead out of the root or
 /// nowhere, and anything that is neither a file nor a folder are left out.
-pub fn list(
-    root: &Root,
-    relative: &Path,
-    offset: usize,
-    limit: usize,
-    folders_only: bool,
-    max_entries: usize,
-) -> ApiResult<Listing> {
+fn list(root: &Root, relative: &Path, offset: usize, limit: usize, folders_only: bool, max_entries: usize) -> ApiResult<Listing> {
     let at_root = relative.as_os_str().is_empty();
     let opened = open(root, relative).map_err(|e| disk_error(&e, at_root))?;
     let mut found: Vec<(FolderEntryKind, String)> = Vec::new();
@@ -351,11 +358,7 @@ pub fn list(
 /// A folder or a file, from what reading the folder told (no look at each entry), except for links.
 fn kind_of(opened: &Opened, entry: &cap_std::fs::DirEntry, name: &str) -> Option<FolderEntryKind> {
     let file_type = entry.file_type().ok()?;
-    if file_type.is_symlink() {
-        opened.facts(name)?.kind
-    } else {
-        Facts::of(file_type.is_dir(), file_type.is_file(), 0, None).kind
-    }
+    if file_type.is_symlink() { opened.facts(name)?.kind } else { kind(file_type.is_dir(), file_type.is_file()) }
 }
 
 #[cfg(windows)]
@@ -373,11 +376,7 @@ fn hidden_on_windows(_: &cap_std::fs::DirEntry) -> bool {
 /// An entry with its size and date, read only for the page shown.
 fn describe(opened: &Opened, kind: FolderEntryKind, name: String) -> FolderEntryDto {
     let facts = opened.facts(&name);
-    let modified = facts
-        .as_ref()
-        .and_then(|f| f.modified)
-        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-        .and_then(|since| i64::try_from(since.as_millis()).ok());
+    let modified = facts.as_ref().and_then(|f| f.modified).map(|time| iso(time.into()));
     let file = kind == FolderEntryKind::File;
     FolderEntryDto {
         size: facts.filter(|_| file).map(|f| f.size),
@@ -630,10 +629,11 @@ mod tests {
 
     #[test]
     fn windows_device_stream_and_shortened_names_are_not_plain() {
-        for name in ["CON", "con", "Nul.txt", "AUX .txt", "COM1", "lpt9.log", "COM²", "CONIN$", "a:b", "a.", "a ", "..."] {
+        for name in ["CON", "con", "Nul.txt", "AUX .txt", "COM1", "com0", "lpt9.log", "COM²", "CONIN$", "a:b", "a.", "a ", "..."]
+        {
             assert!(!windows_plain(name), "{name}");
         }
-        for name in ["CONSOLE", "COM10", "COM0", "nul-x", "a.b", "Ünïcödé 😀", "LPT"] {
+        for name in ["CONSOLE", "COM10", "COMA", "nul-x", "a.b", "Ünïcödé 😀", "LPT"] {
             assert!(windows_plain(name), "{name}");
         }
     }
@@ -879,7 +879,7 @@ mod tests {
                 (entry("A-link.txt").size, entry("z.mkv").media, entry("song.mp3").media),
                 (Some(5), Some("video"), Some("audio"))
             );
-            assert!(listing.entries.iter().all(|e| e.modified.is_some_and(|m| m > 1_600_000_000_000)));
+            assert!(listing.entries.iter().all(|e| e.modified.as_deref().is_some_and(|m| m > "2020" && m.ends_with('Z'))));
             let folders = list(&disk.root, Path::new(""), 0, MAX_PAGE, true, MAX_ENTRIES).unwrap();
             assert_eq!(names(&folders), ["a", "B", "Episode 2", "Episode 10", "in", "rel-in"]);
         }

@@ -375,8 +375,8 @@ export interface FolderEntryDto {
   kind: 'folder' | 'file'
   /** Bytes, for files. */
   size: number | null
-  /** Last change, milliseconds since 1970. */
-  modified: number | null
+  /** Last change, ISO 8601. */
+  modified: string | null
   /** Files a browser can play. */
   media: 'video' | 'audio' | null
   /** The download it belongs to: its folder (no `index`), or one of its files. */

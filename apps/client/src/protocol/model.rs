@@ -449,8 +449,8 @@ pub struct FolderEntryDto {
     pub kind: FolderEntryKind,
     /// Bytes, for files.
     pub size: Option<u64>,
-    /// Last change, milliseconds since 1970.
-    pub modified: Option<i64>,
+    /// Last change, ISO 8601 like the other dates.
+    pub modified: Option<String>,
     /// "video" or "audio", for files a browser can play.
     pub media: Option<&'static str>,
     pub download: Option<EntryDownloadDto>,

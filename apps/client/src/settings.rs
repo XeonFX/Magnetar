@@ -182,7 +182,7 @@ impl SettingsService {
             .collect();
         self.update_with(&secrets, |s| {
             if let Some(folder) = patch.download_folder.take() {
-                keep_browsing(s, folder);
+                crate::system::folders::move_download_folder(s, folder);
             }
             macro_rules! apply {
                 ($($field:ident),*) => { $(if let Some(value) = patch.$field { s.$field = value; })* };
@@ -265,17 +265,6 @@ impl SettingsService {
             telegram_chat_id: s.telegram_chat_id,
             error_reports_enabled: s.error_reports_enabled,
         }
-    }
-}
-
-/// Moves the download folder to `folder`, the old one staying in Files as an added folder unless another root holds
-/// it: its downloads are still there, and it was browsable already, so keeping it never lets a dashboard see more.
-/// Kept even past `MAX_ADDED`, which only limits the folders added by hand: the downloads in it stay in reach.
-fn keep_browsing(s: &mut AppSettings, folder: String) {
-    let old = std::mem::replace(&mut s.download_folder, folder);
-    let roots = crate::system::folders::roots(s);
-    if crate::system::folders::normalize(&old).is_some_and(|old| !roots.iter().any(|root| old.starts_with(&root.path))) {
-        s.browse_folders.push(old);
     }
 }
 

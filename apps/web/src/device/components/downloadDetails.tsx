@@ -74,10 +74,11 @@ function Details({ download: d, onClose }: { download: DownloadDto; onClose: () 
   )
 }
 
-function fileIcon(file: DownloadFileDto) {
-  if (file.media === 'audio') return <FileAudio size={16} className="shrink-0 text-accent" />
-  if (file.media === 'video') return <FileVideo size={16} className="shrink-0 text-info" />
-  return <FileText size={16} className="muted shrink-0" />
+/** A file's icon by what a browser can play of it, the same in a download's details and in Files. */
+export function MediaIcon({ media, size = 16 }: { media: 'video' | 'audio' | null; size?: number }) {
+  if (media === 'audio') return <FileAudio size={size} className="shrink-0 text-accent" aria-hidden />
+  if (media === 'video') return <FileVideo size={size} className="shrink-0 text-info" aria-hidden />
+  return <FileText size={size} className="muted shrink-0" aria-hidden />
 }
 
 /** The torrent's files with a checkbox each; the choice is saved with one button, not per click. */
@@ -147,7 +148,7 @@ function FileList({ download: d }: { download: DownloadDto }) {
                 <input type="checkbox" className="checkbox checkbox-sm checkbox-primary" checked={selected.has(file.index)}
                   aria-label={t('details.fileChoose', file.path)} onChange={() => toggle(file.index)} />
               )}
-              {fileIcon(file)}
+              <MediaIcon media={file.media} />
               <div className="min-w-0 flex-1">
                 <div className="break-release text-sm leading-snug">{file.path}</div>
                 <div className="muted mt-0.5 text-xs tabular-nums">

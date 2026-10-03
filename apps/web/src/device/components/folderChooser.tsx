@@ -1,5 +1,5 @@
 import { CircleAlert } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { isWithin, separatorOf } from '../../lib/folderPaths.ts'
 import { useT } from '../../lib/i18n.tsx'
 import { Loading } from '../../ui/Loading.tsx'
@@ -7,23 +7,18 @@ import { useDevice } from '../DeviceContext.tsx'
 import { FolderPanel, RootList, useRoots } from './files.tsx'
 
 /**
- * The folders of the device that can be browsed, and their subfolders, to choose one: it starts in `start` when that
- * is inside one of them, else at the list of them. Tells `onPath` the folder on screen, or null on the list.
+ * The folders of the device that can be browsed, and their subfolders, to choose one. `path` is the folder on screen,
+ * null on the list of them; undefined until it is placed at `start` when that is inside one of them, else the list.
  */
-export function Chooser({ start, onPath }: { start: string; onPath: (path: string | null) => void }) {
+export function Chooser({ start, path, onPath }: { start: string; path: string | null | undefined; onPath: (path: string | null) => void }) {
   const t = useT()
   const { connection, deviceName } = useDevice()
   const { supported, roots, error, setRoots } = useRoots()
-  const [path, setPath] = useState<string | null>(null)
-  const [placed, setPlaced] = useState(false)
   useEffect(() => {
-    if (placed || !roots) return
+    if (path !== undefined || !roots) return
     const wanted = start.trim()
-    const inside = wanted !== '' && roots.roots.some(r => isWithin(wanted, r.path, separatorOf(r.path)))
-    setPath(inside ? wanted : null)
-    setPlaced(true)
-  }, [roots, start, placed])
-  useEffect(() => onPath(path), [path, onPath])
+    onPath(wanted !== '' && roots.roots.some(r => isWithin(wanted, r.path, separatorOf(r.path))) ? wanted : null)
+  }, [roots, start, path, onPath])
 
   if (!supported) {
     return (
@@ -32,8 +27,8 @@ export function Chooser({ start, onPath }: { start: string; onPath: (path: strin
     )
   }
   if (error && !roots) return <p role="alert" className="text-sm text-error">{error}</p>
-  if (!roots || !placed) return <Loading />
+  if (!roots || path === undefined) return <Loading />
   return path === null
-    ? <RootList compact roots={roots.roots} canAdd={roots.canAdd} onOpen={setPath} onChanged={setRoots} />
-    : <FolderPanel compact foldersOnly path={path} roots={roots.roots} onOpen={setPath} onHome={() => setPath(null)} />
+    ? <RootList compact roots={roots.roots} canAdd={roots.canAdd} onOpen={onPath} onChanged={setRoots} />
+    : <FolderPanel compact foldersOnly path={path} roots={roots.roots} onOpen={onPath} onHome={() => onPath(null)} />
 }

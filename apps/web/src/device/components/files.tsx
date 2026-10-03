@@ -1,23 +1,22 @@
 import type { FolderEntryDto, FolderPageDto, FolderRootDto, FolderRootsDto } from '@magnetar/protocol'
 import { formatBytes } from '@magnetar/protocol/bytes'
 import {
-  CircleAlert, Download, FileAudio, FileText, FileVideo, Folder, FolderDown, FolderPlus, HardDrive, House, Info, Play, Plus,
+  CircleAlert, Download, Folder, FolderDown, FolderPlus, HardDrive, House, Info, Play, Plus,
   RefreshCw, X,
 } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { errorMessage } from '../../lib/errors.ts'
-import { appendPage, baseName, crumbs, isWithin, joinPath, parentOf, separatorOf, type Separator } from '../../lib/folderPaths.ts'
+import { appendPage, baseName, crumbs, isWithin, joinPath, separatorOf, type Crumb, type Separator } from '../../lib/folderPaths.ts'
 import { useFormatDate, useT } from '../../lib/i18n.tsx'
 import { RpcError } from '../../lib/rpcClient.ts'
+import { Field } from '../../ui/fields.tsx'
 import { ConfirmDialog } from '../../ui/Modal.tsx'
 import { ShowMore } from '../../ui/ShowMore.tsx'
 import { useDevice } from '../DeviceContext.tsx'
 import { useRun } from '../useRun.ts'
+import { MediaIcon } from './downloadDetails.tsx'
 
-/** Entries asked for at a time: a page the relay carries easily, and a list a phone scrolls quickly. */
-const PAGE = 100
-
-/** The folders the dashboard may browse, read again whenever the settings change (the download folder moved). */
+/** The folders the dashboard may browse, read again when the download folder moves (the old one may stay as added). */
 export function useRoots() {
   const { connection, settings, info } = useDevice()
   const supported = info?.fileBrowser === true
@@ -33,13 +32,13 @@ export function useRoots() {
       (e: unknown) => { if (id === latest.current) setError(errorMessage(e)) },
     )
   }, [connection, supported])
-  // `settings` changes when the download folder or the added folders do.
-  useEffect(reload, [reload, settings])
+  const downloadFolder = settings?.downloadFolder
+  useEffect(reload, [reload, downloadFolder])
   return { supported, roots, error, reload, setRoots }
 }
 
 /** The name a root goes by: "Download folder", or its own name. */
-export function rootLabel(root: Pick<FolderRootDto, 'kind' | 'path'>, separator: Separator, t: ReturnType<typeof useT>): string {
+function rootLabel(root: Pick<FolderRootDto, 'kind' | 'path'>, separator: Separator, t: ReturnType<typeof useT>): string {
   return root.kind === 'downloads' ? t('files.downloadFolder') : baseName(root.path, separator)
 }
 
@@ -52,7 +51,7 @@ type FolderState =
  * A folder's entries as its pages arrive: the first on opening, the next on asking. Answers for a folder left in the
  * meantime are dropped, and a folder that failed for want of a connection is read again once it is back.
  */
-export function useFolder(path: string | null, foldersOnly: boolean) {
+function useFolder(path: string | null, foldersOnly: boolean) {
   const { connection, connectionState } = useDevice()
   const [state, setState] = useState<FolderState | null>(null)
   const current = useRef(state)
@@ -63,7 +62,7 @@ export function useFolder(path: string | null, foldersOnly: boolean) {
     const id = ++latest.current
     if (path === null) return setState(null)
     setState({ status: 'loading', path })
-    connection.call('fs.browse', { path, limit: PAGE, foldersOnly }).then(
+    connection.call('fs.browse', { path, foldersOnly }).then(
       page => { if (id === latest.current) setState({ status: 'ready', page, entries: page.entries, next: page.entries.length, more: 'idle' }) },
       (e: unknown) => {
         if (id === latest.current) setState({ status: 'error', path, message: errorMessage(e), code: e instanceof RpcError ? e.code : 'internal' })
@@ -83,7 +82,7 @@ export function useFolder(path: string | null, foldersOnly: boolean) {
     if (shown?.status !== 'ready' || shown.more === 'loading' || shown.next >= shown.page.total) return
     const id = latest.current
     setState({ ...shown, more: 'loading' })
-    void run(() => connection.call('fs.browse', { path: shown.page.path, offset: shown.next, limit: PAGE, foldersOnly }), 'files.moreFailed')
+    void run(() => connection.call('fs.browse', { path: shown.page.path, offset: shown.next, foldersOnly }), 'files.moreFailed')
       .then(page => {
         if (id !== latest.current) return
         const now = current.current
@@ -98,24 +97,14 @@ export function useFolder(path: string | null, foldersOnly: boolean) {
 }
 
 function entryIcon(entry: FolderEntryDto) {
-  if (entry.kind === 'folder') {
-    return entry.download ? <FolderDown size={18} className="shrink-0 text-primary" aria-hidden /> : <Folder size={18} className="shrink-0 text-primary" aria-hidden />
-  }
-  if (entry.media === 'video') return <FileVideo size={18} className="shrink-0 text-info" aria-hidden />
-  if (entry.media === 'audio') return <FileAudio size={18} className="shrink-0 text-accent" aria-hidden />
-  return <FileText size={18} className="muted shrink-0" aria-hidden />
+  if (entry.kind === 'file') return <MediaIcon media={entry.media} size={18} />
+  const Icon = entry.download ? FolderDown : Folder
+  return <Icon size={18} className="shrink-0 text-primary" aria-hidden />
 }
 
 /** The way back from a folder to the folders that can be browsed, each step a link. */
-export function Breadcrumbs({ page, roots, onOpen, onHome }: {
-  page: Pick<FolderPageDto, 'root' | 'path' | 'separator'>
-  roots: FolderRootDto[]
-  onOpen: (path: string) => void
-  onHome: () => void
-}) {
+function Breadcrumbs({ trail, onOpen, onHome }: { trail: Crumb[]; onOpen: (path: string) => void; onHome: () => void }) {
   const t = useT()
-  const trail = crumbs(page.root, page.path, page.separator)
-  const root = roots.find(r => r.path === page.root)
   return (
     <nav aria-label={t('files.breadcrumb')} className="breadcrumbs scroll-strip -mx-1 max-w-full px-1 py-0 text-sm">
       <ul>
@@ -124,53 +113,57 @@ export function Breadcrumbs({ page, roots, onOpen, onHome }: {
             <House size={14} aria-hidden />{t('files.title')}
           </button>
         </li>
-        {trail.map((crumb, i) => {
-          const name = i === 0 && root ? rootLabel(root, page.separator, t) : crumb.name
-          return (
-            <li key={crumb.path}>
-              {i === trail.length - 1
-                ? <span aria-current="page" className="max-w-[16rem] truncate font-medium" title={crumb.path}>{name}</span>
-                : <button type="button" className="link link-hover max-w-[12rem] truncate" title={crumb.path} onClick={() => onOpen(crumb.path)}>{name}</button>}
-            </li>
-          )
-        })}
+        {trail.map((crumb, i) => (
+          <li key={crumb.path}>
+            {i === trail.length - 1
+              ? <span aria-current="page" className="max-w-[16rem] truncate font-medium" title={crumb.path}>{crumb.name}</span>
+              : <button type="button" className="link link-hover max-w-[12rem] truncate" title={crumb.path} onClick={() => onOpen(crumb.path)}>{crumb.name}</button>}
+          </li>
+        ))}
       </ul>
     </nav>
   )
 }
 
-/** A form for a new folder's name, inside `parent`. Resolves with the folder made. */
-export function NewFolderForm({ parent, onMade, onCancel }: { parent: string; onMade: (path: string) => void; onCancel: () => void }) {
+/** One line of text to send, with its own busy and error states: a new folder's name, a folder to add. */
+function TextForm({ label, submitLabel, help, placeholder, mono = false, onSubmit, onCancel }: {
+  label: string
+  submitLabel: string
+  help?: string
+  placeholder?: string
+  mono?: boolean
+  /** Rejects with what to show under the field. */
+  onSubmit: (value: string) => Promise<void>
+  onCancel: () => void
+}) {
   const t = useT()
-  const { connection } = useDevice()
-  const id = useId()
-  const [name, setName] = useState('')
+  const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const submit = async () => {
-    if (!name.trim() || busy) return
+    if (!value.trim() || busy) return
     setBusy(true)
     setError(null)
     try {
-      onMade((await connection.call('fs.createFolder', { parent, name: name.trim() })).path)
+      await onSubmit(value.trim())
     } catch (e) {
       setError(errorMessage(e))
       setBusy(false)
     }
   }
   return (
-    <form className="mb-3 flex flex-col gap-1.5" onSubmit={e => { e.preventDefault(); void submit() }}
+    <form className="mb-3" onSubmit={e => { e.preventDefault(); void submit() }}
       onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); onCancel() } }}>
-      <label htmlFor={id} className="text-sm font-medium">{t('files.newFolderName')}</label>
-      <div className="flex gap-2">
-        <input id={id} data-autofocus autoFocus className="input input-sm w-full min-w-0" value={name} maxLength={255} autoComplete="off"
-          aria-invalid={error !== null} aria-describedby={error ? `${id}-error` : undefined} onChange={e => setName(e.target.value)} />
-        <button type="submit" className="btn btn-primary btn-sm" disabled={busy || !name.trim()}>
-          {busy && <span className="loading loading-spinner loading-xs" />}{t('files.create')}
-        </button>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel}>{t('common.cancel')}</button>
-      </div>
-      {error && <p id={`${id}-error`} role="alert" className="text-xs text-error">{error}</p>}
+      <Field label={label} help={error ? <span role="alert" className="text-error">{error}</span> : help}>
+        <span className="flex flex-wrap gap-2">
+          <input data-autofocus autoFocus className={`input input-sm min-w-0 flex-1 ${mono ? 'font-mono' : ''}`} value={value} maxLength={4096}
+            placeholder={placeholder} autoComplete="off" aria-invalid={error !== null} onChange={e => setValue(e.target.value)} />
+          <button type="submit" className="btn btn-primary btn-sm" disabled={busy || !value.trim()}>
+            {busy && <span className="loading loading-spinner loading-xs" />}{submitLabel}
+          </button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel}>{t('common.cancel')}</button>
+        </span>
+      </Field>
     </form>
   )
 }
@@ -193,6 +186,7 @@ export function FolderPanel({ path, roots, foldersOnly = false, onOpen, onHome, 
 }) {
   const t = useT()
   const formatDate = useFormatDate()
+  const { connection } = useDevice()
   const { state, reload, loadMore } = useFolder(path, foldersOnly)
   const [making, setMaking] = useState(false)
   const headingId = useId()
@@ -212,8 +206,10 @@ export function FolderPanel({ path, roots, foldersOnly = false, onOpen, onHome, 
   const separator = page?.separator ?? separatorOf(path)
   // Before the page says, the outermost root holding the folder, as the device picks it.
   const root = page?.root ?? roots.filter(r => isWithin(path, r.path, separator)).sort((a, b) => a.path.length - b.path.length)[0]?.path ?? path
-  const up = parentOf(root, path, separator)
-  const name = crumbs(root, path, separator).length === 1 ? rootLabel(roots.find(r => r.path === root) ?? { kind: 'added', path }, separator, t) : baseName(path, separator)
+  const rootFound = roots.find(r => r.path === root)
+  const trail = crumbs(root, path, separator).map((crumb, i) => (i === 0 && rootFound ? { ...crumb, name: rootLabel(rootFound, separator, t) } : crumb))
+  const up = trail.at(-2)?.path ?? null
+  const name = trail.at(-1)!.name
 
   // Backspace or Alt+↑ goes up a folder, unless typing.
   const onKeyDown = (event: KeyboardEvent) => {
@@ -232,7 +228,7 @@ export function FolderPanel({ path, roots, foldersOnly = false, onOpen, onHome, 
 
   return (
     <section aria-labelledby={headingId} onKeyDown={onKeyDown} className="flex min-w-0 flex-col gap-3">
-      <Breadcrumbs page={{ root, path, separator }} roots={roots} onOpen={onOpen} onHome={onHome} />
+      <Breadcrumbs trail={trail} onOpen={onOpen} onHome={onHome} />
       <div className="flex flex-wrap items-center gap-2">
         <h2 id={headingId} ref={heading} tabIndex={-1}
           className={`break-release min-w-0 flex-1 font-semibold outline-none ${compact ? 'text-base' : 'text-xl'}`}>
@@ -249,7 +245,14 @@ export function FolderPanel({ path, roots, foldersOnly = false, onOpen, onHome, 
         </button>
         {page && toolbar?.(page)}
       </div>
-      {making && page && <NewFolderForm parent={page.path} onCancel={() => setMaking(false)} onMade={made => { setMaking(false); onOpen(made) }} />}
+      {making && page && (
+        <TextForm label={t('files.newFolderName')} submitLabel={t('files.create')} onCancel={() => setMaking(false)}
+          onSubmit={async name => {
+            const { path: made } = await connection.call('fs.createFolder', { parent: page.path, name })
+            setMaking(false)
+            onOpen(made)
+          }} />
+      )}
 
       {state?.status === 'loading' && (
         <div className="flex justify-center py-12" role="status" aria-live="polite">
@@ -299,7 +302,7 @@ function EntryRow({ entry, formatDate, onOpen, actions }: {
   actions?: ReactNode
 }) {
   const t = useT()
-  const modified = entry.modified === null ? null : new Date(entry.modified).toISOString()
+  const { modified } = entry
   const facts = [entry.size !== null ? formatBytes(entry.size) : null, modified && formatDate(modified)].filter(Boolean).join(' · ')
   const body = (
     <>
@@ -389,7 +392,13 @@ export function RootList({ roots, canAdd, onOpen, onChanged, compact = false }: 
       </ul>
       {canAdd
         ? (adding
-            ? <AddRootForm onCancel={() => setAdding(false)} onAdded={next => { setAdding(false); onChanged(next) }} />
+            ? <TextForm mono label={t('files.addPath')} submitLabel={t('files.addButton')} help={t('files.addHint')} placeholder={t('files.addPlaceholder')}
+                onCancel={() => setAdding(false)}
+                onSubmit={async path => {
+                  const next = await connection.call('fs.addRoot', { path })
+                  setAdding(false)
+                  onChanged(next)
+                }} />
             : (
               <div className="flex flex-wrap items-center gap-3">
                 <button type="button" className="btn btn-sm" onClick={() => void add()}><Plus size={14} aria-hidden />{t('files.add')}</button>
@@ -401,42 +410,6 @@ export function RootList({ roots, canAdd, onOpen, onChanged, compact = false }: 
         options={[{ label: t('common.cancel'), value: null, tone: 'ghost' }, { label: t('common.remove'), value: removing, tone: 'error' }]}
         onResult={root => void remove(root)} />
     </div>
-  )
-}
-
-/** Adding a folder by its path, where the system's folder chooser can't be shown from here. */
-function AddRootForm({ onAdded, onCancel }: { onAdded: (roots: FolderRootsDto) => void; onCancel: () => void }) {
-  const t = useT()
-  const { connection } = useDevice()
-  const id = useId()
-  const [path, setPath] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const submit = async () => {
-    if (!path.trim() || busy) return
-    setBusy(true)
-    setError(null)
-    try {
-      onAdded(await connection.call('fs.addRoot', { path: path.trim() }))
-    } catch (e) {
-      setError(errorMessage(e))
-      setBusy(false)
-    }
-  }
-  return (
-    <form className="flex flex-col gap-1.5" onSubmit={e => { e.preventDefault(); void submit() }}
-      onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); onCancel() } }}>
-      <label htmlFor={id} className="text-sm font-medium">{t('files.addPath')}</label>
-      <div className="flex flex-wrap gap-2">
-        <input id={id} autoFocus className="input input-sm min-w-0 flex-1 font-mono" value={path} placeholder={t('files.addPlaceholder')}
-          aria-invalid={error !== null} aria-describedby={`${id}-help`} onChange={e => setPath(e.target.value)} />
-        <button type="submit" className="btn btn-primary btn-sm" disabled={busy || !path.trim()}>
-          {busy && <span className="loading loading-spinner loading-xs" />}{t('files.addButton')}
-        </button>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel}>{t('common.cancel')}</button>
-      </div>
-      {error ? <p id={`${id}-help`} role="alert" className="text-xs text-error">{error}</p> : <p id={`${id}-help`} className="muted text-xs">{t('files.addHint')}</p>}
-    </form>
   )
 }
 

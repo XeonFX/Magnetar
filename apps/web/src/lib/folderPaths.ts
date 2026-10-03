@@ -45,16 +45,17 @@ export function crumbs(root: string, path: string, separator: Separator): Crumb[
   return trail
 }
 
-/** The folder above `path`, while that is still inside `root`; null at the root. */
-export function parentOf(root: string, path: string, separator: Separator): string | null {
-  const trail = crumbs(root, path, separator)
-  return trail.length > 1 ? trail[trail.length - 2]!.path : null
+/** `path` without a separator at its end, but for a root that is only one (`/`). */
+const plain = (path: string, separator: Separator) => (path.length > 1 && path.endsWith(separator) ? path.slice(0, -1) : path)
+
+/** Whether two paths name the same folder by their words, a separator at the end aside. */
+export function samePath(a: string, b: string, separator: Separator): boolean {
+  return plain(a, separator) === plain(b, separator)
 }
 
 /** Whether `path` is `folder` or inside it, by their words. */
 export function isWithin(path: string, folder: string, separator: Separator): boolean {
-  const plain = (p: string) => (p.length > 1 && p.endsWith(separator) ? p.slice(0, -1) : p)
-  const [p, f] = [plain(path), plain(folder)]
+  const [p, f] = [plain(path, separator), plain(folder, separator)]
   return p === f || p.startsWith(f.endsWith(separator) ? f : `${f}${separator}`)
 }
 

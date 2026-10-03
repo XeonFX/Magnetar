@@ -855,9 +855,15 @@ impl DownloadManager {
         if let Some(found) = self.layouts.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
             return Some(found.clone());
         }
-        let metadata = self.metadata(hash)?;
-        let layout =
-            Arc::new(Layout { content_folder: metadata.content_folder().map(Path::to_path_buf), files: metadata.files.clone() });
+        // Past the metadata cache, which keeps the torrents whose files are on screen: browsing must not evict them.
+        let cached = self.metadata.lock().unwrap_or_else(|e| e.into_inner()).get(&key).cloned();
+        let layout = Arc::new(match cached {
+            Some(m) => Layout { content_folder: m.content_folder().map(Path::to_path_buf), files: m.files.clone() },
+            None => {
+                let m = self.read_metadata(hash)?;
+                Layout { content_folder: m.content_folder().map(Path::to_path_buf), files: m.files }
+            }
+        });
         self.layouts.lock().unwrap_or_else(|e| e.into_inner()).insert(key, layout.clone());
         Some(layout)
     }
@@ -919,8 +925,7 @@ impl DownloadManager {
         if let Some(found) = self.metadata.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
             return Some(found.clone());
         }
-        let parsed =
-            Arc::new(std::fs::read(self.cached_torrent_path(hash)).ok().and_then(|bytes| Metadata::from_torrent(bytes).ok())?);
+        let parsed = Arc::new(self.read_metadata(hash)?);
         let mut cache = self.metadata.lock().unwrap_or_else(|e| e.into_inner());
         // Small: parsing again is cheap, holding every torrent isn't. Making room drops one, not all.
         if cache.len() >= METADATA_CACHE
@@ -930,6 +935,11 @@ impl DownloadManager {
         }
         cache.insert(key, parsed.clone());
         Some(parsed)
+    }
+
+    /// The cached .torrent file parsed, without keeping it.
+    fn read_metadata(&self, hash: &str) -> Option<Metadata> {
+        std::fs::read(self.cached_torrent_path(hash)).ok().and_then(|bytes| Metadata::from_torrent(bytes).ok())
     }
 
     /// Starts following a download in the engine: metadata from the cache or the swarm, then the

@@ -1,7 +1,7 @@
 import type { FolderEntryDto } from '@magnetar/protocol'
 import fc from 'fast-check'
 import { describe, expect, test } from 'vitest'
-import { appendPage, baseName, crumbs, isWithin, joinPath, parentOf, type Separator } from './folderPaths.ts'
+import { appendPage, baseName, crumbs, isWithin, joinPath, samePath, type Separator } from './folderPaths.ts'
 
 /** Names a folder can have on either system: anything but the separators. */
 const name = fc.string({ minLength: 1, maxLength: 12, unit: 'grapheme' }).filter(n => !/[\\/]/.test(n))
@@ -41,6 +41,9 @@ describe('paths on the device', () => {
     expect(isWithin('/a', '/a/dl', '/')).toBe(false)
     expect(isWithin('/anything', '/', '/')).toBe(true)
     expect(isWithin('C:\\Media\\TV', 'C:\\', '\\')).toBe(true)
+    expect(samePath('/a/dl/', '/a/dl', '/')).toBe(true)
+    expect(samePath('/a/dl', '/a/dl/x', '/')).toBe(false)
+    expect(samePath('/', '/', '/')).toBe(true)
   })
 
   test('every path below a root splits back into its names, each crumb inside the one before', () => {
@@ -51,10 +54,9 @@ describe('paths on the device', () => {
       expect(trail.at(-1)!.path).toBe(path)
       trail.slice(1).forEach((crumb, i) => {
         expect(isWithin(crumb.path, trail[i]!.path, separator)).toBe(true)
-        expect(parentOf(top, crumb.path, separator)).toBe(trail[i]!.path)
         expect(baseName(crumb.path, separator)).toBe(crumb.name)
       })
-      expect(parentOf(top, top, separator)).toBeNull()
+      expect(crumbs(top, top, separator)).toHaveLength(1)
     }))
   })
 

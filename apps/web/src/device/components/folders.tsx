@@ -21,19 +21,20 @@ export function FolderBrowser({ open, start, onClose, onSelect }: {
   onSelect: (path: string) => void
 }) {
   const t = useT()
-  const [chosen, setChosen] = useState<string | null>(null)
+  // The folder on screen: null on the list of folders, undefined until the chooser has placed itself.
+  const [chosen, setChosen] = useState<string | null | undefined>(undefined)
   useEffect(() => {
-    if (!open) setChosen(null)
+    if (!open) setChosen(undefined)
   }, [open])
   return (
     <Modal open={open} title={t('dialog.chooseFolder')} icon={<FolderOpen size={20} />} onClose={onClose} wide
       actions={<>
         <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>{t('common.cancel')}</button>
-        <button type="button" className="btn btn-primary btn-sm" disabled={chosen === null} onClick={() => chosen && onSelect(chosen)}>
+        <button type="button" className="btn btn-primary btn-sm" disabled={!chosen} onClick={() => chosen && onSelect(chosen)}>
           {t('folderBrowser.selectFolder')}
         </button>
       </>}>
-      {open && <Suspense fallback={<Loading />}><Chooser start={start} onPath={setChosen} /></Suspense>}
+      {open && <Suspense fallback={<Loading />}><Chooser start={start} path={chosen} onPath={setChosen} /></Suspense>}
     </Modal>
   )
 }
