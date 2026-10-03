@@ -5,7 +5,7 @@ Design and security are in [ARCHITECTURE.md](ARCHITECTURE.md), deploy and signin
 
 ## Layout
 
-- `packages/protocol/src/` the wire contract in TypeScript: `rpc.ts` (methods), `model.ts` (types), `e2e.ts` (crypto), `relay.ts`, `device-names.json` (reserved site words), `e2e-vector.json` and `webpush-vector.json` (shared test vectors).
+- `packages/protocol/src/` the wire contract in TypeScript: `rpc.ts` (methods), `model.ts` (types), `e2e.ts` (crypto), `relay.ts`, `device-names.json` (reserved site words), `scrub.ts` (error-report scrubbing), `e2e-vector.json`, `webpush-vector.json` and `scrub-vector.json` (test vectors the Rust side shares).
 - `apps/client/` the Rust app (crate `magnetar`). `src/rpc.rs` RPC handlers, `src/api/actions.rs` actions shared by REST, MCP and dashboard, `src/http/` local server (REST, MCP, assets, streaming), `src/downloads/` torrent engine and manager, `src/search/` providers, `src/series/` show monitoring, `src/remote/` relay link, browser keys and push, `src/system/folders.rs` the Files browser (only the download folder and folders added on the device; `api/save_folder.rs` confines folders agents and relayed browsers choose), `src/db.rs` SQLite and migrations, `src/settings.rs`, `src/updates/`. Tests in `apps/client/tests/`. `package.ts` builds the release executable.
 - `apps/web/src/` the dashboard, one build for both transports: `LocalApp.tsx` (in the app), `cloud/` (website: login, devices, pairing), `device/` (pages of one device), `lib/` (`rpcClient.ts`, `localConnection.ts`, `relayConnection.ts`, `keyStore.ts`), `ui/`, `i18n/` (8 catalogs), `features/` (features page).
 - `apps/worker/src/` Cloudflare Worker: `index.ts` routes and `serveSinglePageApp`, `relay.ts` (`DeviceRelay` Durable Object), `auth.ts` (Google sign-in, sessions), `devices.ts`, `push.ts`, `releases.ts`, `console/`. `migrations/` D1 SQL, `test/` workerd tests, `wrangler.jsonc` (has an `env.dev`).
@@ -38,7 +38,7 @@ Design and security are in [ARCHITECTURE.md](ARCHITECTURE.md), deploy and signin
 
 ## Gotchas
 
-- The contract exists twice (zod in `packages/protocol`, serde in `apps/client/src/protocol`) and the E2E handshake twice; change both and keep the vector files passing.
+- The contract exists twice (zod in `packages/protocol`, serde in `apps/client/src/protocol`), the E2E handshake and the error scrubber twice; change both and keep the vector files passing.
 - Never share one `CARGO_TARGET_DIR` between worktrees. Dev ports: app 47820, Vite 5173, Worker 8790.
 - Test runs of the app need `MAGNETAR_DATA_DIRECTORY` and `MAGNETAR_DOWNLOAD_FOLDER`, or they touch the real folders.
 - Never delete torrent files through librqbit; use `downloads::engine::delete_files`.

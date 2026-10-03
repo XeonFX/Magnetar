@@ -120,6 +120,27 @@ export async function removeDevice(env: Env, deviceId: string): Promise<void> {
   await relay(env, deviceId).revoke()
 }
 
+const ALREADY_CONNECTED = 'This device is already connected'
+
+/**
+ * An approval of a pairing that is approved already. From the browser and account that approved it (a retry after
+ * its answer got lost, a second click) it answers as the first approval did, with the device it made, unless the
+ * person removed that device since. Anyone else hears it is taken.
+ */
+async function approvedAgain(
+  env: Env,
+  pairing: { device_id: string | null; approved_by: string | null; approved_session: string | null },
+  user: { id: string; tokenHash: string },
+): Promise<Response> {
+  if (pairing.approved_by === user.id && pairing.approved_session === user.tokenHash) {
+    const device = await env.DB.prepare('SELECT id, name FROM devices WHERE id = ? AND user_id = ?').bind(pairing.device_id, user.id)
+      .first<{ id: string; name: string }>()
+    if (device) return json({ deviceId: device.id, deviceName: device.name } satisfies PairApproveResponse)
+    return jsonError(409, 'You removed this device since. Connect it again from the app.')
+  }
+  return jsonError(409, ALREADY_CONNECTED)
+}
+
 export async function handleDevices(request: Request, env: Env, path: string): Promise<Response | null> {
   const method = request.method
 
@@ -172,6 +193,7 @@ export async function handleDevices(request: Request, env: Env, path: string): P
     const user = await requireUser(request, env)
     const row = await env.DB.prepare('SELECT * FROM pairings WHERE id = ?').bind(pairing[1]).first<{
       id: string; name: string; platform: string; version: string; expires_at: number; device_id: string | null
+      approved_by: string | null; approved_session: string | null
     }>()
     if (!row) return jsonError(404, 'This pairing link is not valid')
     const state = row.device_id ? 'approved' : row.expires_at < Date.now() ? 'expired' : 'pending'
@@ -180,7 +202,8 @@ export async function handleDevices(request: Request, env: Env, path: string): P
     }
     if (pairing[2] && method === 'POST') {
       requireSameOrigin(request, allowedOrigins(env))
-      if (state !== 'pending') return jsonError(409, state === 'expired' ? 'This pairing link has expired' : 'This device is already connected')
+      if (state === 'approved') return approvedAgain(env, row, user)
+      if (state !== 'pending') return jsonError(409, 'This pairing link has expired')
       const deviceId = `d_${randomId(12)}`
       const token = randomToken(32)
       const tokenHash = await sha256(token, 'base64url')
@@ -196,17 +219,19 @@ export async function handleDevices(request: Request, env: Env, path: string): P
         const now = Date.now()
         try {
           const [claimed] = await env.DB.batch([
-            env.DB.prepare(`UPDATE pairings SET approved_by = ?, device_id = ?, device_token = ? WHERE id = ? AND device_id IS NULL AND expires_at > ?
-              AND (SELECT COUNT(*) FROM devices WHERE user_id = ?) < ?`)
-              .bind(user.id, deviceId, token, row.id, now, user.id, MAX_DEVICES_PER_USER),
+            env.DB.prepare(`UPDATE pairings SET approved_by = ?, approved_session = ?, device_id = ?, device_token = ? WHERE id = ?
+              AND device_id IS NULL AND expires_at > ? AND (SELECT COUNT(*) FROM devices WHERE user_id = ?) < ?`)
+              .bind(user.id, user.tokenHash, deviceId, token, row.id, now, user.id, MAX_DEVICES_PER_USER),
             env.DB.prepare(`INSERT INTO devices (id, user_id, name, platform, version, token_hash, created_at)
               SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM pairings WHERE id = ? AND device_id = ?)`)
               .bind(deviceId, user.id, name, row.platform, row.version, tokenHash, now, row.id, deviceId),
           ])
           if (claimed!.meta.changes) return json({ deviceId, deviceName: name } satisfies PairApproveResponse)
           // Not claimed: another approval took the pairing, it expired, or the account filled up meanwhile.
-          const current = await env.DB.prepare('SELECT device_id, expires_at FROM pairings WHERE id = ?').bind(row.id).first<{ device_id: string | null; expires_at: number }>()
-          if (!current || current.device_id) return jsonError(409, 'This device is already connected')
+          const current = await env.DB.prepare('SELECT device_id, expires_at, approved_by, approved_session FROM pairings WHERE id = ?').bind(row.id)
+            .first<{ device_id: string | null; expires_at: number; approved_by: string | null; approved_session: string | null }>()
+          if (current?.device_id) return approvedAgain(env, current, user)
+          if (!current) return jsonError(409, ALREADY_CONNECTED)
           return jsonError(409, current.expires_at <= now ? 'This pairing link has expired' : FULL)
         } catch (e) {
           if (!nameTaken(e) || attempt > MAX_DEVICES_PER_USER) throw e

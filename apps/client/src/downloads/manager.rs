@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 use super::bencode::{self, Refused};
 use super::engine::{
     Engine, Metadata, NetworkOptions, SpeedLimits, TorrentHandle, bytes_in_pieces, check_torrent_file, delete_files,
-    drop_unsafe_session_torrents,
+    drop_unsafe_session_torrents, length_inside,
 };
 use super::transfer::{current_limits, disk_full_notice, free_space, interface_index, wanted_interface};
 use crate::db::{Db, KeyValue};
@@ -206,8 +206,8 @@ pub enum EngineSource {
 pub enum FileSource {
     /// Still in the engine: pieces are fetched as the reader reaches them.
     Engine(TorrentHandle, usize),
-    /// Only on disk.
-    Disk(PathBuf),
+    /// Only on disk: the file `relative` to the download's save folder, to be opened with `engine::open_inside`.
+    Disk { save_path: PathBuf, relative: PathBuf },
 }
 
 struct FilesOf {
@@ -326,6 +326,7 @@ impl DownloadManager {
                 if item.status == DownloadStatus::Paused && paused_for_update.contains(&item.id) {
                     item.status = DownloadStatus::Queued;
                 } else if item.progress >= 100.0 && !matches!(item.status, DownloadStatus::Completed | DownloadStatus::Seeding) {
+                    // Saved at 100 (`percent`) with every byte there, but stopped before it was marked finished.
                     item.status = DownloadStatus::Completed;
                     item.completed_at.get_or_insert_with(now_iso);
                     self.persist(&item);
@@ -815,7 +816,7 @@ impl DownloadManager {
             item.file_count = Some(count);
             if item.status == DownloadStatus::Completed && missing {
                 let have: u64 = (0..count).filter(chosen).map(|i| done[i]).sum();
-                item.progress = (have as f64 * 10_000.0 / item.total_bytes.max(1) as f64).floor() / 100.0;
+                item.progress = percent(have, item.total_bytes);
                 item.completed_at = None;
                 item.status = DownloadStatus::Queued;
                 self.attach(item);
@@ -838,12 +839,12 @@ impl DownloadManager {
         let path = metadata.files.get(index).ok_or_else(|| ApiError::not_found(format!("No file {index} in download {id}.")))?;
         let size = metadata.file_sizes[index];
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let on_disk = metadata.output_folder(&view.save_path).join(path);
+        let relative = metadata.content_folder().unwrap_or(Path::new("")).join(path);
         // Unfinished, only a running torrent fetches what the player reaches; a paused one would
         // leave it waiting forever.
         let source = match view.handle {
             _ if !settled => return Err(ApiError::bad("The download is starting. Try again in a moment.")),
-            _ if done[index] == size => FileSource::Disk(on_disk),
+            _ if done[index] == size => FileSource::Disk { save_path: view.save_path, relative },
             Some(handle) => FileSource::Engine(handle, index),
             None => return Err(ApiError::bad("Resume the download to play what it has so far.")),
         };
@@ -931,11 +932,12 @@ impl DownloadManager {
             // length has to do. Never the engine's count: a finished download is only in the engine
             // on its way out, with the pieces it had when it was last checked.
             let chosen = |index: usize| item.selected_files.as_ref().is_none_or(|s| s.contains(&index));
-            let folder = metadata.output_folder(&item.save_path);
+            let folder = metadata.content_folder().unwrap_or(Path::new(""));
             let done = (metadata.files.iter().zip(&metadata.file_sizes).enumerate())
                 .map(|(i, (path, &size))| match chosen(i) {
                     true => size,
-                    false => std::fs::metadata(folder.join(path)).map_or(0, |m| m.len().min(size)),
+                    // Only a file in the save folder itself, never one a link leads to.
+                    false => length_inside(&item.save_path, &folder.join(path)).map_or(0, |len| len.min(size)),
                 })
                 .collect();
             return (done, true);
@@ -1183,7 +1185,7 @@ impl DownloadManager {
                     failed.push((item.id, item.attempt, error));
                     continue;
                 }
-                item.progress = (stats.progress * 10_000.0).round() / 100.0;
+                item.progress = percent(stats.done_bytes, stats.total_bytes);
                 item.download_speed = stats.download_speed;
                 item.upload_speed = stats.upload_speed;
                 item.peers = stats.peers;
@@ -1308,6 +1310,16 @@ impl DownloadManager {
     }
 }
 
+/// `done` of `total` bytes in percent, to two decimals rounded down: 100 only once every byte is there, as a restart
+/// takes 100 for finished.
+fn percent(done: u64, total: u64) -> f64 {
+    match total {
+        0 => 0.0,
+        _ if done >= total => 100.0,
+        _ => (u128::from(done) * 10_000 / u128::from(total)) as f64 / 100.0,
+    }
+}
+
 fn seeded_enough(settings: &AppSettings, item: &Item) -> bool {
     ratio_reached(settings.post_download_action, settings.seed_ratio, item.uploaded_bytes, item.total_bytes)
 }
@@ -1368,6 +1380,7 @@ fn not_found(id: i64) -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::downloads::engine::{is_linked, open_inside};
 
     fn metadata(name: &str, files: &[&str]) -> Metadata {
         Metadata {
@@ -1391,6 +1404,28 @@ mod tests {
         assert!(!ratio_reached(SeedToRatio, 1.0, 5000, 0), "an unknown size is never reached");
         assert!(!ratio_reached(KeepSeeding, 1.0, 5000, 1000));
         assert!(!ratio_reached(StopSeeding, 1.0, 5000, 1000));
+    }
+
+    #[test]
+    fn progress_reads_100_only_once_every_byte_is_there() {
+        assert_eq!(percent(0, 0), 0.0, "a size not known yet");
+        assert_eq!(percent(0, 1), 0.0);
+        assert_eq!(percent(1, 1), 100.0);
+        assert_eq!(percent(2, 1), 100.0);
+        assert_eq!(percent(1, 3), 33.33);
+        // One byte short of a megabyte is 99.9999%, which rounding to two decimals made 100.
+        assert_eq!(percent(999_999, 1_000_000), 99.99);
+        assert_eq!(percent(u64::MAX - 1, u64::MAX), 99.99);
+        assert_eq!(percent(u64::MAX, u64::MAX), 100.0);
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn progress_is_100_exactly_when_done_and_never_goes_back(total in 1..u64::MAX, a in 0..u64::MAX, b in 0..u64::MAX) {
+            let (less, more) = (a.min(b), a.max(b));
+            proptest::prop_assert_eq!(percent(less, total) >= 100.0, less >= total);
+            proptest::prop_assert!(percent(less, total) <= percent(more, total));
+        }
     }
 
     #[test]
@@ -1536,5 +1571,73 @@ mod tests {
         assert!(outside.join("1.mkv").exists() && outside.join("2.mkv").exists(), "files behind the link stay");
         assert!(!root.join("Show/A").exists() && !root.join("Show/B").exists(), "emptied folders go");
         assert!(root.join("Show").exists(), "the folder holding the link stays");
+    }
+
+    /// Reads a file as streaming does: through `open_inside`.
+    fn read_inside(root: &Path, relative: &str) -> std::io::Result<String> {
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut open_inside(root, Path::new(relative))?, &mut text)?;
+        Ok(text)
+    }
+
+    #[test]
+    fn files_in_the_save_folder_open_and_measure() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("Downloads");
+        std::fs::create_dir_all(root.join("Show/Subs")).unwrap();
+        std::fs::write(root.join("Show/Subs/e01.srt"), "subtitle").unwrap();
+        std::fs::write(root.join("single.iso"), "").unwrap();
+        assert_eq!(read_inside(&root, "Show/Subs/e01.srt").unwrap(), "subtitle");
+        assert_eq!(length_inside(&root, Path::new("Show/Subs/e01.srt")), Some(8));
+        assert_eq!(length_inside(&root, Path::new("single.iso")), Some(0));
+        assert_eq!(length_inside(&root, Path::new("Show/Subs")), None, "a folder is no file");
+        assert_eq!(length_inside(&root, Path::new("Show/missing.mkv")), None);
+        assert_eq!(read_inside(&root, "Show/missing.mkv").unwrap_err().kind(), std::io::ErrorKind::NotFound);
+        // Nothing outside the folder by name either.
+        std::fs::write(dir.path().join("secret.txt"), "mine").unwrap();
+        for escape in ["../secret.txt", "Show/../../secret.txt", "/etc/hosts", ""] {
+            assert_eq!(read_inside(&root, escape).unwrap_err().kind(), std::io::ErrorKind::InvalidInput, "{escape}");
+        }
+        // Nor, on Windows, a file's hidden stream.
+        if cfg!(windows) {
+            let stream = read_inside(&root, "Show/Subs/e01.srt:hidden").unwrap_err();
+            assert_eq!(stream.kind(), std::io::ErrorKind::InvalidInput);
+        }
+        // The save folder itself may be a link: the user chose it.
+        let chosen = dir.path().join("Chosen");
+        link_folder(&root, &chosen);
+        assert_eq!(read_inside(&chosen, "Show/Subs/e01.srt").unwrap(), "subtitle");
+    }
+
+    #[test]
+    fn files_behind_a_linked_folder_are_neither_opened_nor_measured() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("Downloads");
+        std::fs::create_dir_all(root.join("Other")).unwrap();
+        std::fs::write(root.join("Other/e01.mkv"), "another download").unwrap();
+        let outside = outside_files(dir.path());
+        // The torrent's folder linked out of the save folder, and a folder in another one linked to a third.
+        link_folder(&outside, &root.join("Show"));
+        std::fs::create_dir_all(root.join("Pack")).unwrap();
+        link_folder(&root.join("Other"), &root.join("Pack/Season 1"));
+        for linked in ["Show/e01.mkv", "Show/Subs/e01.srt", "Pack/Season 1/e01.mkv"] {
+            let refused = read_inside(&root, linked).unwrap_err();
+            if cfg!(unix) {
+                assert!(is_linked(&refused), "{linked}: {refused}");
+            }
+            assert_eq!(length_inside(&root, Path::new(linked)), None, "{linked}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_in_place_of_a_file_is_neither_opened_nor_measured() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("Downloads");
+        std::fs::create_dir_all(root.join("Show")).unwrap();
+        let outside = outside_files(dir.path());
+        std::os::unix::fs::symlink(outside.join("e01.mkv"), root.join("Show/e01.mkv")).unwrap();
+        assert!(is_linked(&read_inside(&root, "Show/e01.mkv").unwrap_err()));
+        assert_eq!(length_inside(&root, Path::new("Show/e01.mkv")), None);
     }
 }

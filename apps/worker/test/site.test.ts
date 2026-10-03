@@ -112,6 +112,20 @@ describe('the website API', () => {
     expect(await expiry()).toBeLessThanOrEqual(Date.now() + 30 * day)
   })
 
+  test('a session in use keeps sliding, however long ago it began', async () => {
+    const user = await signIn()
+    const day = 86_400_000
+    const where = 'user_id = (SELECT id FROM users WHERE email = ?)'
+    // Signed in three years ago, and used every few weeks since: due for renewal again.
+    await env.DB.prepare(`UPDATE sessions SET created_at = ?, expires_at = ? WHERE ${where}`).bind(Date.now() - 3 * 365 * day, Date.now() + day, user.email).run()
+    const before = Date.now()
+    const renewed = await call('/api/me', { headers: user.headers })
+    expect(renewed.status).toBe(200)
+    expect(cookieValue(renewed, SESSION_COOKIE)).toBe(user.headers.cookie!.slice(SESSION_COOKIE.length + 1))
+    const expiry = (await env.DB.prepare(`SELECT expires_at FROM sessions WHERE ${where}`).bind(user.email).first<{ expires_at: number }>())!.expires_at
+    expect(expiry).toBeGreaterThanOrEqual(before + 30 * day)
+  })
+
   test('an expired session is signed out', async () => {
     const user = await signIn()
     await env.DB.prepare('UPDATE sessions SET expires_at = ? WHERE user_id = (SELECT id FROM users WHERE email = ?)').bind(Date.now() - 1, user.email).run()

@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 
+use futures::future::BoxFuture;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -14,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 use crate::app::App;
 use crate::config::{ARCH, COMMIT, PLATFORM, VERSION};
 use crate::downloads::manager::{FileSource, media_kind};
-use crate::downloads::media::{MediaReader, media_type, open_reader, read_at};
+use crate::downloads::media::{MediaReader, media_type, open_on_disk, open_reader, read_at};
 use crate::downloads::upload::TorrentUploads;
 use crate::error::{ApiError, ApiResult, ErrorCode};
 use crate::protocol::device_name::is_device_name;
@@ -135,7 +136,8 @@ impl RpcSession {
         let inner = self.inner.clone();
         let Some(app) = self.app.upgrade() else { return };
         tokio::spawn(async move {
-            let reply = match dispatch(&app, &inner, &method, params).await {
+            let mut after_reply = None;
+            let reply = match dispatch(&app, &inner, &method, params, &mut after_reply).await {
                 Ok(result) => json!({ "id": id, "result": result }),
                 Err(error) => {
                     if error.is_internal() {
@@ -145,6 +147,9 @@ impl RpcSession {
                 }
             };
             inner.send(reply);
+            if let Some(work) = after_reply {
+                work.await;
+            }
         });
     }
 
@@ -371,7 +376,17 @@ fn device_name(name: Option<String>, required: bool) -> ApiResult<Option<String>
     }
 }
 
-async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, params: Value) -> ApiResult<Value> {
+/// Work a call starts that may only begin once its reply is on its way: a search's events carry the id
+/// the reply hands over, and the dashboard drops events for an id it doesn't know yet.
+type AfterReply = Option<BoxFuture<'static, ()>>;
+
+async fn dispatch(
+    app: &Arc<App>,
+    session: &Arc<SessionInner>,
+    method: &str,
+    params: Value,
+    after_reply: &mut AfterReply,
+) -> ApiResult<Value> {
     if !session.local() && LOCAL_ONLY_METHODS.contains(&method) {
         return Err(ApiError::new(ErrorCode::Forbidden, format!("{method} is only available on the device itself")));
     }
@@ -404,7 +419,7 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
             let cancel = session.closed.child_token();
             session.searches.lock().unwrap().insert(search_id.clone(), cancel.clone());
             let (app, session, id) = (app.clone(), session.clone(), search_id.clone());
-            tokio::spawn(async move {
+            *after_reply = Some(Box::pin(async move {
                 let on_results = |batch: Vec<_>| {
                     let results: Vec<_> = batch
                         .into_iter()
@@ -422,7 +437,7 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
                     session.emit("search.done", json!({ "searchId": id, "error": error }));
                 }
                 session.searches.lock().unwrap().remove(&id);
-            });
+            }));
             ok(json!({ "searchId": search_id }))
         }
         "search.cancel" => {
@@ -474,7 +489,11 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
             let FileRef { id, index } = parse(params)?;
             // Finished media only: a torrent can carry programs, and those are never opened from here.
             match app.downloads.open_file(id, index)?.source {
-                FileSource::Disk(path) if media_kind(&path).is_some() => system::open_with_system(path),
+                // The system's player opens it by path: only once it is found in the folder, not behind a link.
+                FileSource::Disk { save_path, relative } if media_kind(&relative).is_some() => {
+                    open_on_disk(&save_path, &relative).await?;
+                    system::open_with_system(save_path.join(relative))
+                }
                 _ => return Err(ApiError::bad("Only finished video and audio files open from here.")),
             }
             ok(Value::Null)

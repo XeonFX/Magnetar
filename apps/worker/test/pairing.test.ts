@@ -190,13 +190,60 @@ describe('pairing', () => {
     expect(await (await poll(pairing)).json()).toEqual({ state: 'expired' })
   })
 
-  test('an approved pairing link cannot be approved again, not even by its owner', async () => {
+  test('approving again from the browser that approved answers with the same device; anyone else hears it is taken', async () => {
+    const user = await signIn()
+    const pairing = await startPairing({ name: 'Studio Mac' })
+    const first = await approve(user, pairing.pairingId)
+    expect(first.status).toBe(200)
+    const device = await first.json<{ deviceId: string; deviceName: string }>()
+    // A retry after the answer got lost, or a second click.
+    const again = await approve(user, pairing.pairingId)
+    expect(again.status).toBe(200)
+    expect(await again.json()).toEqual(device)
+    expect(await listDevices(user)).toEqual([expect.objectContaining({ id: device.deviceId, name: 'Studio-Mac' })])
+
+    // The same account in another browser, and another account.
+    for (const someoneElse of [await signIn(user.email), await signIn()]) {
+      const taken = await approve(someoneElse, pairing.pairingId)
+      expect(taken.status).toBe(409)
+      expect(await taken.json()).toEqual({ error: 'This device is already connected' })
+    }
+    // A device the person removed meanwhile is not brought back.
+    expect((await call(`/api/devices/${device.deviceId}`, { method: 'DELETE', headers: user.headers })).status).toBe(200)
+    const removed = await approve(user, pairing.pairingId)
+    expect(removed.status).toBe(409)
+    expect(await removed.json()).toEqual({ error: 'You removed this device since. Connect it again from the app.' })
+    expect(await listDevices(user)).toEqual([])
+  })
+
+  test('two tabs of one browser approving at once both hear of the one device', async () => {
     const user = await signIn()
     const pairing = await startPairing()
-    expect((await approve(user, pairing.pairingId)).status).toBe(200)
-    const again = await approve(user, pairing.pairingId)
-    expect(again.status).toBe(409)
-    expect(await again.json()).toEqual({ error: 'This device is already connected' })
+    const { db, waited } = batchesTogether(env.DB, 2)
+    const approveNow = () => handleDevices(
+      new Request(`${ORIGIN}/api/pair/${pairing.pairingId}/approve`, { method: 'POST', headers: user.headers }),
+      { ...env, DB: db }, `/api/pair/${pairing.pairingId}/approve`,
+    )
+    const results = await Promise.all([approveNow(), approveNow()])
+    expect(waited()).toBe(2)
+    expect(results.map(r => r!.status)).toEqual([200, 200])
+    const [one, two] = await Promise.all(results.map(r => r!.json<{ deviceId: string }>()))
+    expect(two).toEqual(one)
+    expect(await listDevices(user)).toEqual([expect.objectContaining({ id: one!.deviceId })])
+  })
+
+  test('a device whose app never collected its token stays on the account until the person removes it', async () => {
+    const user = await signIn()
+    const pairing = await startPairing()
+    const { deviceId } = await (await approve(user, pairing.pairingId)).json<{ deviceId: string }>()
+    // Long past the handoff, and after another pairing's start has swept the old ones out.
+    await env.DB.prepare('UPDATE pairings SET expires_at = ? WHERE id = ?').bind(Date.now() - 365 * 86_400_000, pairing.pairingId).run()
+    await startPairing()
+    expect(await env.DB.prepare('SELECT id FROM pairings WHERE id = ?').bind(pairing.pairingId).first()).toBeNull()
+    expect(await listDevices(user)).toEqual([expect.objectContaining({ id: deviceId, online: false })])
+
+    expect((await call(`/api/devices/${deviceId}`, { method: 'DELETE', headers: user.headers })).status).toBe(200)
+    expect(await listDevices(user)).toEqual([])
   })
 
   test('an account holds twenty devices; the twenty-first waits for one to be removed', async () => {

@@ -13,15 +13,17 @@ struct Rules {
     token: Regex,
 }
 
+/// Written as `scrub.ts` writes them, with no class or boundary whose meaning differs between Rust and JavaScript:
+/// white space spelled out, and ASCII word boundaries (`(?-u:\b)` here, `\b` there).
 static RULES: LazyLock<Rules> = LazyLock::new(|| Rules {
-    url: Regex::new(r#"(?i)https?://[^\s'")]+"#).unwrap(),
-    magnet: Regex::new(r#"(?i)magnet:\?[^\s'")]+"#).unwrap(),
-    email: Regex::new(r"[\w.+-]+@[\w-]+\.[\w.-]+").unwrap(),
+    url: Regex::new(r#"(?i)https?://[^\t\n\v\f\r '")]+"#).unwrap(),
+    magnet: Regex::new(r#"(?i)magnet:\?[^\t\n\v\f\r '")]+"#).unwrap(),
+    email: Regex::new(r#"[^\t\n\v\f\r "'<>()@:,;]+@[A-Za-z0-9-]+\.[A-Za-z0-9.-]+"#).unwrap(),
     quoted: Regex::new("\"[^\"\\n]*\"|'[^'\\n]*'|“[^”\\n]*”").unwrap(),
-    path: Regex::new(r#"(?:[A-Za-z]:)?(?:[\\/][^\\/\s:'"()]+)+"#).unwrap(),
-    ip: Regex::new(r"\b\d{1,3}(?:\.\d{1,3}){3}\b").unwrap(),
-    hex: Regex::new(r"(?i)\b[0-9a-f]{16,}\b").unwrap(),
-    token: Regex::new(r"\b[A-Za-z0-9_-]{32,}\b").unwrap(),
+    path: Regex::new(r#"(?:[A-Za-z]:|[^\t\n\v\f\r "'():\\/]+)?(?:[\\/][^\n"'():\\/]*)+"#).unwrap(),
+    ip: Regex::new(r"(?-u:\b)[0-9]{1,3}(?:\.[0-9]{1,3}){3}(?-u:\b)").unwrap(),
+    hex: Regex::new(r"(?i)(?-u:\b)[0-9a-f]{16,}(?-u:\b)").unwrap(),
+    token: Regex::new(r"(?-u:\b)[A-Za-z0-9_-]{32,}(?-u:\b)").unwrap(),
 });
 
 /// Strips anything that could identify the user or what they download before an error report
@@ -32,9 +34,11 @@ pub fn scrub(text: &str) -> String {
     let text = r.magnet.replace_all(&text, "<magnet>");
     let text = r.email.replace_all(&text, "<email>");
     let text = r.quoted.replace_all(&text, "\"…\"");
+    // All of it, names with spaces and relative paths too, up to a colon, quote or bracket: a file's or folder's name
+    // is often the torrent's.
     let text = r.path.replace_all(&text, |caps: &regex::Captures| {
-        let last = caps[0].rsplit(['/', '\\']).next().unwrap_or_default().to_owned();
-        format!("…/{last}")
+        let path = &caps[0];
+        format!("<path>{}", &path[path.trim_end_matches([' ', '\t', '\r']).len()..])
     });
     let text = r.ip.replace_all(&text, "<ip>");
     let text = r.hex.replace_all(&text, "<hex>");
@@ -43,14 +47,29 @@ pub fn scrub(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+    use serde_json::Value;
+
+    use super::scrub;
+
+    /// The cases `packages/protocol/src/scrub.ts` is held to as well.
     #[test]
-    fn removes_titles_paths_urls_addresses_hashes_and_tokens() {
-        let scrubbed = super::scrub(
-            "Could not resolve \"Some.Show.S01E01.1080p\" at /Users/alice/Downloads/x.mkv from https://nyaa.si/view/1 for bob@example.com 10.0.0.4 hash abcdef0123456789abcdef0123456789abcdef01 token AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-",
-        );
-        for leaked in ["Some.Show", "alice", "nyaa", "bob@", "10.0.0.4", "abcdef0123", "AbCdEfGh"] {
-            assert!(!scrubbed.contains(leaked), "{leaked} leaked: {scrubbed}");
+    fn scrubs_as_the_shared_vector_says() {
+        let vector: Value = serde_json::from_str(include_str!("../../../../packages/protocol/src/scrub-vector.json")).unwrap();
+        for case in vector["cases"].as_array().unwrap() {
+            assert_eq!(scrub(case["input"].as_str().unwrap()), case["output"].as_str().unwrap());
         }
-        assert!(scrubbed.contains("Could not resolve"));
+    }
+
+    proptest! {
+        #[test]
+        fn no_part_of_a_path_is_left(
+            start in "([A-Z]:|[A-Za-z0-9._-]{1,12})?",
+            separator in "[/\\\\]",
+            parts in prop::collection::vec(r"[A-Za-z0-9._\[\] -]{0,23}[A-Za-z0-9._\[\]-]", 1..6),
+        ) {
+            let path = format!("{start}{separator}{}", parts.join(&separator));
+            prop_assert_eq!(scrub(&format!("could not open {path}: denied")), "could not open <path>: denied");
+        }
     }
 }

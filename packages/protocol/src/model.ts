@@ -288,6 +288,12 @@ export const SettingsPatch = z.strictObject({
 })
 export type SettingsPatch = z.infer<typeof SettingsPatch>
 
+/** The longest a series rule or a watch waits between checks: a week. Also in `apps/client/src/protocol/model.rs`. */
+export const MAX_CHECK_INTERVAL_MINUTES = 10_080
+/** The shortest a watch waits between checks; a series rule may check every minute. */
+export const MIN_WATCH_INTERVAL_MINUTES = 15
+const seriesInterval = z.number().int().min(1).max(MAX_CHECK_INTERVAL_MINUTES)
+
 const episode = z.number().int().min(1)
 const optionalText = z.string().trim().transform(v => (v === '' ? null : v)).nullable()
 const resolution = z.enum(['720p', '1080p', '2160p'])
@@ -302,7 +308,7 @@ export const SeriesTaskInput = z.strictObject({
   season: z.number().int().min(0).nullable().default(null),
   startEpisode: episode.default(1),
   endEpisode: episode.nullable().default(null),
-  checkIntervalMinutes: z.number().int().min(1).default(60),
+  checkIntervalMinutes: seriesInterval.default(60),
   enabled: z.boolean().default(true),
   downloadFolder: optionalText.default(null),
   resolution: resolution.nullable().default(null),
@@ -326,7 +332,7 @@ export const SeriesTaskPatch = z.strictObject({
   season: z.number().int().nullable().optional(),
   startEpisode: z.number().int().optional(),
   endEpisode: z.number().int().nullable().optional(),
-  checkIntervalMinutes: z.number().int().optional(),
+  checkIntervalMinutes: seriesInterval.optional(),
   enabled: z.boolean().optional(),
   downloadFolder: z.string().nullable().optional(),
   resolution: resolution.nullable().optional(),
@@ -346,7 +352,7 @@ export const WatchInput = z.strictObject({
   preferWords: words.default(null),
   excludeWords: words.default(null),
   autoDownload: z.boolean().default(false),
-  checkIntervalMinutes: z.number().int().min(15).max(10_080).default(360),
+  checkIntervalMinutes: z.number().int().min(MIN_WATCH_INTERVAL_MINUTES).max(MAX_CHECK_INTERVAL_MINUTES).default(360),
   enabled: z.boolean().default(true),
 })
 export type WatchInput = z.input<typeof WatchInput>

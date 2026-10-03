@@ -6,7 +6,7 @@ use crate::db::Db;
 use crate::error::{ApiError, ApiResult};
 use crate::events::EventBus;
 use crate::protocol::encoding::now_iso;
-use crate::protocol::{SeriesTaskDto, SeriesTaskInput, ShowInfoDto, StartFrom};
+use crate::protocol::{MAX_CHECK_INTERVAL_MINUTES, SeriesTaskDto, SeriesTaskInput, ShowInfoDto, StartFrom};
 
 #[derive(Clone, Debug)]
 pub struct SeriesTask {
@@ -45,7 +45,8 @@ impl SeriesTask {
             end_episode: row.get("end_episode")?,
             download_folder: row.get("download_folder")?,
             last_downloaded_episode: row.get("last_downloaded_episode")?,
-            check_interval_minutes: row.get("check_interval_minutes")?,
+            // One stored before there was a limit is read within it.
+            check_interval_minutes: row.get::<_, i64>("check_interval_minutes")?.clamp(1, MAX_CHECK_INTERVAL_MINUTES),
             enabled: row.get("enabled")?,
             last_checked_at: row.get("last_checked_at")?,
             resolution: row.get("resolution")?,

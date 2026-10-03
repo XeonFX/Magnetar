@@ -212,3 +212,107 @@ async fn a_watch_reports_the_first_release_its_rules_allow_then_rests_until_arme
     assert!(store.create(watch(serde_json::json!({ "query": " x " }))).is_err(), "a one-letter query would match anything");
     assert!(store.create(watch(serde_json::json!({ "query": "Show", "checkIntervalMinutes": 1 }))).is_err());
 }
+
+#[tokio::test]
+async fn a_check_interval_is_a_minute_to_a_week() {
+    let (app, _, _dir) = app(1);
+    let every = |minutes: i64| SeriesTaskInput { check_interval_minutes: minutes, ..input(StartFrom::Episode) };
+    for refused in [0, -1, 10_081, 1_000_000_000_000_000, i64::MAX] {
+        let error = app.actions.create_series(every(refused)).await.unwrap_err();
+        assert!(error.message.contains("checkIntervalMinutes"), "{refused}: {}", error.message);
+    }
+    let weekly = app.actions.create_series(every(10_080)).await.unwrap();
+    assert_eq!(weekly.check_interval_minutes, 10_080);
+    assert_eq!(app.actions.create_series(every(1)).await.unwrap().check_interval_minutes, 1);
+    let patch =
+        |minutes: i64| magnetar::protocol::SeriesTaskPatch { check_interval_minutes: Some(minutes), ..Default::default() };
+    assert!(app.actions.update_series(weekly.id, patch(1_000_000_000_000_000)).is_err());
+    assert!(app.actions.update_series(weekly.id, patch(10_081)).is_err());
+    assert_eq!(app.actions.get_series(weekly.id).unwrap().check_interval_minutes, 10_080, "a refused patch changes nothing");
+}
+
+/// A source whose answers trip Magnetar up: "Boom" finds a release whose detail page makes the parser
+/// panic, "Crash" makes the search itself panic. Anything else finds episode 1 of "Show".
+struct Treacherous {
+    details_asked: Mutex<usize>,
+}
+
+#[async_trait]
+impl Provider for Treacherous {
+    fn name(&self) -> &'static str {
+        "Treacherous"
+    }
+
+    fn id(&self) -> &'static str {
+        "treacherous"
+    }
+
+    async fn search(&self, _: &reqwest::Client, query: &str, _: &CancellationToken) -> anyhow::Result<Vec<TorrentSearchResult>> {
+        if query.starts_with("Crash") {
+            panic!("a page the parser never saw");
+        }
+        if query.starts_with("Boom") {
+            let lazy = TorrentSearchResult {
+                seeders: 5,
+                info_hash: "lazy-1".into(),
+                ..TorrentSearchResult::new("Boom - 01", "Treacherous")
+            };
+            return Ok(vec![lazy]);
+        }
+        Ok(vec![release(1, "Popular", "1080p", 500)])
+    }
+
+    async fn details(
+        &self,
+        _: &reqwest::Client,
+        _: &TorrentSearchResult,
+        _: &CancellationToken,
+    ) -> Option<anyhow::Result<magnetar::search::types::TorrentDetails>> {
+        *self.details_asked.lock().unwrap() += 1;
+        panic!("a detail page the parser never saw");
+    }
+}
+
+#[tokio::test]
+async fn one_broken_rule_never_stops_the_others_from_being_checked() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = Arc::new(Treacherous { details_asked: Mutex::new(0) });
+    let app = App::new(AppOptions {
+        paths: Paths::new(dir.path().join("data")).unwrap(),
+        engine: EngineSource::Off,
+        providers: vec![source.clone()],
+        legacy_database: None,
+        show_lookups: false,
+    })
+    .unwrap();
+    app.settings.update(|s| s.download_folder = dir.path().join("dl").display().to_string()).unwrap();
+    let named = |name: &str| SeriesTaskInput { name: name.into(), query: name.into(), ..input(StartFrom::Episode) };
+    // Checked in this order: every broken one comes before the one that works.
+    let boom = app.actions.create_series(named("Boom")).await.unwrap();
+    let crash = app.actions.create_series(named("Crash")).await.unwrap();
+    let huge = app.actions.create_series(named("Huge")).await.unwrap();
+    let show = app.actions.create_series(named("Show")).await.unwrap();
+    // An interval no create accepts, stored before there was a limit, with and without a last check.
+    app.db
+        .lock()
+        .execute(
+            "UPDATE series_tasks SET check_interval_minutes = 1000000000000000, last_checked_at = '2026-01-01T00:00:00.000Z' WHERE id = ?",
+            [huge.id],
+        )
+        .unwrap();
+    app.db.lock().execute("UPDATE series_tasks SET check_interval_minutes = ? WHERE id = ?", (i64::MAX, boom.id)).unwrap();
+
+    app.monitor.check_all().await;
+    assert_eq!(titles(&app), ["[Popular] Show - 01 (1080p)"], "the rule after the broken ones was checked");
+    assert_eq!(*source.details_asked.lock().unwrap(), 1);
+    let checked = |id: i64| app.actions.get_series(id).unwrap().last_checked_at;
+    assert!(checked(crash.id).is_some() && checked(show.id).is_some(), "both were checked");
+    assert_eq!(app.actions.get_series(huge.id).unwrap().check_interval_minutes, 10_080, "read back within the limit");
+
+    // A rule whose check panicked is not left marked as running: the next round tries it again.
+    app.db.lock().execute("UPDATE series_tasks SET last_checked_at = NULL", []).unwrap();
+    app.monitor.check_all().await;
+    assert_eq!(*source.details_asked.lock().unwrap(), 2);
+    assert!(app.actions.check_series_now(boom.id).await.is_err(), "Check now reports the failure instead of hanging");
+    assert_eq!(*source.details_asked.lock().unwrap(), 3);
+}

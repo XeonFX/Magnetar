@@ -1,8 +1,10 @@
 use std::collections::{HashMap, HashSet};
+use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use futures::FutureExt;
 use tokio_util::sync::CancellationToken;
 
 use super::episode::{EpisodeRule, episode_queries, matches_episode, parse_episode};
@@ -15,7 +17,7 @@ use crate::downloads::DownloadManager;
 use crate::error::{ApiError, ApiResult};
 use crate::notifications::NotificationDispatcher;
 use crate::protocol::encoding::{now_iso, parse_iso};
-use crate::protocol::{FoundReleaseDto, WatchDto};
+use crate::protocol::{FoundReleaseDto, MAX_CHECK_INTERVAL_MINUTES, WatchDto};
 use crate::search::SearchService;
 use crate::search::types::TorrentSearchResult;
 
@@ -74,9 +76,14 @@ impl SeriesMonitor {
                     _ = monitor.cancel.cancelled() => return,
                     _ = tokio::time::sleep(delay) => {}
                 }
-                monitor.check_due().await;
-                monitor.check_due_watches().await;
-                monitor.refresh_stale_shows().await;
+                // Every rule's check is isolated already; this keeps the loop alive whatever else breaks.
+                let round = async {
+                    monitor.check_all().await;
+                    Ok(())
+                };
+                if let Err(error) = unless_panicked(round).await {
+                    tracing::error!("A round of series and watch checks stopped: {error}");
+                }
                 delay = POLL;
             }
         });
@@ -86,16 +93,23 @@ impl SeriesMonitor {
         self.cancel.cancel();
     }
 
+    /// One round: due series rules, due watches, then show details gone stale. One that fails or
+    /// panics (a source's parser meeting a page it never saw) is logged, and the rest still run.
+    pub async fn check_all(&self) {
+        self.check_due().await;
+        self.check_due_watches().await;
+        self.refresh_stale_shows().await;
+    }
+
     async fn check_due(&self) {
         let now = chrono::Utc::now();
         for task in self.store.all() {
             if !task.enabled {
                 continue;
             }
-            if !is_due(task.last_checked_at.as_deref(), chrono::Duration::minutes(task.check_interval_minutes), now) {
+            if !is_due(task.last_checked_at.as_deref(), minutes(task.check_interval_minutes), now) {
                 continue;
             }
-            // One task failing (a provider bug) must not stop the others from being checked.
             if let Err(error) = self.check(task.clone()).await {
                 if self.cancel.is_cancelled() {
                     return;
@@ -111,24 +125,23 @@ impl SeriesMonitor {
         self.store.get(id)
     }
 
+    /// Checks one rule, unless a check of it is under way. A failure, or a panic, fails this rule's
+    /// check alone: it still counts as checked, and the next one tries again.
     async fn check(&self, mut task: SeriesTask) -> ApiResult<()> {
-        if !self.running.lock().unwrap().insert(task.id) {
-            return Ok(());
-        }
+        let Some(_running) = Running::start(&self.running, task.id) else { return Ok(()) };
         // Catching up asks the same broad query for every episode; ask each site once per check.
         let mut searches = HashMap::new();
-        let outcome = match self.replace_dead(&task, &mut searches).await {
-            Ok(()) => self.find_and_queue(&mut task, &mut searches).await,
-            Err(error) => Err(error),
-        };
+        let outcome = unless_panicked(async {
+            self.replace_dead(&task, &mut searches).await?;
+            self.find_and_queue(&mut task, &mut searches).await
+        })
+        .await;
         let mut latest = self.fresh(&task);
         if latest.is_finished() {
             latest.enabled = false;
         }
         latest.last_checked_at = Some(now_iso());
-        let saved = self.store.save(&latest);
-        self.running.lock().unwrap().remove(&task.id);
-        outcome.and(saved)
+        outcome.and(self.store.save(&latest))
     }
 
     /// Episodes whose release nobody seeded get another one: the dead release is never picked
@@ -289,7 +302,7 @@ impl SeriesMonitor {
         for task in self.store.all() {
             if is_due(task.show_checked_at.as_deref(), SHOW_REFRESH, now)
                 && !self.cancel.is_cancelled()
-                && let Err(error) = self.refresh_show(task.id).await
+                && let Err(error) = unless_panicked(self.refresh_show(task.id)).await
             {
                 tracing::debug!("TVmaze lookup for '{}' failed: {error}", task.name);
             }
@@ -299,11 +312,11 @@ impl SeriesMonitor {
     async fn check_due_watches(&self) {
         let now = chrono::Utc::now();
         for watch in self.watches.all() {
-            let due = is_due(watch.last_checked_at.as_deref(), chrono::Duration::minutes(watch.check_interval_minutes), now);
+            let due = is_due(watch.last_checked_at.as_deref(), minutes(watch.check_interval_minutes), now);
             if watch.enabled
                 && due
                 && !self.cancel.is_cancelled()
-                && let Err(error) = self.check_watch(watch.id).await
+                && let Err(error) = unless_panicked(self.check_watch(watch.id)).await
             {
                 tracing::warn!("Watch '{}' could not be checked: {error}", watch.query);
             }
@@ -364,7 +377,43 @@ impl SeriesMonitor {
 
 type Searches = HashMap<String, Vec<TorrentSearchResult>>;
 
-/// Whether something last done `at` (never, if None) is due again, `every` later.
-fn is_due(at: Option<&str>, every: chrono::Duration, now: chrono::DateTime<chrono::Utc>) -> bool {
-    at.and_then(parse_iso).is_none_or(|at| at + every <= now)
+/// A check interval as a duration, within the limit whatever was stored.
+fn minutes(interval: i64) -> chrono::TimeDelta {
+    chrono::TimeDelta::minutes(interval.clamp(1, MAX_CHECK_INTERVAL_MINUTES))
+}
+
+/// Whether something last done `at` (never, if None) is due again, `every` later. A time past the
+/// calendar's end never comes.
+fn is_due(at: Option<&str>, every: chrono::TimeDelta, now: chrono::DateTime<chrono::Utc>) -> bool {
+    at.and_then(parse_iso).is_none_or(|at| at.checked_add_signed(every).is_some_and(|next| next <= now))
+}
+
+/// A rule being checked, until dropped: a check that fails, panics or is dropped never leaves it marked.
+struct Running<'a> {
+    checks: &'a Mutex<HashSet<i64>>,
+    id: i64,
+}
+
+impl<'a> Running<'a> {
+    fn start(checks: &'a Mutex<HashSet<i64>>, id: i64) -> Option<Self> {
+        checks.lock().unwrap_or_else(|e| e.into_inner()).insert(id).then_some(Self { checks, id })
+    }
+}
+
+impl Drop for Running<'_> {
+    fn drop(&mut self) {
+        self.checks.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.id);
+    }
+}
+
+/// `work`'s outcome, with a panic in it turned into an internal error, so a bug fails one rule's check
+/// rather than ending the monitor.
+async fn unless_panicked<T>(work: impl Future<Output = ApiResult<T>>) -> ApiResult<T> {
+    match AssertUnwindSafe(work).catch_unwind().await {
+        Ok(outcome) => outcome,
+        Err(panic) => {
+            let message = panic.downcast_ref::<&str>().map(|m| m.to_string()).or_else(|| panic.downcast_ref::<String>().cloned());
+            Err(ApiError::internal(format!("Magnetar ran into a bug: {}", message.unwrap_or_default())))
+        }
+    }
 }

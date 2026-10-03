@@ -139,6 +139,14 @@ async fn rest_routes_validate_and_report_errors() {
     assert_eq!(partial.status(), 400);
     let openapi: Value = http.get(format!("{base}/openapi/v1.json")).send().await.unwrap().json().await.unwrap();
     assert_eq!(openapi["openapi"], "3.1.0");
+    // A check interval is a minute to a week, as the schema says and the API holds to.
+    let create = &openapi["paths"]["/api/series"]["post"]["requestBody"]["content"]["application/json"]["schema"];
+    assert_eq!(create["properties"]["checkIntervalMinutes"], json!({ "type": "integer", "minimum": 1, "maximum": 10_080 }));
+    for (minutes, status) in [(0, 400), (10_081, 400), (1_000_000_000_000_000_i64, 400), (10_080, 200)] {
+        let body = json!({ "name": "Weekly", "query": "Weekly", "checkIntervalMinutes": minutes });
+        let created = http.post(format!("{base}/api/series")).json(&body).send().await.unwrap();
+        assert_eq!(created.status(), status, "{minutes}");
+    }
 }
 
 #[tokio::test]
@@ -164,6 +172,15 @@ async fn mcp_initializes_lists_and_calls_tools() {
     let tools: Value = rpc(json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" })).await.unwrap().json().await.unwrap();
     let names: Vec<&str> = tools["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"search_torrents") && names.contains(&"delete_download"), "{names:?}");
+    let interval = |tool: &str| {
+        let tool = tools["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == tool).unwrap();
+        (
+            tool["inputSchema"]["properties"]["checkIntervalMinutes"]["minimum"].clone(),
+            tool["inputSchema"]["properties"]["checkIntervalMinutes"]["maximum"].clone(),
+        )
+    };
+    assert_eq!(interval("create_series_task"), (json!(1), json!(10_080)));
+    assert_eq!(interval("update_series_task"), (json!(1), json!(10_080)));
 
     let settings: Value =
         rpc(json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": { "name": "get_settings", "arguments": {} } }))
@@ -241,6 +258,19 @@ async fn a_stream_link_serves_byte_ranges_of_one_file_and_nothing_else() {
     assert_eq!(http.post(&url).send().await.unwrap().status(), 405);
     let rebound = http.get(&url).header("host", "evil.example").send().await.unwrap();
     assert_eq!(rebound.status(), 404, "only under a loopback name");
+
+    // Nor a file a link put in its place, though it has the same contents.
+    #[cfg(unix)]
+    {
+        let elsewhere = dir.path().join("elsewhere.mp4");
+        std::fs::write(&elsewhere, &content).unwrap();
+        std::fs::remove_file(folder.join("clip.mp4")).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, folder.join("clip.mp4")).unwrap();
+        let linked = http.get(&url).send().await.unwrap();
+        assert_eq!(linked.status(), 409);
+        let expected = "The file is behind a link that leads out of its download folder, so Magnetar won't open it.";
+        assert_eq!(linked.text().await.unwrap(), expected);
+    }
 }
 
 /// The dashboard's own socket, as the page uses it.

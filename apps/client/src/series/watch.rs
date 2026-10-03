@@ -9,7 +9,7 @@ use crate::db::Db;
 use crate::error::{ApiError, ApiResult};
 use crate::events::EventBus;
 use crate::protocol::encoding::now_iso;
-use crate::protocol::{FoundReleaseDto, WatchDto, WatchInput};
+use crate::protocol::{FoundReleaseDto, MAX_CHECK_INTERVAL_MINUTES, MIN_WATCH_INTERVAL_MINUTES, WatchDto, WatchInput};
 
 fn from_row(row: &Row<'_>) -> rusqlite::Result<WatchDto> {
     Ok(WatchDto {
@@ -21,7 +21,9 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<WatchDto> {
         prefer_words: row.get("prefer_words")?,
         exclude_words: row.get("exclude_words")?,
         auto_download: row.get("auto_download")?,
-        check_interval_minutes: row.get("check_interval_minutes")?,
+        check_interval_minutes: row
+            .get::<_, i64>("check_interval_minutes")?
+            .clamp(MIN_WATCH_INTERVAL_MINUTES, MAX_CHECK_INTERVAL_MINUTES),
         enabled: row.get("enabled")?,
         created_at: row.get("created_at")?,
         last_checked_at: row.get("last_checked_at")?,

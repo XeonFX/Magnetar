@@ -38,7 +38,8 @@ changes, desktop notifications). The dashboard's side is typed with zod; the app
 2. The website parks the key from the fragment in session storage, has you sign in, and shows the device name.
    Approving creates the device in D1 with a fresh random token, stored only as a hash, under a name unique on the
    account (`MacBook-Pro`, else `MacBook-Pro-2`): the name is the device's address, `/<name>/…`
-   (`packages/protocol/src/deviceName.ts`, a unique index in D1).
+   (`packages/protocol/src/deviceName.ts`, a unique index in D1). Approving again from the same sign-in (a retry after
+   a lost answer) answers with that device; anyone else hears it is taken.
 3. The app polls `POST /api/pair/poll` with the poll secret and collects the token and its name, activates the pending
    key, connects to the relay and confirms it has the token (`POST /api/pair/ack`), which deletes it from D1. Until then
    every poll gets the same answer, so an answer lost on the way does not lose the device. The device's first relay
@@ -172,7 +173,8 @@ builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the ser
   runs while it exists: when a VPN drops, downloads wait, queued. Progress goes out as `downloads.updated` with only
   the rows whose numbers changed; `downloads.changed` carries the whole list on structural changes.
 - **Playback**: a file is read from disk once complete, else through librqbit's `FileStream`, which fetches the
-  pieces the reader reaches first (`downloads/media.rs`). Complete means every piece verified: librqbit sets a file to
+  pieces the reader reaches first (`downloads/media.rs`). From disk it is opened, and measured, from a handle on the
+  save folder without following links (`engine::open_inside`): a linked folder or file never leads out of it. Complete means every piece verified: librqbit sets a file to
   its full length when the torrent starts, so the size on disk says nothing. Per-file progress comes from the engine,
   from the pieces it saved in `session/<hash>.bitv` while a download is paused, or from a finished download's state.
   Locally `/stream/<token>` serves byte ranges; a token is handed out over the dashboard socket for one file and 12
