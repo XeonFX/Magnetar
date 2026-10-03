@@ -5,6 +5,7 @@
 
 use rusqlite::params;
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use crate::db::Db;
 use crate::error::{ApiError, ApiResult};
@@ -35,10 +36,15 @@ impl Serialize for PushPayload<'_> {
             kind: &'a str,
             url: &'a str,
             /// A newer notification with the same tag replaces the older one: a download finishing again says so once.
+            /// A digest of the name rather than the name: the worker keeps 200 characters of a tag, and a push carries
+            /// at most 3993 bytes, which a long name twice over would pass.
             #[serde(skip_serializing_if = "Option::is_none")]
             tag: Option<String>,
         }
-        let tag = (self.kind == "completed").then(|| format!("magnetar-{}", self.body));
+        let tag = (self.kind == "completed").then(|| {
+            let digest = Sha256::digest(self.body.as_bytes());
+            format!("magnetar-{}", digest[..12].iter().map(|b| format!("{b:02x}")).collect::<String>())
+        });
         Wire { title: self.title, body: self.body, kind: self.kind, url: &self.url, tag }.serialize(serializer)
     }
 }
@@ -140,13 +146,35 @@ mod tests {
 
     #[test]
     fn a_finished_download_replaces_its_earlier_notification_and_nothing_else_does() {
-        let payload = |kind| PushPayload { title: "Download complete", body: "Movie.2024", kind, url: "/office".into() };
-        assert_eq!(
-            serde_json::to_value(payload("completed")).unwrap(),
-            serde_json::json!({ "title": "Download complete", "body": "Movie.2024", "kind": "completed", "url": "/office", "tag": "magnetar-Movie.2024" })
-        );
+        let payload = |kind, body| PushPayload { title: "Download complete", body, kind, url: "/office".into() };
+        let tag = |kind, body| serde_json::to_value(payload(kind, body)).unwrap().get("tag").cloned();
+        let value = serde_json::to_value(payload("completed", "Movie.2024")).unwrap();
+        assert_eq!(value["title"], "Download complete");
+        assert_eq!(value["body"], "Movie.2024");
+        assert_eq!(value["kind"], "completed");
+        assert_eq!(value["url"], "/office");
+        let movie = tag("completed", "Movie.2024").unwrap();
+        assert_eq!(Some(movie.clone()), tag("completed", "Movie.2024"));
+        assert_ne!(Some(movie.clone()), tag("completed", "Movie.2025"));
+        assert!(movie.as_str().unwrap().starts_with("magnetar-"));
         for kind in ["started", "update", "test"] {
-            assert_eq!(serde_json::to_value(payload(kind)).unwrap().get("tag"), None, "{kind}");
+            assert_eq!(tag(kind, "Movie.2024"), None, "{kind}");
         }
+    }
+
+    #[test]
+    fn a_long_name_keeps_its_tag_short_and_its_own() {
+        let long = |last: char| format!("{}{last}", "Série.Ünïcode.".repeat(150));
+        let (a, b) = (long('a'), long('b'));
+        let tag = |body: &str| {
+            serde_json::to_value(PushPayload { title: "Download complete", body, kind: "completed", url: "/office".into() }).unwrap()["tag"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        };
+        assert!(tag(&a).len() <= 200);
+        assert_ne!(tag(&a), tag(&b));
+        let payload = serde_json::to_vec(&PushPayload { title: "Download complete", body: &a, kind: "completed", url: "/office".into() }).unwrap();
+        assert!(payload.len() < a.len() + 300, "the name is sent once");
     }
 }

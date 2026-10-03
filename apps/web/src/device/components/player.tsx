@@ -68,6 +68,8 @@ function Player({ target, finished }: { target: PlayTarget; finished: boolean })
       main = opened
       setStream(opened)
       const loaded = await loadSubtitles(connection, target.downloadId, target.subtitles, signal)
+      // A player that opened again (another connection) has its own tracks by now: these must not replace them.
+      if (signal.aborted) return
       blobs = loaded.map(track => track.url)
       setTracks(loaded.map(({ file, url }) => ({ label: trackLabel(file.path), url })))
     }).catch((e: unknown) => !signal.aborted && setError(errorMessage(e)))
