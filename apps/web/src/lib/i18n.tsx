@@ -1,3 +1,4 @@
+import { applyDocumentLocale } from '@codefusion-cc/i18n/browser'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import english from '../i18n/en.json'
 import { Loading } from '../ui/Loading.tsx'
@@ -15,7 +16,14 @@ const loaders = Object.fromEntries(
     .map(([path, load]) => [path.match(/([a-z]{2})\.json$/)![1]!, load]),
 ) as Record<string, () => Promise<Catalog>>
 
-const loaded: Record<string, Record<string, string>> = { en: english.strings }
+/** A catalog as shown: its strings, and the language they are in (English when the asked-for one failed to load). */
+interface Shown {
+  language: string
+  strings: Record<string, string>
+}
+
+const ENGLISH: Shown = { language: 'en', strings: english.strings }
+const loaded: Record<string, Shown> = { en: ENGLISH }
 
 export type Translate = (key: string, ...args: (string | number)[]) => string
 
@@ -36,27 +44,73 @@ export function browserLanguage(): string {
   return 'en'
 }
 
+/**
+ * The catalog for `code`, loaded once. One that can't be loaded shows English this time, and is asked for again
+ * next time; a language without a catalog is English.
+ */
+export async function loadCatalog(code: string, load: (() => Promise<Catalog>) | undefined = loaders[code]): Promise<Shown> {
+  if (loaded[code]) return loaded[code]
+  if (!load) return ENGLISH
+  try {
+    return (loaded[code] = { language: code, strings: (await load()).strings })
+  } catch {
+    return ENGLISH
+  }
+}
+
+/** The translated parts on screen, outermost first, each with the language it shows. */
+const claims: { depth: number; language: string }[] = []
+
+/**
+ * Says a translated part `depth` providers deep shows `language`. `<html lang>` (and `dir`) follow the deepest
+ * part on screen, the newest of equals, so screen readers read the page in the language it is in. Returns the
+ * function that withdraws the claim.
+ */
+export function claimDocumentLanguage(depth: number, language: string, doc: Document = document): () => void {
+  const claim = { depth, language }
+  claims.push(claim)
+  const apply = () => {
+    const shown = claims.reduce<typeof claim | null>((best, c) => (!best || c.depth >= best.depth ? c : best), null)
+    applyDocumentLocale({ lang: shown?.language ?? 'en' }, doc)
+  }
+  apply()
+  return () => {
+    const at = claims.indexOf(claim)
+    if (at === -1) return
+    claims.splice(at, 1)
+    apply()
+  }
+}
+
 const I18nContext = createContext<{ language: string; t: Translate }>({ language: 'en', t: translator(english.strings) })
+/** How many providers wrap this one: the innermost decides the document's language. */
+const DepthContext = createContext(0)
 
 /**
  * Translations for `language`. A language not loaded yet is fetched first; the page waits for it
- * rather than flashing English, and shows English if it can't be loaded.
+ * rather than flashing English, and shows English if it can't be loaded. The document's language is
+ * the one shown.
  */
 export function I18nProvider({ language, children }: { language: string; children: ReactNode }) {
   const code = loaders[language] || language === 'en' ? language : 'en'
-  const [strings, setStrings] = useState(() => loaded[code] ?? null)
+  const [shown, setShown] = useState<Shown | null>(() => loaded[code] ?? null)
   useEffect(() => {
-    if (loaded[code]) return setStrings(loaded[code])
+    if (loaded[code]) return setShown(loaded[code])
     let cancelled = false
-    loaders[code]!().then(catalog => { loaded[code] = catalog.strings }, () => { loaded[code] = english.strings })
-      .finally(() => { if (!cancelled) setStrings(loaded[code]!) })
+    void loadCatalog(code).then(catalog => { if (!cancelled) setShown(catalog) })
     return () => { cancelled = true }
   }, [code])
-  const value = useMemo(() => ({ language: code, t: translator(strings ?? english.strings) }), [code, strings])
-  if (!strings) {
+  const depth = useContext(DepthContext)
+  useEffect(() => (shown ? claimDocumentLanguage(depth, shown.language) : undefined), [depth, shown])
+  const value = useMemo(() => ({ language: shown?.language ?? 'en', t: translator(shown?.strings ?? english.strings) }), [shown])
+  if (!shown) {
     return <Loading screen />
   }
-  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
+  return (
+    <DepthContext.Provider value={depth + 1}>
+      <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
+    </DepthContext.Provider>
+  )
 }
 
 export function useT(): Translate {
