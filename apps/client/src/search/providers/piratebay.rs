@@ -75,13 +75,10 @@ pub fn parse_api(json: &str) -> anyhow::Result<Vec<TorrentSearchResult>> {
             if id == "0" || name == "No results returned" {
                 return None;
             }
-            let hash = row["info_hash"].as_str().map(str::trim).unwrap_or_default();
-            if hash.is_empty() {
-                return None;
-            }
+            let magnet = build_magnet(row["info_hash"].as_str().map(str::trim)?, &name, &DEFAULT_TRACKERS)?;
             Some(TorrentSearchResult {
-                info_hash: hash.to_owned(),
-                magnet_uri: build_magnet(hash, &name, &DEFAULT_TRACKERS),
+                info_hash: magnet.info_hash,
+                magnet_uri: magnet.uri,
                 size_bytes: to_number(&row["size"]).max(0.0) as u64,
                 seeders: to_int(&row["seeders"]),
                 leechers: to_int(&row["leechers"]),
@@ -109,6 +106,7 @@ pub fn parse_mirror_html(html: &str, now: DateTime<Utc>) -> Vec<TorrentSearchRes
             let title_link = row.select(&title_links).next()?;
             let hash = extract_info_hash(row.select(&magnets).next()?.value().attr("href")?)?;
             let title = text(title_link);
+            let magnet = build_magnet(&hash, &title, &DEFAULT_TRACKERS)?;
             let right: Vec<String> = row.select(&right_cells).map(text).collect();
             let from_end = |n: usize| right.len().checked_sub(n).map(|i| right[i].as_str());
             let (mut size_bytes, mut published_at) = (0, None);
@@ -129,8 +127,8 @@ pub fn parse_mirror_html(html: &str, now: DateTime<Utc>) -> Vec<TorrentSearchRes
                 published_at = parse_uploaded(&m.0, now);
             }
             Some(TorrentSearchResult {
-                magnet_uri: build_magnet(&hash, &title, &DEFAULT_TRACKERS),
-                info_hash: hash,
+                info_hash: magnet.info_hash,
+                magnet_uri: magnet.uri,
                 size_bytes,
                 seeders: from_end(2).map(text_to_int).unwrap_or(0),
                 leechers: from_end(1).map(text_to_int).unwrap_or(0),

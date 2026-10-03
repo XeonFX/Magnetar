@@ -9,7 +9,7 @@ Design and security are in [ARCHITECTURE.md](ARCHITECTURE.md), deploy and signin
 - `apps/client/` the Rust app (crate `magnetar`). `src/rpc.rs` RPC handlers, `src/api/actions.rs` actions shared by REST, MCP and dashboard, `src/http/` local server (REST, MCP, assets, streaming), `src/downloads/` torrent engine and manager, `src/search/` providers, `src/series/` show monitoring, `src/remote/` relay link, browser keys and push, `src/system/folders.rs` the Files browser (only the download folder and folders added on the device; `api/save_folder.rs` confines folders agents and relayed browsers choose), `src/db.rs` SQLite and migrations, `src/settings.rs`, `src/updates/`. Tests in `apps/client/tests/`. `package.ts` builds the release executable.
 - `apps/web/src/` the dashboard, one build for both transports: `LocalApp.tsx` (in the app), `cloud/` (website: login, devices, pairing), `device/` (pages of one device), `lib/` (`rpcClient.ts`, `localConnection.ts`, `relayConnection.ts`, `keyStore.ts`), `ui/`, `i18n/` (8 catalogs), `features/` (features page).
 - `apps/worker/src/` Cloudflare Worker: `index.ts` routes and `serveSinglePageApp`, `relay.ts` (`DeviceRelay` Durable Object), `auth.ts` (Google sign-in, sessions), `devices.ts`, `push.ts`, `releases.ts`, `console/`. `migrations/` D1 SQL, `test/` workerd tests, `wrangler.jsonc` (has an `env.dev`).
-- `apps/e2e/` Playwright (`tests/*.e2e.ts`) and `features/screenshots.ts`. `scripts/` release signing. `Cargo.toml` is the workspace root.
+- `apps/e2e/` Playwright (`tests/*.e2e.ts`) and `features/screenshots.ts`. `scripts/` release signing. `Cargo.toml` is the workspace root; `vendor/librqbit-bencode` patches librqbit's bencode parser (`[patch.crates-io]`) until upstream releases the fix (`docs/upstream/`).
 
 ## Main flows
 
@@ -42,6 +42,7 @@ Design and security are in [ARCHITECTURE.md](ARCHITECTURE.md), deploy and signin
 - Never share one `CARGO_TARGET_DIR` between worktrees. Dev ports: app 47820, Vite 5173, Worker 8790.
 - Test runs of the app need `MAGNETAR_DATA_DIRECTORY` and `MAGNETAR_DOWNLOAD_FOLDER`, or they touch the real folders.
 - Never delete torrent files through librqbit; use `downloads::engine::delete_files`.
+- Check torrent bytes from outside with `downloads::bencode::check` before anything parses them (the parser recurses per nesting level).
 - New user strings go into all eight `apps/web/src/i18n/*.json`; visible features also into `apps/web/src/features/outline.ts` and `content/`.
 - Scripts are TypeScript run by Node directly: erasable syntax only, relative imports with `.ts`.
 - Keep `not_found_handling` out of `apps/worker/wrangler.jsonc`.

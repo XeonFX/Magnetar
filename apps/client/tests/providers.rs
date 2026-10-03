@@ -18,7 +18,7 @@ fn piratebay_api_keeps_usable_rows() {
     assert_eq!(results.len(), 1);
     let r = &results[0];
     assert_eq!(r.title, "ubuntu-26.04-desktop-amd64.iso");
-    assert_eq!(r.info_hash, "DAFC8C076CA2F3ED376EEAE7C76A0D6BE2415C45");
+    assert_eq!(r.info_hash, "dafc8c076ca2f3ed376eeae7c76a0d6be2415c45");
     assert_eq!((r.size_bytes, r.seeders, r.leechers), (6517612871, 137, 18));
     assert_eq!(r.source, "The Pirate Bay");
 }
@@ -30,7 +30,7 @@ fn piratebay_mirror_layouts() {
         assert_eq!(results.len(), 2, "{layout}");
         let first = &results[0];
         assert_eq!(first.title, "ubuntu-26.04-desktop-amd64.iso");
-        assert_eq!(first.info_hash, "DAFC8C076CA2F3ED376EEAE7C76A0D6BE2415C45");
+        assert_eq!(first.info_hash, "dafc8c076ca2f3ed376eeae7c76a0d6be2415c45");
         assert_eq!((first.size_bytes, first.seeders, first.leechers), (6517612871, 137, 18), "{layout}");
         assert_eq!(first.published_at, utc(Utc::now().year(), 4, 25, 16, 35), "{layout}");
         assert_eq!((results[1].size_bytes, results[1].seeders, results[1].leechers), (6216965160, 42, 12));
@@ -120,7 +120,7 @@ fn rarbg_pages_and_details() {
     assert_eq!(page.total, 43.0);
     let first = &page.results[0];
     assert_eq!(first.title, "ubuntucinnamon-26.04-desktop-amd64.iso");
-    assert_eq!(first.info_hash, "8586FE65D6B589ACA262DBBC164570C335BD7D37");
+    assert_eq!(first.info_hash, "8586fe65d6b589aca262dbbc164570c335bd7d37");
     assert_eq!((first.size_bytes, first.seeders, first.leechers), (5659195392, 40, 11));
     assert_eq!(first.details_url.as_deref(), Some("https://therarbg.com/post-detail/8a715c/x/"));
     assert_eq!(first.published_at, DateTime::from_timestamp(1777054855, 0));
@@ -142,8 +142,62 @@ fn eztv_pages() {
     assert_eq!(first.title, "Law and Order S06E11 Corpus Delicti 720p HEVC x265-MeGusta EZTV");
     assert_eq!(first.info_hash, "2fa9d6729a9cf935e4e53cc3c8cd16d619561c06");
     assert_eq!((first.size_bytes, first.seeders, first.leechers), (281349973, 41, 3));
-    assert_eq!(page.torrents[1].info_hash, "FE8F7271B12545E07DBFF0A265D2BC40DC5861EF");
+    assert_eq!(page.torrents[1].info_hash, "fe8f7271b12545e07dbff0a265d2bc40dc5861ef");
     assert!(eztv::parse_page(r#"{"torrents_count": 0}"#).unwrap().torrents.is_empty());
+}
+
+/// A source's hash reaches a magnet only once it is checked to be one, and the magnet is ours: the
+/// hash, the name and our trackers. Rows whose hash carries anything else are dropped; a source's own
+/// magnet, trackers and exact sources never get in.
+#[test]
+fn hostile_hashes_and_magnets_from_a_source_never_reach_a_magnet() {
+    use magnetar::search::magnet::{DEFAULT_TRACKERS, build_magnet};
+    let good = "8586fe65d6b589aca262dbbc164570c335bd7d37";
+    let ours = |name: &str| build_magnet(good, name, &DEFAULT_TRACKERS).unwrap().uri;
+    let evil = "&tr=http%3A%2F%2Fevil.example%2Fannounce&xs=http%3A%2F%2Fevil.example%2Fx.torrent";
+    let hostile = [
+        format!("{good}{evil}"),
+        format!("{good}&tr=http://evil.example/announce"),
+        format!("{good}&xs=http://evil.example/x.torrent"),
+        format!("{}0", good),
+        good[..39].to_owned(),
+        "VPG66AJDIVTYTK6N54ASGRLHRGV433Y1".to_owned(),
+    ];
+    let kept = |results: Vec<TorrentSearchResult>| -> Vec<(String, String, String)> {
+        results.into_iter().map(|r| (r.title, r.info_hash, r.magnet_uri)).collect()
+    };
+    let fine = vec![("Fine".to_owned(), good.to_owned(), ours("Fine"))];
+
+    let rows = |key: &str, extra: &str| {
+        let rows: Vec<String> = hostile
+            .iter()
+            .map(|h| format!(r#"{{"id":"1","name":"Evil","n":"Evil","title":"Evil",{extra}"{key}":{}}}"#, serde_json::json!(h)))
+            .chain([format!(r#"{{"id":"2","name":"Fine","n":"Fine","title":"Fine",{extra}"{key}":"{}"}}"#, good.to_uppercase())])
+            .collect();
+        format!("[{}]", rows.join(","))
+    };
+    assert_eq!(kept(piratebay::parse_api(&rows("info_hash", "")).unwrap()), fine, "The Pirate Bay");
+    let wrap = |list: String| format!(r#"{{"total":7,"torrents_count":7,"results":{list},"torrents":{list}}}"#);
+    assert_eq!(kept(rarbg::parse_page(&wrap(rows("h", ""))).unwrap().results), fine, "RARBG");
+    assert_eq!(kept(torrentscsv::parse(&wrap(rows("infohash", ""))).unwrap()), fine, "Torrents-CSV");
+    // EZTV also sends a magnet of its own, which is ignored even with a good hash beside it.
+    let site_magnet = format!(r#""magnet_url":"magnet:?xt=urn:btih:{good}{evil}","#);
+    assert_eq!(kept(eztv::parse_page(&wrap(rows("hash", &site_magnet))).unwrap().torrents), fine, "EZTV");
+
+    // The mirrors' and 1337x's magnet links: only the hash is taken from them, and only a whole one.
+    let links: String = hostile[3..]
+        .iter()
+        .map(|h| format!(r#"<tr><td><a title="Details for Evil">Evil</a><a href="magnet:?xt=urn:btih:{h}">m</a></td></tr>"#))
+        .chain([format!(
+            r#"<tr><td><a title="Details for Fine">Fine</a><a href="magnet:?xt=urn:btih:{good}{evil}">m</a></td></tr>"#
+        )])
+        .collect();
+    let mirror = kept(piratebay::parse_mirror_html(&format!("<table>{links}</table>"), Utc::now()));
+    assert_eq!(mirror, fine, "The Pirate Bay mirror");
+    let details = leetx::parse_detail_page(&format!(r#"<a href="magnet:?xt=urn:btih:{good}0{evil}">m</a>"#), "Fine");
+    assert_eq!((details.info_hash, details.magnet_uri), (None, None), "1337x");
+    let details = leetx::parse_detail_page(&format!(r#"<a href="magnet:?xt=urn:btih:{good}{evil}">m</a>"#), "Fine");
+    assert_eq!((details.info_hash.as_deref(), details.magnet_uri), (Some(good), Some(ours("Fine"))), "1337x");
 }
 
 /// Full, unedited pages captured from each live site. Assertions are structural so they survive a

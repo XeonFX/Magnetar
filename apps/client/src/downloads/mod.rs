@@ -1,3 +1,4 @@
+pub mod bencode;
 pub mod engine;
 pub mod manager;
 pub mod media;

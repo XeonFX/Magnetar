@@ -67,18 +67,12 @@ pub fn parse_page(json: &str) -> anyhow::Result<Page> {
         .iter()
         .filter_map(|row| {
             let hash = as_trimmed_str(&row["hash"]);
-            if hash.is_empty() {
-                return None;
-            }
             let title = row["title"].as_str().unwrap_or_default();
-            // Only a magnet; anything else from the site (an http URL, a path) is rebuilt from the hash.
-            let magnet = match row["magnet_url"].as_str() {
-                Some(m) if m.starts_with("magnet:?") => m.to_owned(),
-                _ => build_magnet(hash, if title.is_empty() { hash } else { title }, &DEFAULT_TRACKERS),
-            };
+            // From the hash alone: the site's own `magnet_url` could carry trackers or sources of its choosing.
+            let magnet = build_magnet(hash, if title.is_empty() { hash } else { title }, &DEFAULT_TRACKERS)?;
             Some(TorrentSearchResult {
-                info_hash: hash.to_owned(),
-                magnet_uri: magnet,
+                info_hash: magnet.info_hash,
+                magnet_uri: magnet.uri,
                 size_bytes: to_number(&row["size_bytes"]).max(0.0) as u64,
                 seeders: to_int(&row["seeds"]),
                 leechers: to_int(&row["peers"]),
