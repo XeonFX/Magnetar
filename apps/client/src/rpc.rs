@@ -14,8 +14,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::app::App;
 use crate::config::{ARCH, COMMIT, PLATFORM, VERSION};
+use crate::downloads::engine::open_inside;
 use crate::downloads::manager::{FileSource, media_kind};
-use crate::downloads::media::{MediaReader, media_type, open_reader, read_at};
+use crate::downloads::media::{MediaReader, media_type, open_reader, read_at, unreadable};
 use crate::downloads::upload::TorrentUploads;
 use crate::error::{ApiError, ApiResult, ErrorCode};
 use crate::protocol::device_name::is_device_name;
@@ -460,7 +461,11 @@ async fn dispatch(
             let FileRef { id, index } = parse(params)?;
             // Finished media only: a torrent can carry programs, and those are never opened from here.
             match app.downloads.open_file(id, index)?.source {
-                FileSource::Disk(path) if media_kind(&path).is_some() => system::open_with_system(path),
+                // The system's player opens it by path: only once it is found in the folder, not behind a link.
+                FileSource::Disk { save_path, relative } if media_kind(&relative).is_some() => {
+                    open_inside(&save_path, &relative).map_err(unreadable)?;
+                    system::open_with_system(save_path.join(relative))
+                }
                 _ => return Err(ApiError::bad("Only finished video and audio files open from here.")),
             }
             ok(Value::Null)

@@ -9,7 +9,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use cap_fs_ext::DirExt;
+use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::ambient_authority;
 use cap_std::fs::Dir;
 use librqbit::dht::{DhtPersistenceConfig, Id20};
@@ -109,8 +109,8 @@ pub fn bytes_in_pieces(have: &[u8], piece_length: u64, file_sizes: &[u64]) -> Ve
 
 /// Live numbers for one running torrent.
 pub struct EngineStats {
-    /// 0–1
-    pub progress: f64,
+    /// Bytes verified so far, of `total_bytes`.
+    pub done_bytes: u64,
     pub total_bytes: u64,
     pub download_speed: u64,
     pub upload_speed: u64,
@@ -318,7 +318,7 @@ impl Engine {
         let live = stats.live.as_ref();
         let speed = |mbps: f64| (mbps * 1024.0 * 1024.0).round().max(0.0) as u64;
         EngineStats {
-            progress: if stats.total_bytes > 0 { stats.progress_bytes as f64 / stats.total_bytes as f64 } else { 0.0 },
+            done_bytes: stats.progress_bytes,
             total_bytes: stats.total_bytes,
             download_speed: live.map_or(0, |l| speed(l.download_speed.mbps)),
             upload_speed: live.map_or(0, |l| speed(l.upload_speed.mbps)),
@@ -426,6 +426,44 @@ fn open_folder(dir: &Dir, relative: &Path) -> std::io::Result<Dir> {
         current = current.open_dir_nofollow(name)?;
     }
     Ok(current)
+}
+
+/// What `open_inside` says of a file it reaches only through a link.
+pub const LINKED: &str = "linked out of its folder";
+
+/// The folder holding `relative` (plain names) below `save_path`, and the file's name in it, walked without following
+/// a link: a linked folder on the way is an error (`LINKED`).
+fn folder_inside<'a>(save_path: &Path, relative: &'a Path) -> std::io::Result<(Dir, &'a std::ffi::OsStr)> {
+    let (Some(name), Some(parent), true) = (relative.file_name(), relative.parent(), plain(relative)) else {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "not a path inside the folder"));
+    };
+    let mut current = Dir::open_ambient_dir(save_path, ambient_authority())?;
+    for folder in parent.iter() {
+        if current.symlink_metadata(folder)?.is_symlink() {
+            return Err(std::io::Error::other(LINKED));
+        }
+        current = current.open_dir_nofollow(folder)?;
+    }
+    Ok((current, name))
+}
+
+/// Opens the file `relative` (plain names) below `save_path` for reading, never through a link: a linked folder on the
+/// way, or a link in the file's place, is an error (`LINKED`), so nothing outside the save folder is reached from here.
+/// The save folder itself may be a link: the user chose it.
+pub fn open_inside(save_path: &Path, relative: &Path) -> std::io::Result<std::fs::File> {
+    let (folder, name) = folder_inside(save_path, relative)?;
+    if folder.symlink_metadata(name)?.is_symlink() {
+        return Err(std::io::Error::other(LINKED));
+    }
+    let mut options = cap_std::fs::OpenOptions::new();
+    options.read(true).follow(FollowSymlinks::No);
+    Ok(folder.open_with(name, &options)?.into_std())
+}
+
+/// The length of the file `relative` (plain names) below `save_path`, if it is a file there that no link leads to.
+pub fn length_inside(save_path: &Path, relative: &Path) -> Option<u64> {
+    let (folder, name) = folder_inside(save_path, relative).ok()?;
+    folder.symlink_metadata(name).ok().filter(|m| m.is_file()).map(|m| m.len())
 }
 
 /// Deletes a stopped torrent's files, listed by its metadata, and only inside its folder, then the torrent's folder if
