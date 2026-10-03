@@ -47,8 +47,27 @@ cd /Users/xeon/Projects/mediadownloader-v2 && gh api -X PUT repos/codefusion-cc/
 ```
 
 A failed deploy leaves the website on the previous build: fix the cause and merge again, or re-run the job. In an
-emergency, `npm run deploy -w @magnetar/worker` (after `npm run migrate:remote -w @magnetar/worker` when a migration
-is new) deploys the checkout from this Mac with your own `wrangler login`.
+emergency, deploy the checkout from this Mac, applying a new migration first:
+
+```bash
+cd /Users/xeon/Projects/mediadownloader-v2 && codefusion-console cloudflare workers:edit,d1:edit,domains:edit -- sh -c 'npm run migrate:remote -w @magnetar/worker && npm run deploy -w @magnetar/worker'
+```
+
+## Cloudflare from this Mac
+
+This Mac has no `wrangler login`: its token reaches the whole account. Every local Cloudflare command runs through the
+CodeFusion Console CLI instead, `codefusion-console cloudflare <scope>[,<scope>…] [--ttl 30m] -- <command>`, which mints
+a token with exactly those scopes for that one command (two hours unless `--ttl` says otherwise), gives it to the
+command as `CLOUDFLARE_API_TOKEN` with `CLOUDFLARE_ACCOUNT_ID`, and deletes it when the command exits. A token with an
+`:edit` scope waits for the owner's passkey tap on Dispatch before the command starts. A command with a pipe goes
+through `sh -c '…'`. Once on the Mac: `npm install -g @codefusion-cc/console && codefusion-console relay install`.
+
+| Command | Scopes |
+|---|---|
+| `npm run migrate:remote -w @magnetar/worker` | `d1:edit` |
+| `npm run deploy -w @magnetar/worker` | `workers:edit,d1:edit,domains:edit` (the `DB` binding, the custom domain) |
+| `npx wrangler secret put …` | `workers:edit` |
+| `npx wrangler tail` | `tail:read` |
 
 ## Release signing
 
@@ -82,7 +101,12 @@ and Gatekeeper only once the installed app is itself certificate-signed.
 
 ## Browser notifications (Web Push)
 
-Once, from `apps/worker`: `npx -p @codefusion-cc/web-push codefusion-vapid | npx wrangler secret put VAPID_PRIVATE_KEY`.
+Once:
+
+```bash
+cd /Users/xeon/Projects/mediadownloader-v2/apps/worker && codefusion-console cloudflare workers:edit -- sh -c 'npx -p @codefusion-cc/web-push codefusion-vapid | npx wrangler secret put VAPID_PRIVATE_KEY'
+```
+
 The Worker derives the public key browsers subscribe with. For `wrangler dev`, put the printed key in
 `apps/worker/.dev.vars` as `VAPID_PRIVATE_KEY='…'`. Without it the website doesn't offer browser notifications. A new
 key makes every browser subscribe again.
@@ -96,5 +120,5 @@ The sign-in page and an empty device list offer the app for the visitor's system
 
 GitHub allows 60 anonymous API calls an hour per address, which Cloudflare's addresses share with other Workers. A
 token raises that to 5,000: a fine-grained GitHub token with no permissions (public repositories only), stored once
-with `npx wrangler secret put GITHUB_TOKEN` from `apps/worker`. Without it, a rate-limited lookup shows "GitHub's
-limit is reached" and is asked again on the next visit.
+with `codefusion-console cloudflare workers:edit -- npx wrangler secret put GITHUB_TOKEN` from `apps/worker`. Without
+it, a rate-limited lookup shows "GitHub's limit is reached" and is asked again on the next visit.
