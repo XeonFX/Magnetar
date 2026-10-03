@@ -14,7 +14,7 @@ import { AddDownloadDialog, DropOverlay, useAddShortcuts, type PendingAdd } from
 import { DownloadDetailsDialog } from '../components/downloadDetails.tsx'
 import { DownloadRow, isActive } from '../components/downloads.tsx'
 import { LegacyImportBanner } from '../components/legacyImport.tsx'
-import { AltSpeedToggle, FreeSpace, TransferNotice } from '../components/transfer.tsx'
+import { AltSpeedToggle, DiskFullNotice, FreeSpace, TransferNotice } from '../components/transfer.tsx'
 
 type Filter = 'all' | 'active' | 'paused' | 'finished' | 'failed'
 
@@ -79,6 +79,7 @@ export function DownloadsPage() {
           {add}
         </div>} />
       <TransferNotice transfer={transfer} />
+      <DiskFullNotice transfer={transfer} />
       <LegacyImportBanner />
       {downloads.length === 0 ? (
         <Empty icon={<CloudDownload size={40} strokeWidth={1.5} className="text-primary" />} title={t('downloads.emptyTitle')} text={t('downloads.emptyHint')}>
