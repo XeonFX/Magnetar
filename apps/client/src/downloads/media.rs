@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
 
-use super::engine::{Engine, LINKED, open_inside};
+use super::engine::{Engine, is_linked, open_inside};
 use super::manager::{DownloadFile, FileSource};
 use crate::error::{ApiError, ApiResult};
 
@@ -20,18 +20,24 @@ pub const READ_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub async fn open_reader(file: &DownloadFile) -> ApiResult<MediaReader> {
     Ok(match &file.source {
-        FileSource::Disk { save_path, relative } => {
-            Box::new(tokio::fs::File::from_std(open_inside(save_path, relative).map_err(unreadable)?))
-        }
+        FileSource::Disk { save_path, relative } => Box::new(tokio::fs::File::from_std(open_on_disk(save_path, relative).await?)),
         FileSource::Engine(handle, index) => Box::new(Engine::stream(handle, *index).await?),
     })
 }
 
+/// A finished file from its download folder (`open_inside`), off the async workers: the folder may be on a slow
+/// network drive.
+pub async fn open_on_disk(save_path: &Path, relative: &Path) -> ApiResult<std::fs::File> {
+    let (save_path, relative) = (save_path.to_owned(), relative.to_owned());
+    let opened = tokio::task::spawn_blocking(move || open_inside(&save_path, &relative)).await;
+    opened.map_err(|error| ApiError::internal(error.to_string()))?.map_err(unreadable)
+}
+
 /// Why a finished file can't be opened from its download folder, in words for the person.
-pub fn unreadable(error: std::io::Error) -> ApiError {
+fn unreadable(error: std::io::Error) -> ApiError {
     match error.kind() {
         std::io::ErrorKind::NotFound => ApiError::bad("The file is no longer in its download folder."),
-        _ if error.to_string() == LINKED => {
+        _ if is_linked(&error) => {
             ApiError::bad("The file is behind a link that leads out of its download folder, so Magnetar won't open it.")
         }
         _ => ApiError::bad(format!("The file can't be opened: {error}")),

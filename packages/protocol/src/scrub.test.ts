@@ -10,9 +10,10 @@ describe('scrub', () => {
   })
 
   test('leaves no part of a path, its file name least of all', () => {
-    const part = fc.stringMatching(/^[A-Za-z0-9._[\]-]{1,24}$/)
-    fc.assert(fc.property(fc.constantFrom('', 'C:', 'd:'), fc.constantFrom('/', '\\'), fc.array(part, { minLength: 1, maxLength: 5 }), (drive, separator, parts) => {
-      expect(scrub(`could not open ${drive}${separator}${parts.join(separator)}: denied`)).toBe('could not open <path>: denied')
+    const part = fc.stringMatching(/^[A-Za-z0-9._[\] -]{0,23}[A-Za-z0-9._[\]-]$/)
+    const start = fc.oneof(fc.constantFrom('', 'C:', 'd:'), fc.stringMatching(/^[A-Za-z0-9._-]{1,12}$/))
+    fc.assert(fc.property(start, fc.constantFrom('/', '\\'), fc.array(part, { minLength: 1, maxLength: 5 }), (first, separator, parts) => {
+      expect(scrub(`could not open ${first}${separator}${parts.join(separator)}: denied`)).toBe('could not open <path>: denied')
     }))
   })
 })

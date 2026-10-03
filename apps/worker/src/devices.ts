@@ -124,8 +124,8 @@ const ALREADY_CONNECTED = 'This device is already connected'
 
 /**
  * An approval of a pairing that is approved already. From the browser and account that approved it (a retry after
- * its answer got lost, a second click) it answers as the first approval did, with the device it made, as long as that
- * device is still there. Anyone else hears it is taken.
+ * its answer got lost, a second click) it answers as the first approval did, with the device it made, unless the
+ * person removed that device since. Anyone else hears it is taken.
  */
 async function approvedAgain(
   env: Env,
@@ -136,6 +136,7 @@ async function approvedAgain(
     const device = await env.DB.prepare('SELECT id, name FROM devices WHERE id = ? AND user_id = ?').bind(pairing.device_id, user.id)
       .first<{ id: string; name: string }>()
     if (device) return json({ deviceId: device.id, deviceName: device.name } satisfies PairApproveResponse)
+    return jsonError(409, 'You removed this device since. Connect it again from the app.')
   }
   return jsonError(409, ALREADY_CONNECTED)
 }

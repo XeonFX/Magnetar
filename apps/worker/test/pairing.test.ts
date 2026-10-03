@@ -210,7 +210,9 @@ describe('pairing', () => {
     }
     // A device the person removed meanwhile is not brought back.
     expect((await call(`/api/devices/${device.deviceId}`, { method: 'DELETE', headers: user.headers })).status).toBe(200)
-    expect((await approve(user, pairing.pairingId)).status).toBe(409)
+    const removed = await approve(user, pairing.pairingId)
+    expect(removed.status).toBe(409)
+    expect(await removed.json()).toEqual({ error: 'You removed this device since. Connect it again from the app.' })
     expect(await listDevices(user)).toEqual([])
   })
 

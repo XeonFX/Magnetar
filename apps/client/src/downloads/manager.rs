@@ -1263,7 +1263,7 @@ fn not_found(id: i64) -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::downloads::engine::{LINKED, open_inside};
+    use crate::downloads::engine::{is_linked, open_inside};
 
     fn metadata(name: &str, files: &[&str]) -> Metadata {
         Metadata {
@@ -1481,6 +1481,11 @@ mod tests {
         for escape in ["../secret.txt", "Show/../../secret.txt", "/etc/hosts", ""] {
             assert_eq!(read_inside(&root, escape).unwrap_err().kind(), std::io::ErrorKind::InvalidInput, "{escape}");
         }
+        // Nor, on Windows, a file's hidden stream.
+        if cfg!(windows) {
+            let stream = read_inside(&root, "Show/Subs/e01.srt:hidden").unwrap_err();
+            assert_eq!(stream.kind(), std::io::ErrorKind::InvalidInput);
+        }
         // The save folder itself may be a link: the user chose it.
         let chosen = dir.path().join("Chosen");
         link_folder(&root, &chosen);
@@ -1501,7 +1506,7 @@ mod tests {
         for linked in ["Show/e01.mkv", "Show/Subs/e01.srt", "Pack/Season 1/e01.mkv"] {
             let refused = read_inside(&root, linked).unwrap_err();
             if cfg!(unix) {
-                assert_eq!(refused.to_string(), LINKED, "{linked}");
+                assert!(is_linked(&refused), "{linked}: {refused}");
             }
             assert_eq!(length_inside(&root, Path::new(linked)), None, "{linked}");
         }
@@ -1515,7 +1520,7 @@ mod tests {
         std::fs::create_dir_all(root.join("Show")).unwrap();
         let outside = outside_files(dir.path());
         std::os::unix::fs::symlink(outside.join("e01.mkv"), root.join("Show/e01.mkv")).unwrap();
-        assert_eq!(read_inside(&root, "Show/e01.mkv").unwrap_err().to_string(), LINKED);
+        assert!(is_linked(&read_inside(&root, "Show/e01.mkv").unwrap_err()));
         assert_eq!(length_inside(&root, Path::new("Show/e01.mkv")), None);
     }
 }

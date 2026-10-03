@@ -413,7 +413,9 @@ impl Engine {
 /// which Windows strips: `...` would be the folder itself.
 fn plain(path: &Path) -> bool {
     path.components().all(|c| match c {
-        Component::Normal(name) => !cfg!(windows) || !name.to_string_lossy().ends_with(['.', ' ']),
+        Component::Normal(name) => {
+            !cfg!(windows) || !(name.to_string_lossy().ends_with(['.', ' ']) || name.to_string_lossy().contains(':'))
+        }
         _ => false,
     })
 }
@@ -428,11 +430,25 @@ fn open_folder(dir: &Dir, relative: &Path) -> std::io::Result<Dir> {
     Ok(current)
 }
 
-/// What `open_inside` says of a file it reaches only through a link.
-pub const LINKED: &str = "linked out of its folder";
+/// The error `open_inside` gives for a file it would reach only through a link (`is_linked`).
+#[derive(Debug)]
+struct Linked;
+
+impl std::fmt::Display for Linked {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("linked out of its folder")
+    }
+}
+
+impl std::error::Error for Linked {}
+
+/// Whether `open_inside` refused a file for a link on its way.
+pub fn is_linked(error: &std::io::Error) -> bool {
+    error.get_ref().is_some_and(|inner| inner.is::<Linked>())
+}
 
 /// The folder holding `relative` (plain names) below `save_path`, and the file's name in it, walked without following
-/// a link: a linked folder on the way is an error (`LINKED`).
+/// a link: a linked folder on the way is an error (`is_linked`).
 fn folder_inside<'a>(save_path: &Path, relative: &'a Path) -> std::io::Result<(Dir, &'a std::ffi::OsStr)> {
     let (Some(name), Some(parent), true) = (relative.file_name(), relative.parent(), plain(relative)) else {
         return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "not a path inside the folder"));
@@ -440,7 +456,7 @@ fn folder_inside<'a>(save_path: &Path, relative: &'a Path) -> std::io::Result<(D
     let mut current = Dir::open_ambient_dir(save_path, ambient_authority())?;
     for folder in parent.iter() {
         if current.symlink_metadata(folder)?.is_symlink() {
-            return Err(std::io::Error::other(LINKED));
+            return Err(std::io::Error::other(Linked));
         }
         current = current.open_dir_nofollow(folder)?;
     }
@@ -448,12 +464,12 @@ fn folder_inside<'a>(save_path: &Path, relative: &'a Path) -> std::io::Result<(D
 }
 
 /// Opens the file `relative` (plain names) below `save_path` for reading, never through a link: a linked folder on the
-/// way, or a link in the file's place, is an error (`LINKED`), so nothing outside the save folder is reached from here.
+/// way, or a link in the file's place, is an error (`is_linked`), so nothing outside the save folder is reached from here.
 /// The save folder itself may be a link: the user chose it.
 pub fn open_inside(save_path: &Path, relative: &Path) -> std::io::Result<std::fs::File> {
     let (folder, name) = folder_inside(save_path, relative)?;
     if folder.symlink_metadata(name)?.is_symlink() {
-        return Err(std::io::Error::other(LINKED));
+        return Err(std::io::Error::other(Linked));
     }
     let mut options = cap_std::fs::OpenOptions::new();
     options.read(true).follow(FollowSymlinks::No);

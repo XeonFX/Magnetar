@@ -1,5 +1,5 @@
 {
-  "comment": "What scrub() makes of error messages. The Rust (apps/client/src/protocol/scrub.rs) and TypeScript (scrub.ts) scrubbers must both turn each input into its output.",
+  "comment": "What scrub() makes of error messages. The Rust (apps/client/src/protocol/scrub.rs) and TypeScript (scrub.ts) scrubbers must both turn each input into its output, non-ASCII text included.",
   "cases": [
     {
       "input": "Could not delete /Users/alice/Downloads/Some.Show.S01E01.1080p.mkv: Permission denied (os error 13)",
@@ -7,15 +7,35 @@
     },
     {
       "input": "error opening C:\\Users\\bob\\Downloads\\Show.Name.S02\\Show.Name.S02E03.mkv for writing",
-      "output": "error opening <path> for writing"
+      "output": "error opening <path>"
     },
     {
       "input": "read \\\\nas\\media\\Movie.2024.2160p.mkv failed",
-      "output": "read <path> failed"
+      "output": "read <path>"
     },
     {
       "input": "No space left on device writing ./downloads/Season.1/E01.mkv",
-      "output": "No space left on device writing .<path>"
+      "output": "No space left on device writing <path>"
+    },
+    {
+      "input": "Could not delete /Users/a/Some Show/Season 1/e01 - Pilot.mkv: denied",
+      "output": "Could not delete <path>: denied"
+    },
+    {
+      "input": "Show.Name.S01/e01.mkv: missing",
+      "output": "<path>: missing"
+    },
+    {
+      "input": "C:\\Users\\bob\\Some Show\\e.mkv: denied",
+      "output": "<path>: denied"
+    },
+    {
+      "input": "at /a/b: gone",
+      "output": "<path>: gone"
+    },
+    {
+      "input": "open /a/Some Show/b.mkv (os error 2)",
+      "output": "open <path> (os error 2)"
     },
     {
       "input": "error opening \"/Users/someone/Library/Caches/dht.json\": No space left on device (os error 28)",
@@ -36,6 +56,18 @@
     {
       "input": "The torrent engine could not start: Address already in use (os error 48)",
       "output": "The torrent engine could not start: Address already in use (os error 48)"
+    },
+    {
+      "input": "write to josé@example.com failed",
+      "output": "write to <email> failed"
+    },
+    {
+      "input": "片名0123456789abcdef01 x",
+      "output": "片名<hex> x"
+    },
+    {
+      "input": "peer 10.0.0.4é dropped",
+      "output": "peer <ip>é dropped"
     }
   ]
 }
