@@ -220,3 +220,5 @@ builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the ser
   the app swapped. The next start resumes exactly those, or this one does if the swap fails.
 - **Telemetry**: logged errors are scrubbed (quoted text, paths, URLs, addresses, hashes, tokens) and sent, at most
   10 an hour, to the Worker, which forwards them to CodeFusion Console. Off in development; switchable in Settings.
+  What the computer's surroundings cause (`log::SURROUNDINGS`: dropped connections, full disks) is logged as a warning
+  and not sent: Magnetar's own errors through `log_failure!`, by their type; librqbit's by their text.

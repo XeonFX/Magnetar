@@ -160,7 +160,7 @@ impl KeyValue {
         // Logging an error can read settings, which needs the database: release it first.
         drop(db);
         if let Err(error) = result {
-            tracing::error!("Could not save {key}: {error}");
+            crate::log_failure!(&error, "Could not save {key}: {error}");
         }
     }
 }
@@ -318,7 +318,7 @@ impl SecretStore {
         };
         drop(db);
         if let Err(error) = result {
-            tracing::error!("Could not save a secret: {error}");
+            crate::log_failure!(&error, "Could not save a secret: {error}");
         }
         self.cache.lock().unwrap_or_else(|e| e.into_inner()).insert(name, value.to_owned());
     }
