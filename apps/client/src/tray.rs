@@ -757,6 +757,7 @@ mod tests {
                 download_limit: 0,
                 upload_limit: 0,
                 free_bytes: None,
+                disk_full: None,
             },
             settings: AppSettings::default(),
             open_at_login: LoginStartupStatus::Disabled,
