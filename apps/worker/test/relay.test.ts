@@ -341,13 +341,15 @@ async function expectOffline(page: Socket, device: Device): Promise<void> {
  */
 
 /** A paired device whose app connection is dead, and a dashboard on it that sees it online. */
-async function dashboardOnDeadApp(): Promise<{ user: User; device: Device; page: Socket }> {
+async function dashboardOnDeadApp(): Promise<{ user: User; device: Device; page: Socket; app: Response }> {
   const user = await signIn()
   const device = await pairDevice(user)
-  expect((await connectDevice(device)).status).toBe(101)
+  // Kept and returned: a dropped Response lets the runtime collect its socket and disconnect the relay's end.
+  const app = await connectDevice(device)
+  expect(app.status).toBe(101)
   const page = await openSocket(connectBrowser(user, device.deviceId))
   expect(await page.nextJson()).toEqual({ t: 'device', online: true })
-  return { user, device, page }
+  return { user, device, page, app }
 }
 
 /** A dead dashboard on the device; its connection id, as the app is told it. */
@@ -464,8 +466,13 @@ describe('the relay and dashboards it closed whose connection never answers', ()
   })
 
   test('an app connection that never answers, closed for a frame too large, goes offline at once', async () => {
-    const { device, page } = await dashboardOnDeadApp()
-    await insideRelay(device, (relay, state) => relay.webSocketMessage(state.getWebSockets('device')[0]!, new ArrayBuffer(MAX_SEALED_FRAME + 1)))
+    const { device, page, app } = await dashboardOnDeadApp()
+    await insideRelay(device, (relay, state) => {
+      const [socket] = state.getWebSockets('device')
+      if (!socket) throw new Error('The dead app connection is no longer listed in the relay')
+      return relay.webSocketMessage(socket, new ArrayBuffer(MAX_SEALED_FRAME + 1))
+    })
     await expectOffline(page, device)
+    expect(app.status).toBe(101)
   })
 })

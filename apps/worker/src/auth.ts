@@ -21,20 +21,31 @@ interface UserRow {
 const toAccount = (u: UserRow): AccountDto => ({ id: u.id, email: u.email, name: u.name, picture: u.picture })
 
 /**
- * The signed-in user with the hash of the session (as the sessions table keys it), or null. Sessions slide: each use
- * within the last half extends them.
+ * The signed-in user with the hash of the session (as the sessions table keys it) and when it ends, or null. Only
+ * `/api/me`, which every page load asks, renews a session (`renewSession`), so its cookie and its row end together.
  */
-export async function currentUser(request: Request, env: Env): Promise<(UserRow & { tokenHash: string }) | null> {
+export async function currentUser(request: Request, env: Env): Promise<(UserRow & { tokenHash: string; expiresAt: number }) | null> {
   const token = getCookie(request, SESSION_COOKIE)
   if (!token || token.length > 100) return null
   const tokenHash = await sha256(token, 'base64url')
   const row = await env.DB.prepare(`SELECT u.id, u.email, u.name, u.picture, s.expires_at FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.token_hash = ? AND s.expires_at > ?`).bind(tokenHash, Date.now()).first<UserRow & { expires_at: number }>()
   if (!row) return null
-  if (row.expires_at - Date.now() < (SESSION_DAYS / 2) * 86_400_000) {
-    await env.DB.prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?').bind(Date.now() + SESSION_DAYS * 86_400_000, tokenHash).run()
-  }
-  return { id: row.id, email: row.email, name: row.name, picture: row.picture, tokenHash }
+  return { id: row.id, email: row.email, name: row.name, picture: row.picture, tokenHash, expiresAt: row.expires_at }
+}
+
+/**
+ * Sessions slide: one used in the last half of its life gets the whole of it again, in the database and in a fresh
+ * cookie with the same token. Returns that cookie, or null when the session needs no renewal yet.
+ */
+async function renewSession(request: Request, env: Env, session: { tokenHash: string; expiresAt: number }): Promise<string | null> {
+  const now = Date.now()
+  if (session.expiresAt - now >= (SESSION_DAYS / 2) * 86_400_000) return null
+  const renewed = await env.DB.prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ? AND expires_at > ?')
+    .bind(now + SESSION_DAYS * 86_400_000, session.tokenHash, now).run()
+  // Signed out meanwhile: nothing to renew.
+  if (!renewed.meta.changes) return null
+  return serializeCookie(SESSION_COOKIE, getCookie(request, SESSION_COOKIE)!, { maxAge: SESSION_DAYS * 86_400 })
 }
 
 export async function requireUser(request: Request, env: Env): Promise<UserRow> {
@@ -73,7 +84,9 @@ function googleClientId(env: Env): string {
 export async function handleAuth(request: Request, env: Env, path: string): Promise<Response | null> {
   if (path === '/api/me' && request.method === 'GET') {
     const user = await currentUser(request, env)
-    return user ? json(toAccount(user)) : jsonError(401, 'Not signed in')
+    if (!user) return jsonError(401, 'Not signed in')
+    const cookie = await renewSession(request, env, user)
+    return json(toAccount(user), cookie ? { headers: { 'set-cookie': cookie } } : undefined)
   }
 
   if (path === '/api/auth/start' && request.method === 'POST') {
