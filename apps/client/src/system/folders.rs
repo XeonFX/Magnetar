@@ -441,6 +441,9 @@ pub async fn describe_roots(settings: &SettingsService, local: bool) -> ApiResul
         Ok(roots
             .into_iter()
             .map(|root| {
+                if root.kind == FolderRootKind::Downloads {
+                    make_download_folder(&root.path);
+                }
                 let available = open(&root, Path::new("")).is_ok();
                 FolderRootDto {
                     path: display(&root.path),
@@ -453,6 +456,15 @@ pub async fn describe_roots(settings: &SettingsService, local: bool) -> ApiResul
     })
     .await?;
     Ok(FolderRootsDto { roots, can_add: local })
+}
+
+/// Makes the download folder when it isn't there yet (a new install's `~/Downloads/Magnetar`), as the first download
+/// would. Only the folder itself, inside a folder that exists: a download folder on a disk that isn't connected is not
+/// made again on the startup disk (`/Volumes` and `/media` take no new folders from users either).
+fn make_download_folder(path: &Path) {
+    if !path.exists() && path.parent().is_some_and(Path::is_dir) {
+        let _ = std::fs::create_dir(path);
+    }
 }
 
 /// `fs.addRoot`, on the device itself only: lets the dashboard browse `path` too.

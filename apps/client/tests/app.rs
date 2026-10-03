@@ -718,11 +718,39 @@ mod files {
         local.ok("fs.addRoot", json!({ "path": text(&media) })).await;
         let moved = relayed.ok("settings.update", json!({ "downloadFolder": text(&media.join("Sub")) })).await;
         assert_eq!(moved["downloadFolder"], text(&media.join("Sub")));
+        // The old download folder stays browsable, where its downloads still are; not when another root holds it.
+        let paths = |roots: Value| {
+            roots["roots"].as_array().unwrap().iter().map(|r| r["path"].as_str().unwrap().to_owned()).collect::<Vec<_>>()
+        };
+        let expected = [text(&media.join("Sub")), text(&media), text(&downloads)];
+        assert_eq!(paths(relayed.ok("fs.roots", json!({})).await), expected);
+        relayed.ok("settings.update", json!({ "downloadFolder": text(&downloads) })).await;
+        assert_eq!(paths(relayed.ok("fs.roots", json!({})).await), [text(&downloads), text(&media)]);
         // The dashboard on the computer itself chooses freely.
         assert_eq!(
             local.ok("settings.update", json!({ "downloadFolder": text(&private) })).await["downloadFolder"],
             text(&private)
         );
+    }
+
+    #[tokio::test]
+    async fn a_download_folder_not_made_yet_is_made_but_one_on_a_missing_disk_is_not() {
+        let h = harness();
+        let (downloads, media, _) = folders(&h);
+        let mut relayed = Client::new(&h.app, false);
+        let fresh = downloads.join("Magnetar");
+        h.app.settings.update(|s| s.download_folder = text(&fresh)).unwrap();
+        let roots = relayed.ok("fs.roots", json!({})).await;
+        assert_eq!((&roots["roots"][0]["path"], &roots["roots"][0]["available"]), (&json!(text(&fresh)), &json!(true)));
+        assert!(fresh.is_dir());
+
+        let unplugged = media.join("Unplugged").join("Downloads");
+        h.app.settings.update(|s| s.download_folder = text(&unplugged)).unwrap();
+        let roots = relayed.ok("fs.roots", json!({})).await;
+        assert_eq!((&roots["roots"][0]["available"], &roots["roots"][0]["freeBytes"]), (&json!(false), &Value::Null));
+        assert!(!media.join("Unplugged").exists());
+        let error = relayed.call("fs.browse", json!({ "path": text(&unplugged) })).await.unwrap_err();
+        assert!(error.starts_with("not_found") && error.contains("connect it"), "{error}");
     }
 
     #[tokio::test]

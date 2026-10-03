@@ -181,11 +181,13 @@ impl SettingsService {
             .filter_map(|(name, value)| Some((name, value.as_deref()?)))
             .collect();
         self.update_with(&secrets, |s| {
+            if let Some(folder) = patch.download_folder.take() {
+                keep_browsing(s, folder);
+            }
             macro_rules! apply {
                 ($($field:ident),*) => { $(if let Some(value) = patch.$field { s.$field = value; })* };
             }
             apply!(
-                download_folder,
                 post_download_action,
                 seed_ratio,
                 download_limit,
@@ -263,6 +265,19 @@ impl SettingsService {
             telegram_chat_id: s.telegram_chat_id,
             error_reports_enabled: s.error_reports_enabled,
         }
+    }
+}
+
+/// Moves the download folder to `folder`, the old one staying in Files as an added folder unless another root holds
+/// it: its downloads are still there, and it was browsable already, so keeping it never lets a dashboard see more.
+fn keep_browsing(s: &mut AppSettings, folder: String) {
+    let old = std::mem::replace(&mut s.download_folder, folder);
+    let roots = crate::system::folders::roots(s);
+    let old_path = crate::system::folders::normalize(&old);
+    if old_path.is_some_and(|old| !roots.iter().any(|root| old.starts_with(&root.path)))
+        && s.browse_folders.len() < crate::system::folders::MAX_ADDED
+    {
+        s.browse_folders.push(old);
     }
 }
 
