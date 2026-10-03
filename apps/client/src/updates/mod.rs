@@ -597,9 +597,13 @@ impl UpdateService {
 
 /// `name` if it is a bare file name, the same on every system: no folders, `..`, drive or other punctuation.
 fn plain_file_name(name: &str) -> Option<&str> {
+    // Windows' device names stay devices whatever the extension: `NUL.exe` is the null device.
+    let stem = name.split('.').next().unwrap_or_default().to_ascii_uppercase();
+    let device = ["CON", "PRN", "AUX", "NUL"].contains(&stem.as_str())
+        || (stem.len() == 4 && (stem.starts_with("COM") || stem.starts_with("LPT")) && stem.as_bytes()[3].is_ascii_digit());
     let plain = !name.is_empty()
-        && name != "."
-        && name != ".."
+        && !name.ends_with('.')
+        && !device
         && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._+-".contains(&b));
     plain.then_some(name)
 }
@@ -632,7 +636,7 @@ async fn download_to(http: &reqwest::Client, url: &str, path: &Path, max: u64) -
         hash.update(&chunk);
         file.write_all(&chunk).await?;
     }
-    file.flush().await?;
+    file.sync_all().await?;
     Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
@@ -1228,6 +1232,10 @@ mod tests {
             ".",
             "",
             "Magnetar\0.exe",
+            "NUL",
+            "nul.exe",
+            "COM1.zip",
+            "Magnetar.exe.",
         ] {
             let (release, server, key) = signed_release(name, b"new", (name, b"new"), [7; 32]).await;
             let error = fetch_verified(&http, &release, &staging, &key, 1024).await.unwrap_err();

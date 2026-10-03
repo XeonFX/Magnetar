@@ -214,21 +214,30 @@ mod tests {
         use std::io::BufRead;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("instance.lock");
+        /// Killed however the test ends, so a failure doesn't leave it holding the lock.
+        struct Holder(std::process::Child);
+        impl Drop for Holder {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
         let mut holder = std::process::Command::new(std::env::current_exe().unwrap())
             .args(["--ignored", "--exact", "instance::tests::hold_the_lock_until_killed", "--nocapture", "--test-threads=1"])
             .env("MAGNETAR_TEST_HOLD_LOCK", &path)
             .stdout(std::process::Stdio::piped())
             .spawn()
+            .map(Holder)
             .unwrap();
-        let mut lines = std::io::BufReader::new(holder.stdout.take().unwrap()).lines();
+        let mut lines = std::io::BufReader::new(holder.0.stdout.take().unwrap()).lines();
         assert!(lines.any(|line| line.unwrap().contains("holding")), "the other process took the lock");
 
         // Another process holds it: this one may not, however long it waits.
         assert_eq!(describe(&acquire_within(&path, SHORT).await.unwrap()), "held");
 
-        holder.kill().unwrap();
-        holder.wait().unwrap();
-        let lock = owner(acquire_within(&path, SHORT).await);
+        drop(holder);
+        // The system may take a moment to release a dead process's lock (Windows).
+        let lock = owner(acquire_within(&path, Duration::from_secs(10)).await);
         drop(lock);
     }
 }

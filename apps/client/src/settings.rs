@@ -138,7 +138,8 @@ impl SettingsService {
     /// The settings; the defaults while the database can't be read (not remembered: the next call reads again).
     pub fn get(&self) -> AppSettings {
         self.load().unwrap_or_else(|error| {
-            crate::log_failure!(&error, "Could not read the settings: {error}");
+            // A warning: reporting an error reads the settings again (telemetry.rs).
+            tracing::warn!("Could not read the settings: {error}");
             AppSettings::default()
         })
     }

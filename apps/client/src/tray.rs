@@ -520,8 +520,10 @@ fn produce(app: Arc<App>, runtime: &tokio::runtime::Handle, latest: Arc<Mutex<Op
 
 /// Saves a settings change; the engine and every dashboard pick it up from there.
 fn save_settings(app: &App, patch: SettingsPatch) {
-    if let Err(error) = patch.validated().and_then(|patch| app.settings.apply_patch(patch)) {
-        crate::log_failure!(&error, "Could not change the settings from the menu: {error}");
+    match patch.validated().and_then(|patch| app.settings.apply_patch(patch)) {
+        Err(error) if error.is_internal() => crate::log_failure!(&error, "Could not change the settings from the menu: {error}"),
+        Err(error) => tracing::warn!("Could not change the settings from the menu: {error}"),
+        Ok(_) => {}
     }
 }
 
