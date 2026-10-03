@@ -4,7 +4,7 @@ import { Navigate, useNavigate } from 'react-router'
 import { cloud } from '../lib/cloudApi.ts'
 import { errorMessage } from '../lib/errors.ts'
 import { useT } from '../lib/i18n.tsx'
-import { clearParkedKey, parkedKey, saveDeviceKey } from '../lib/keyStore.ts'
+import { adoptParkedKey, parkedKey } from '../lib/keyStore.ts'
 import { useAccount } from './CloudApp.tsx'
 import { CloudFrame } from './CloudFrame.tsx'
 import { captureFragmentKey } from './PairPage.tsx'
@@ -26,20 +26,21 @@ export function LinkPage() {
     return sessionStorage.getItem(TARGET)
   })
   const [error, setError] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     if (!account || !deviceId) return
-    const parked = parkedKey('link', deviceId)
-    if (!parked) return setError(t('link.invalid'))
+    setError(null)
+    if (!parkedKey('link', deviceId)) return setError(t('link.invalid'))
     cloud.devices().then(async devices => {
       const device = devices.find(d => d.id === deviceId)
       if (!device) throw new Error(t('link.otherAccount'))
-      await saveDeviceKey(deviceId, parked.keyId, parked.key)
-      clearParkedKey()
+      // The parked key goes only once it is stored: a reload then tries again.
+      await adoptParkedKey('link', deviceId, deviceId)
       sessionStorage.removeItem(TARGET)
       navigate(devicePath(device.name), { replace: true })
     }).catch(e => setError(errorMessage(e)))
-  }, [account, deviceId, navigate, t])
+  }, [account, deviceId, navigate, t, attempt])
 
   if (!account) return <Navigate to="/login?next=%2Flink" replace />
   return (
@@ -50,6 +51,10 @@ export function LinkPage() {
         {error || !deviceId
           ? <div role="alert" className="alert alert-error alert-soft w-full text-sm">{error ?? t('link.invalid')}</div>
           : <span className="loading loading-spinner loading-lg text-primary" />}
+        {/* Only a key still parked can be stored on a second try; without one, a new link is needed. */}
+        {error && deviceId && parkedKey('link', deviceId) && (
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => setAttempt(n => n + 1)}>{t('common.retry')}</button>
+        )}
       </div>
     </CloudFrame>
   )

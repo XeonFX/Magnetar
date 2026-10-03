@@ -128,13 +128,6 @@ jobs:
         run: npx wrangler d1 migrations apply magnetar --remote
       - name: Deploy the Worker
         run: npx wrangler deploy --message "${GITHUB_SHA::7} ${GITHUB_EVENT_NAME} by ${GITHUB_ACTOR}"
+      # Fails the job when the site doesn't serve this commit a minute after the deploy (@codefusion-cc/console).
       - name: The website serves this commit
-        run: |
-          for attempt in $(seq 1 12); do
-            deployed="$(curl -sf -H 'cache-control: no-cache' "https://magnetar.codefusion.cc/version.json?$attempt" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).commit' || true)"
-            case "$GITHUB_SHA" in "$deployed"*) [ -n "$deployed" ] && echo "Live: $deployed" && exit 0 ;; esac
-            echo "Still serving ${deployed:-nothing}; waiting"
-            sleep 5
-          done
-          echo "::error::magnetar.codefusion.cc does not serve ${GITHUB_SHA::7} a minute after the deploy"
-          exit 1
+        run: npx --yes -p @codefusion-cc/console@^0.27.0 codefusion-console wait-for-deploy https://magnetar.codefusion.cc
