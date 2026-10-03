@@ -141,6 +141,17 @@ export const content: FeaturesContent = {
             'Vom Handy oder einem anderen Browser aus bis zu vier Videos gleichzeitig',
           ],
         },
+        browse: {
+          title: 'Deine Downloads, Ordner für Ordner',
+          gain: 'Sieh, was wo gelandet ist, spiel es ab oder wähle einen neuen Download-Ordner, am Computer oder vom Handy.',
+          text: 'Dateien zeigt den Download-Ordner und jeden Ordner, den du auf dem Computer mit Magnetar hinzufügst: erst Ordner, dann Dateien, mit Größe und Datum. Dateien aus einem Download lassen sich abspielen oder in seinen Details öffnen.',
+          points: [
+            'Sortiert, wie Menschen Namen lesen: Folge 2 vor Folge 10',
+            'Einen Ordner anlegen oder den angezeigten als Download-Ordner verwenden',
+            'Über die Website sind nur diese Ordner zu sehen, über denselben verschlüsselten Kanal; versteckte Dateien und Links, die hinausführen, bleiben draußen',
+            'Ordner werden nur am Computer selbst hinzugefügt, nie von einem anderen Gerät',
+          ],
+        },
         speed: {
           title: 'Limits nach deinem Tagesablauf',
           gain: 'Downloads, die nicht die ganze Leitung belegen, während du arbeitest, und volles Tempo in der Nacht.',

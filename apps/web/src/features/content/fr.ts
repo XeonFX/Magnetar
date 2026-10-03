@@ -141,6 +141,17 @@ export const content: FeaturesContent = {
             'Depuis un téléphone ou un autre navigateur, jusqu’à quatre vidéos à la fois',
           ],
         },
+        browse: {
+          title: 'Vos téléchargements, dossier par dossier',
+          gain: 'Voyez ce qui est arrivé où, lisez-le ou choisissez un nouveau dossier de téléchargement, depuis l\'ordinateur ou votre téléphone.',
+          text: 'Fichiers affiche le dossier de téléchargement et tout dossier ajouté sur l\'ordinateur qui exécute Magnetar : d\'abord les dossiers, puis les fichiers, avec leur taille et leur date. Les fichiers d\'un téléchargement se lisent ou s\'ouvrent dans ses détails.',
+          points: [
+            'Triés comme on lit les noms : l\'épisode 2 avant l\'épisode 10',
+            'Créez un dossier, ou utilisez celui affiché comme dossier de téléchargement',
+            'Depuis le site, seuls ces dossiers sont visibles, par le même canal chiffré ; les fichiers cachés et les liens qui en sortent restent à l\'écart',
+            'Les dossiers s\'ajoutent uniquement sur l\'ordinateur lui-même, jamais depuis un autre appareil',
+          ],
+        },
         speed: {
           title: 'Des limites qui suivent votre journée',
           gain: 'Des téléchargements qui ne prennent pas toute la connexion pendant que vous travaillez, et la pleine vitesse la nuit.',

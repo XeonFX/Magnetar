@@ -7,7 +7,7 @@
  * @magnetar/e2e` takes its shots (apps/e2e/features/screenshots.ts). What the page says must match the code.
  */
 import {
-  Activity, AppWindow, AtSign, Bell, BellRing, Bot, CalendarClock, ChartNoAxesColumn, Download, EyeOff, Gauge, Globe, House,
+  Activity, AppWindow, AtSign, Bell, BellRing, Bot, CalendarClock, ChartNoAxesColumn, Download, EyeOff, FolderOpen, Gauge, Globe, House,
   Import, Laptop, Link2, ListChecks, Lock, Magnet, MonitorSmartphone, PanelTop, Play, QrCode, Radar, RefreshCw, Search,
   ShieldCheck, SlidersHorizontal, Unplug, Languages, type LucideIcon,
 } from 'lucide-react'
@@ -37,6 +37,7 @@ export const OUTLINE = [
       { id: 'engine', icon: Gauge, shots: ['downloads'] },
       { id: 'files', icon: ListChecks, shots: ['details'] },
       { id: 'play', icon: Play, shots: ['player'] },
+      { id: 'browse', icon: FolderOpen, shots: [] },
       { id: 'speed', icon: SlidersHorizontal, shots: ['speed'] },
       { id: 'kill-switch', icon: Unplug, shots: [] },
     ],

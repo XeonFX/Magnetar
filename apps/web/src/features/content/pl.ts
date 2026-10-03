@@ -141,6 +141,17 @@ export const content: FeaturesContent = {
             'Z telefonu lub innej przeglądarki do czterech filmów naraz',
           ],
         },
+        browse: {
+          title: 'Twoje pobrania, folder po folderze',
+          gain: 'Zobacz, co gdzie trafiło, odtwórz to albo wybierz nowy folder pobierania, z komputera lub z telefonu.',
+          text: 'Pliki pokazują folder pobierania i każdy folder dodany na komputerze, na którym działa Magnetar: najpierw foldery, potem pliki, z rozmiarem i datą. Pliki z pobrania można odtworzyć albo otworzyć w jego szczegółach.',
+          points: [
+            'Kolejność, w jakiej czyta się nazwy: odcinek 2 przed odcinkiem 10',
+            'Utwórz folder albo ustaw widoczny jako folder pobierania',
+            'Przez stronę widać tylko te foldery, tym samym szyfrowanym kanałem; ukryte pliki i linki prowadzące poza nie zostają pominięte',
+            'Foldery dodaje się tylko na samym komputerze, nigdy z innego urządzenia',
+          ],
+        },
         speed: {
           title: 'Limity dopasowane do Twojego dnia',
           gain: 'Pobieranie nie zajmuje całego łącza, gdy pracujesz, a nocą idzie pełną prędkością.',
