@@ -1,6 +1,7 @@
 use serde_json::{Value, json};
 
 use crate::config::VERSION;
+use crate::protocol::MAX_CHECK_INTERVAL_MINUTES;
 
 fn nullable(kind: &str) -> Value {
     json!({ "type": [kind, "null"] })
@@ -26,7 +27,7 @@ pub fn document() -> Value {
         "season": nullable("integer"),
         "startEpisode": { "type": "integer" },
         "endEpisode": nullable("integer"),
-        "checkIntervalMinutes": { "type": "integer" },
+        "checkIntervalMinutes": { "type": "integer", "minimum": 1, "maximum": MAX_CHECK_INTERVAL_MINUTES },
         "enabled": { "type": "boolean" },
         "downloadFolder": nullable("string"),
         "resolution": { "type": ["string", "null"], "enum": ["720p", "1080p", "2160p", null] },

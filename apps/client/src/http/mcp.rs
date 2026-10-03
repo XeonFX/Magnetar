@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 use crate::api::actions::Actions;
 use crate::config::VERSION;
 use crate::error::{ApiError, ApiResult};
-use crate::protocol::{DOWNLOAD_STATUSES, SeriesTaskInput, SeriesTaskPatch, StartDownloadInput};
+use crate::protocol::{DOWNLOAD_STATUSES, MAX_CHECK_INTERVAL_MINUTES, SeriesTaskInput, SeriesTaskPatch, StartDownloadInput};
 
 const PROTOCOL_VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
@@ -34,7 +34,10 @@ fn series_fields() -> Map<String, Value> {
         "season": nullable("integer", "Season number; when set only SxxEyy-style titles match. Null clears it."),
         "startEpisode": { "type": "integer", "description": "First episode to look for." },
         "endEpisode": nullable("integer", "Last episode; the rule disables itself once it is downloaded. Null means no end."),
-        "checkIntervalMinutes": { "type": "integer", "description": "How often to check, in minutes." },
+        "checkIntervalMinutes": {
+            "type": "integer", "minimum": 1, "maximum": MAX_CHECK_INTERVAL_MINUTES,
+            "description": "How often to check, in minutes: 1 to 10080 (a week).",
+        },
         "enabled": { "type": "boolean", "description": "False pauses the rule without deleting it." },
         "downloadFolder": nullable("string", "Must be inside the configured download folder; null uses the default."),
         "resolution": { "type": ["string", "null"], "enum": ["720p", "1080p", "2160p", null], "description": "Only releases of this resolution; null takes any." },

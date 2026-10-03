@@ -77,7 +77,11 @@ impl SeriesMonitor {
                     _ = tokio::time::sleep(delay) => {}
                 }
                 // Every rule's check is isolated already; this keeps the loop alive whatever else breaks.
-                if let Err(error) = unless_panicked(async { Ok(monitor.check_all().await) }).await {
+                let round = async {
+                    monitor.check_all().await;
+                    Ok(())
+                };
+                if let Err(error) = unless_panicked(round).await {
                     tracing::error!("A round of series and watch checks stopped: {error}");
                 }
                 delay = POLL;

@@ -285,7 +285,7 @@ async fn one_broken_rule_never_stops_the_others_from_being_checked() {
         show_lookups: false,
     })
     .unwrap();
-    app.settings.update(|s| s.download_folder = dir.path().join("dl").display().to_string());
+    app.settings.update(|s| s.download_folder = dir.path().join("dl").display().to_string()).unwrap();
     let named = |name: &str| SeriesTaskInput { name: name.into(), query: name.into(), ..input(StartFrom::Episode) };
     // Checked in this order: every broken one comes before the one that works.
     let boom = app.actions.create_series(named("Boom")).await.unwrap();
