@@ -4,7 +4,8 @@ import { testAssets } from '@codefusion-cc/workers-http/testing'
 import { describe, expect, test } from 'vitest'
 import worker from '../src/index.ts'
 import type { Env } from '../src/env.ts'
-import { call, ORIGIN, signIn } from './client.ts'
+import { SESSION_COOKIE } from '../src/auth.ts'
+import { call, cookieValue, ORIGIN, signIn } from './client.ts'
 
 const production = { ...env, APP_ENV: 'production', ORIGIN: 'https://magnetar.codefusion.cc' } as Env
 /** The Worker with other bindings than the dev environment's. */
@@ -80,6 +81,35 @@ describe('the website API', () => {
     const out = await call('/api/auth/logout', { method: 'POST', headers: user.headers })
     expect(out.headers.get('set-cookie')).toMatch(/^__Host-md_session=; .*Max-Age=0/)
     expect((await call('/api/me', { headers: user.headers })).status).toBe(401)
+  })
+
+  test('a session used in its last fifteen days is renewed for thirty, in the browser as in the database', async () => {
+    const user = await signIn()
+    const day = 86_400_000
+    const expiry = async () => (await env.DB.prepare('SELECT expires_at FROM sessions WHERE user_id = (SELECT id FROM users WHERE email = ?)').bind(user.email).first<{ expires_at: number }>())!.expires_at
+    const setExpiry = (at: number) => env.DB.prepare('UPDATE sessions SET expires_at = ? WHERE user_id = (SELECT id FROM users WHERE email = ?)').bind(at, user.email).run()
+
+    // In its first half nothing changes.
+    const fresh = await expiry()
+    const early = await call('/api/me', { headers: user.headers })
+    expect(early.status).toBe(200)
+    expect(early.headers.get('set-cookie')).toBeNull()
+    expect(await expiry()).toBe(fresh)
+
+    // Other calls never move it: the cookie the browser holds would end before the session.
+    const late = Date.now() + 10 * day
+    await setExpiry(late)
+    expect((await call('/api/devices', { headers: user.headers })).status).toBe(200)
+    expect(await expiry()).toBe(late)
+
+    // Loading the site renews both, with the same token.
+    const before = Date.now()
+    const renewed = await call('/api/me', { headers: user.headers })
+    expect(renewed.status).toBe(200)
+    expect(cookieValue(renewed, SESSION_COOKIE)).toBe(user.headers.cookie!.slice(SESSION_COOKIE.length + 1))
+    expect(renewed.headers.get('set-cookie')).toMatch(/; Max-Age=2592000; HttpOnly; Secure; SameSite=Lax$/)
+    expect(await expiry()).toBeGreaterThanOrEqual(before + 30 * day)
+    expect(await expiry()).toBeLessThanOrEqual(Date.now() + 30 * day)
   })
 
   test('an expired session is signed out', async () => {

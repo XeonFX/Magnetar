@@ -1,4 +1,5 @@
 import { env } from 'cloudflare:workers'
+import fc from 'fast-check'
 import { describe, expect, test } from 'vitest'
 import { isDeviceName } from '@magnetar/protocol/device-name'
 import rules from '../../../packages/protocol/src/device-names.json'
@@ -45,6 +46,58 @@ describe('0002: device names become addresses', () => {
     })
     expect(names.results.every(r => isDeviceName(r.name))).toBe(true)
     await expect(insertDevice('d_m10', user, 'STUDIO-MAC', 10)).rejects.toThrow(/UNIQUE constraint failed/)
+  })
+})
+
+describe('0002: names it numbers never meet another name', () => {
+  test('a number another device already has, or a cut that makes two names one, is skipped', async () => {
+    const user = await signIn().then(userId)
+    await env.DB.prepare('DROP INDEX devices_user_name').run()
+    const rows: Parameters<typeof insertDevice>[] = [
+      ['d_c1', user, 'Mac', 1],
+      ['d_c2', user, 'mac', 2],
+      ['d_c3', user, 'Mac-2', 3],
+      ['d_c4', user, 'a'.repeat(40), 4],
+      ['d_c5', user, 'A'.repeat(40), 5],
+      ['d_c6', user, `${'a'.repeat(38)}bb`, 6],
+      ['d_c7', user, `${'A'.repeat(38)}BB`, 7],
+      ['d_c8', user, 'Łódź', 8],
+      ['d_c9', user, 'Lodz', 9],
+    ]
+    for (const row of rows) await insertDevice(...row)
+
+    await rerun('0002')
+
+    const names = await env.DB.prepare("SELECT id, name FROM devices WHERE id LIKE 'd_c%' ORDER BY id").all<{ id: string; name: string }>()
+    expect(Object.fromEntries(names.results.map(r => [r.id, r.name]))).toEqual({
+      d_c1: 'Mac',
+      d_c2: 'mac-3',
+      d_c3: 'Mac-2',
+      d_c4: 'a'.repeat(40),
+      d_c5: `${'A'.repeat(36)}-2`,
+      d_c6: `${'a'.repeat(38)}bb`,
+      d_c7: `${'A'.repeat(36)}-3`,
+      d_c8: 'Lodz',
+      d_c9: 'Lodz-2',
+    })
+    expect(names.results.every(r => isDeviceName(r.name))).toBe(true)
+  })
+
+  test('any names an account had end up valid and unique, every device kept', async () => {
+    // Few pieces, so names often meet: in any case, with a number, once spelled, once cut.
+    const piece = fc.constantFrom('Mac', 'mac', 'MAC-2', 'mac 2', '-3', 'Łódź', 'Lodz', 'login', ' ', 'a'.repeat(37), 'A'.repeat(38))
+    const name = fc.array(piece, { minLength: 1, maxLength: 3 }).map(parts => parts.join(''))
+    await fc.assert(fc.asyncProperty(fc.array(name, { minLength: 1, maxLength: 20 }), async names => {
+      const user = await signIn().then(userId)
+      // IF EXISTS: a failed run leaves it dropped, and fast-check runs again to shrink the failure.
+      await env.DB.prepare('DROP INDEX IF EXISTS devices_user_name').run()
+      for (const [i, legacy] of names.entries()) await insertDevice(`d_p${crypto.randomUUID().slice(0, 12)}`, user, legacy, i)
+      await rerun('0002')
+      const after = (await env.DB.prepare('SELECT name FROM devices WHERE user_id = ?').bind(user).all<{ name: string }>()).results.map(r => r.name)
+      expect(after).toHaveLength(names.length)
+      expect(after.filter(n => !isDeviceName(n))).toEqual([])
+      expect(new Set(after.map(n => n.toLowerCase())).size).toBe(after.length)
+    }), { numRuns: 60 })
   })
 })
 
