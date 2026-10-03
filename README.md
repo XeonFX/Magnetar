@@ -195,8 +195,12 @@ parallel builds wait on one lock.
 
 ### Releases
 
-Bump `version` in `package.json`, merge, wait for CI on all three OSes, then tag: `git tag v2.1.0 && git push origin v2.1.0`.
-The Release workflow builds every platform, writes `SHA256SUMS.txt`, signs it with the `RELEASE_SIGNING_KEY` secret
+Every merge to `main` that changes the app is released automatically as the next patch version once CI is green: the
+latest `vX.Y.Z` tag plus one (`scripts/release-version.ts`). Merges that change only docs, tests or CI files are not
+released. The tag is the version: the executable is built with it and the website shows it, so neither reads a version
+from `package.json` or `Cargo.toml` (they only name the first release and local builds). For a minor or major release
+tag the merge by hand once CI is green: `git tag v2.1.0 && git push origin v2.1.0`; the next automatic patch continues
+from it (v2.1.1). The Release workflow builds every platform, writes `SHA256SUMS.txt`, signs it with the `RELEASE_SIGNING_KEY` secret
 (created once with `node scripts/release-key.ts`) and publishes the GitHub release, with notes written from the pull
 requests merged since the last release and grouped by branch type (`feat/` New, `fix/` Fixes, `perf/` Faster; a PR
 labeled `skip-changelog` stays out). The app's What's new shows these notes, so PR titles are written for users. A tag

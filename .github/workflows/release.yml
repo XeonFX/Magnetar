@@ -1,11 +1,14 @@
 name: Release
 
-# Bump `version` in package.json and apps/client/Cargo.toml, merge, then tag the merge once CI is green on main:
-# git tag v1.2.0 && git push origin v1.2.0. Installed apps update to it within 6 hours. A tag with a pre-release
-# (v1.2.0-rc.1) publishes a pre-release, which installed apps don't take.
+# Every merge to main that changes the app is released as the next patch version (ci.yml calls this workflow once
+# its checks pass; scripts/release-version.ts picks the version and skips docs-, test- and CI-only merges).
+# A minor or major release is a tag pushed by hand once CI is green on main: git tag v1.3.0 && git push origin v1.3.0.
+# The next automatic patch continues from it. A tag with a pre-release (v1.3.0-rc.1) publishes a pre-release, which
+# installed apps don't take, and never sets the version of the patches after it. Installed apps update within 6 hours.
 on:
   push:
     tags: ['v*']
+  workflow_call:
 
 permissions:
   contents: write
@@ -17,25 +20,33 @@ env:
   HAS_MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE != '' }}
 
 jobs:
-  version:
-    name: Tag matches the version files
+  # Runs inside ci.yml's serialized release job, so two merges never pick the same version. The version files are
+  # not edited by hand any more: the tag is the version, and the executable and the website take it from there.
+  plan:
+    name: Pick the version
     runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.plan.outputs.release }}
+      tag: ${{ steps.plan.outputs.tag }}
+      version: ${{ steps.plan.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - name: Compare
-        run: |
-          tag="${GITHUB_REF_NAME#v}"
-          base="${tag%%-*}"
-          package="$(node -p "require('./package.json').version")"
-          crate="$(sed -n 's/^version = "\(.*\)"/\1/p' apps/client/Cargo.toml)"
-          if [ "$package" != "$base" ] || [ "$crate" != "$base" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME, but package.json has $package and Cargo.toml has $crate"
-            exit 1
-          fi
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - id: plan
+        env:
+          # Set by a tag pushed by hand; a call from ci.yml runs on a branch, where the version is computed.
+          PUSHED_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+        run: node scripts/release-version.ts plan --sha "$GITHUB_SHA" ${PUSHED_TAG:+--tag "$PUSHED_TAG"}
 
   build:
     name: Build ${{ matrix.target }}
-    needs: version
+    needs: plan
+    if: needs.plan.outputs.release == 'true'
     strategy:
       matrix:
         include:
@@ -90,7 +101,7 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: npm run build -w @magnetar/client -- --target ${{ matrix.target }} --version ${GITHUB_REF_NAME#v}
+        run: npm run build -w @magnetar/client -- --target ${{ matrix.target }} --version ${{ needs.plan.outputs.version }}
       - name: Collect the release asset
         shell: bash
         run: |
@@ -103,13 +114,25 @@ jobs:
           path: out/*
 
   publish:
-    needs: build
+    needs: [plan, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v6
         with:
           node-version: 24
+      # The tag is made once the builds succeeded, so a failed release leaves no tag and the next merge retries the
+      # same version. A tag pushed by hand exists already. (A push with GITHUB_TOKEN starts no other workflow.)
+      - name: Tag the commit
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG exists"
+          else
+            git tag "$TAG" "$GITHUB_SHA"
+            git push origin "refs/tags/$TAG"
+          fi
       - uses: actions/download-artifact@v4
         with:
           path: assets
@@ -128,10 +151,12 @@ jobs:
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: npx --yes -p @codefusion-cc/app-update@^0.1.1 codefusion-release-notes "$GITHUB_REF_NAME" > notes.md && cat notes.md
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: npx --yes -p @codefusion-cc/app-update@^0.1.1 codefusion-release-notes "$TAG" > notes.md && cat notes.md
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.plan.outputs.tag }}
           files: assets/*
           body_path: ${{ steps.notes.outcome == 'success' && 'notes.md' || '' }}
           generate_release_notes: ${{ steps.notes.outcome != 'success' }}
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(needs.plan.outputs.tag, '-') }}

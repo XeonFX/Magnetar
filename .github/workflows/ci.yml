@@ -82,6 +82,23 @@ jobs:
           name: e2e-traces
           path: apps/e2e/test-results
 
+  # Every merge to main that changes the app becomes the next patch release (release.yml: builds, tags, notes from the
+  # merged pull requests). One at a time and never cancelled once started; a merge that lands while one runs waits,
+  # and of several waiting only the newest runs, which releases them all. The version is computed inside the run,
+  # after the release before it has tagged, so no two releases share a tag.
+  release:
+    name: Release
+    needs: [check, e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: read
+    uses: ./.github/workflows/release.yml
+    secrets: inherit
+
   # Every merge to main goes live on magnetar.codefusion.cc once every check above passed, so the website never runs
   # an older build than main. CodeFusion Console reads what runs from the deployed version.json, and the outcome of
   # each deploy from this job's GitHub deployment.
@@ -113,14 +130,21 @@ jobs:
             exit 1
           fi
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
       - run: npm ci
         working-directory: .
-      # Stamps apps/web/dist/version.json with this commit (GITHUB_SHA), which the console and open pages read.
-      - run: npm run build -w @magnetar/web
+      # The version the app has, or gets from the release started by this merge (scripts/release-version.ts), so the
+      # website and the app show the same version for the same code. Until that release has published it, the
+      # website is ahead of the downloads. Stamps apps/web/dist/version.json with this commit (GITHUB_SHA), which
+      # the console and open pages read.
+      - name: Build the dashboard
+        run: VITE_APP_VERSION="$(node scripts/release-version.ts display --sha "$GITHUB_SHA")" npm run build -w @magnetar/web
         working-directory: .
       # Before the Worker, so the new code never meets the old schema. Migrations only add, so the running Worker
       # keeps working on the new one meanwhile.
