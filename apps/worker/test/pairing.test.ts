@@ -2,7 +2,7 @@ import { base58ToBytes } from '@codefusion-cc/base58'
 import { env } from 'cloudflare:workers'
 import { describe, expect, test } from 'vitest'
 import { handleDevices } from '../src/devices.ts'
-import { ack, approve, call, deviceAuth, freshIp, insertDevice, listDevices, ORIGIN, pairDevice, poll, signIn, startPairing, type User, userId } from './client.ts'
+import { ack, approve, call, connectDevice, deviceAuth, freshIp, insertDevice, listDevices, openSocket, ORIGIN, pairDevice, poll, signIn, startPairing, type User, userId } from './client.ts'
 
 /** Whether `id` is `prefix` and then `bytes` random bytes in base58, as ids people see are. */
 const isBase58Id = (id: string, prefix: string, bytes: number) => id.startsWith(prefix) && base58ToBytes(id.slice(prefix.length), bytes) !== null
@@ -26,6 +26,10 @@ function batchesTogether(db: D1Database, count: number): { db: D1Database; waite
   } as unknown as D1Database
   return { db: racing, waited: () => waiting.length }
 }
+
+/** The plaintext token the pairing still holds for its app, or null. */
+const storedToken = async (pairingId: string) =>
+  (await env.DB.prepare('SELECT device_token FROM pairings WHERE id = ?').bind(pairingId).first<{ device_token: string | null }>())!.device_token
 
 describe('pairing', () => {
   test('the app starts, the signed-in user approves, and the app collects its token until it confirms it', async () => {
@@ -81,17 +85,28 @@ describe('pairing', () => {
     const user = await signIn()
     const pairing = await startPairing()
     expect((await approve(user, pairing.pairingId)).status).toBe(200)
-    const token = async () => (await env.DB.prepare('SELECT device_token FROM pairings WHERE id = ?').bind(pairing.pairingId).first<{ device_token: string | null }>())!.device_token
     const setExpiry = (at: number) => env.DB.prepare('UPDATE pairings SET expires_at = ? WHERE id = ?').bind(at, pairing.pairingId).run()
 
     // The pairing itself has ended, its handoff not yet: the app still collects.
     await setExpiry(Date.now() - 10 * 60_000 + 5_000)
     expect(await (await poll(pairing)).json()).toMatchObject({ state: 'approved' })
-    expect(await token()).not.toBeNull()
+    expect(await storedToken(pairing.pairingId)).not.toBeNull()
 
     await setExpiry(Date.now() - 10 * 60_000 - 1)
     expect(await (await poll(pairing)).json()).toEqual({ state: 'expired' })
-    expect(await token()).toBeNull()
+    expect(await storedToken(pairing.pairingId)).toBeNull()
+  })
+
+  test('an app that connects with its token without confirming it leaves no plaintext behind', async () => {
+    // Apps from before /api/pair/ack never confirm; their first connection does.
+    const user = await signIn()
+    const pairing = await startPairing()
+    expect((await approve(user, pairing.pairingId)).status).toBe(200)
+    const collected = await (await poll(pairing)).json<{ deviceId: string; deviceToken: string }>()
+    const socket = await openSocket(connectDevice(collected))
+    expect(await storedToken(pairing.pairingId)).toBeNull()
+    expect(await (await poll(pairing)).json()).toEqual({ state: 'expired' })
+    socket.ws.close()
   })
 
   test('the token of a device removed before its app collected it is not handed over', async () => {
@@ -100,8 +115,7 @@ describe('pairing', () => {
     const { deviceId } = await (await approve(user, pairing.pairingId)).json<{ deviceId: string }>()
     expect((await call(`/api/devices/${deviceId}`, { method: 'DELETE', headers: user.headers })).status).toBe(200)
     expect(await (await poll(pairing)).json()).toEqual({ state: 'expired' })
-    const row = await env.DB.prepare('SELECT device_token FROM pairings WHERE id = ?').bind(pairing.pairingId).first<{ device_token: string | null }>()
-    expect(row!.device_token).toBeNull()
+    expect(await storedToken(pairing.pairingId)).toBeNull()
   })
 
   test('confirming needs the secret that started the pairing, and an approved pairing', async () => {

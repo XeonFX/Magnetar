@@ -46,7 +46,7 @@ const CLOUD_TIMEOUT: Duration = Duration::from_secs(15);
 const LINK_TTL: Duration = Duration::from_secs(10 * 60);
 /// How long past a pairing's end the Worker still hands over an approval nobody collected: polls that could not reach it
 /// keep trying until then, so an approval whose answer was lost is still collected.
-const PAIRING_HANDOFF: Duration = Duration::from_secs(10 * 60);
+const PAIRING_HANDOFF: chrono::TimeDelta = chrono::TimeDelta::minutes(10);
 /// How often expired links are looked for at most: the timer stops while the computer sleeps, the expiry doesn't.
 const SWEEP_EVERY: Duration = Duration::from_secs(15);
 
@@ -366,9 +366,7 @@ impl RemoteService {
         }
         // The Worker says when the pairing expired. Unreachable, it may have been approved with the answer lost:
         // keep asking for as long as it would still hand the approval over.
-        let handoff_ended = parse_iso(&expires_at)
-            .and_then(|expires| chrono::Duration::from_std(PAIRING_HANDOFF).ok().map(|handoff| expires + handoff))
-            .is_some_and(|ended| ended < chrono::Utc::now());
+        let handoff_ended = parse_iso(&expires_at).is_some_and(|expires| expires + PAIRING_HANDOFF < chrono::Utc::now());
         if handoff_ended {
             self.expire_pairing();
         }

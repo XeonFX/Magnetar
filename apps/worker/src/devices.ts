@@ -224,6 +224,11 @@ export async function handleDevices(request: Request, env: Env, path: string): P
     // A 401 on the upgrade looks like any network failure to the device, which would retry
     // forever; closing with 4001 tells it the pairing is gone.
     if (!device) return closedSocket(RELAY_CLOSE.deviceRemoved, 'Device removed from the account')
+    // Connecting proves the app has its token, also an app from before /api/pair/ack: the plaintext leaves the database.
+    // Only a device paired within its pairing's lifetime and handoff can still have one waiting.
+    if (device.created_at > Date.now() - PAIRING_MS - HANDOFF_MS) {
+      await env.DB.prepare('UPDATE pairings SET device_token = NULL WHERE device_id = ? AND device_token IS NOT NULL').bind(device.id).run()
+    }
     return relay(env, device.id).fetch(new Request('https://relay/device', { headers: { upgrade: 'websocket', 'x-device-id': device.id } }))
   }
 

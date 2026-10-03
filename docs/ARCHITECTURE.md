@@ -41,11 +41,11 @@ changes, desktop notifications). The dashboard's side is typed with zod; the app
    (`packages/protocol/src/deviceName.ts`, a unique index in D1).
 3. The app polls `POST /api/pair/poll` with the poll secret and collects the token and its name, activates the pending
    key, connects to the relay and confirms it has the token (`POST /api/pair/ack`), which deletes it from D1. Until then
-   every poll gets the same answer, so an answer lost on the way does not lose the device; a token nobody confirms is
-   deleted ten minutes after the pairing ends (apps from before the confirmation never send it), and the app keeps
-   polling a Worker it cannot reach until then. The browser stores its key under the new device id, so a rename never
-   unlinks it. An account holds 20 devices; the check is part of the approval's D1 batch, so approvals at once can't
-   pass it together.
+   every poll gets the same answer, so an answer lost on the way does not lose the device. The device's first relay
+   connection deletes it too (apps from before the confirmation never send it); a token nobody confirms or connects
+   with is no longer handed over ten minutes after the pairing ends, and the app keeps polling a Worker it cannot reach
+   until then. The browser stores its key under the new device id, so a rename never unlinks it. An account holds 20
+   devices; the check is part of the approval's D1 batch, so approvals at once can't pass it together.
 
 Anyone who got hold of the pairing link before you could approve it into their own account. That is why the app shows
 which account it was connected to, and you can disconnect it at any time.
