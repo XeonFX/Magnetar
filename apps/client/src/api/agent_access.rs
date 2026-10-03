@@ -5,10 +5,11 @@ use subtle::ConstantTimeEq;
 use serde::{Deserialize, Serialize};
 
 use crate::db::{SecretName, SecretStore, replace_file};
+use crate::error::ApiResult;
 use crate::paths::Paths;
 use crate::protocol::AgentStatusDto;
 use crate::protocol::encoding::random_token;
-use crate::settings::SettingsService;
+use crate::settings::{SettingsService, saving_failed};
 
 /// 256 bits, base64url so it survives a shell or a JSON config.
 pub fn generate_token() -> String {
@@ -65,26 +66,30 @@ impl AgentAccess {
         }
     }
 
-    pub fn set(&self, enabled: Option<bool>, allow_remote: Option<bool>) -> AgentStatusDto {
-        if enabled == Some(true) && self.token().is_empty() {
-            self.secrets.set(SecretName::AgentApiToken, &generate_token());
-        }
-        self.settings.update(|s| {
-            if let Some(enabled) = enabled {
-                s.agent_api_enabled = enabled;
-            }
-            if let Some(allow_remote) = allow_remote {
-                s.agent_api_allow_remote = allow_remote;
-            }
-        });
+    /// Turns the API on or off and remote access with it. Turned on for the first time, it gets its
+    /// token in the same transaction. Nothing is reported done that isn't saved.
+    pub fn set(&self, enabled: Option<bool>, allow_remote: Option<bool>) -> ApiResult<AgentStatusDto> {
+        let token = (enabled == Some(true) && self.token().is_empty()).then(generate_token);
+        let secrets: Vec<(SecretName, &str)> = token.iter().map(|t| (SecretName::AgentApiToken, t.as_str())).collect();
+        self.settings
+            .update_with(&secrets, |s| {
+                if let Some(enabled) = enabled {
+                    s.agent_api_enabled = enabled;
+                }
+                if let Some(allow_remote) = allow_remote {
+                    s.agent_api_allow_remote = allow_remote;
+                }
+            })
+            .map_err(saving_failed)?;
         self.write_endpoint_file();
-        self.status()
+        Ok(self.status())
     }
 
-    pub fn regenerate(&self) -> AgentStatusDto {
-        self.secrets.set(SecretName::AgentApiToken, &generate_token());
+    /// Replaces the token: the old one stops working once the new one is saved, and not before.
+    pub fn regenerate(&self) -> ApiResult<AgentStatusDto> {
+        self.secrets.set(SecretName::AgentApiToken, &generate_token()).map_err(saving_failed)?;
         self.write_endpoint_file();
-        self.status()
+        Ok(self.status())
     }
 
     /// Publishes the resolved URLs and token for MCP clients.

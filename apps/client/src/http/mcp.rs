@@ -258,7 +258,7 @@ fn tool_result(result: ApiResult<Value>) -> Value {
         }
         Err(error) => {
             let message = if error.is_internal() {
-                tracing::error!("MCP tool failed: {}", error.message);
+                crate::log_failure!(&error, "MCP tool failed: {}", error.message);
                 "The operation failed. See the Magnetar log for details.".to_owned()
             } else {
                 error.message

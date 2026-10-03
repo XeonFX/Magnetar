@@ -520,11 +520,14 @@ fn produce(app: Arc<App>, runtime: &tokio::runtime::Handle, latest: Arc<Mutex<Op
 
 /// Saves a settings change; the engine and every dashboard pick it up from there.
 fn save_settings(app: &App, patch: SettingsPatch) {
-    match patch.validated() {
-        Ok(patch) => {
-            app.settings.apply_patch(patch);
-        }
-        Err(error) => tracing::warn!("Could not change the settings from the menu: {error}"),
+    if let Err(error) = patch.validated().and_then(|patch| app.settings.apply_patch(patch)) {
+        crate::log_failure!(&error, "Could not change the settings from the menu: {error}");
+    }
+}
+
+fn toggle(app: &App, change: impl FnOnce(&mut AppSettings)) {
+    if let Err(error) = app.settings.update(change) {
+        crate::log_failure!(&error, "Could not change the settings from the menu: {error}");
     }
 }
 
@@ -586,10 +589,10 @@ fn perform(command: Command, app: &Arc<App>, dashboard_url: &str, runtime: &toki
             off_thread(Box::new(move |app| save_settings(app, SettingsPatch { upload_limit: Some(limit), ..Default::default() })))
         }
         Command::ToggleNotifyOnComplete => off_thread(Box::new(|app| {
-            app.settings.update(|s| s.notify_on_complete = !s.notify_on_complete);
+            toggle(app, |s| s.notify_on_complete = !s.notify_on_complete);
         })),
         Command::ToggleNotifyOnStart => off_thread(Box::new(|app| {
-            app.settings.update(|s| s.notify_on_start = !s.notify_on_start);
+            toggle(app, |s| s.notify_on_start = !s.notify_on_start);
         })),
         Command::ToggleOpenAtLogin => off_thread(Box::new(|_| {
             if let Err(error) = login_startup::set(login_startup::status() != LoginStartupStatus::Enabled) {

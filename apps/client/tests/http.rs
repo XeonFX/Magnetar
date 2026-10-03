@@ -71,7 +71,7 @@ async fn agent_api_is_off_until_enabled_then_refuses_rebinding_and_cross_origin_
     let (app, base, _dir) = start().await;
     let http = client();
     assert_eq!(http.get(format!("{base}/api/downloads")).send().await.unwrap().status(), 404);
-    app.agent.set(Some(true), None);
+    app.agent.set(Some(true), None).unwrap();
 
     let list = http.get(format!("{base}/api/downloads")).send().await.unwrap();
     assert_eq!(list.status(), 200);
@@ -99,7 +99,7 @@ async fn agent_api_is_off_until_enabled_then_refuses_rebinding_and_cross_origin_
         .await
         .unwrap();
     assert_eq!(rebound_as_proxied.status(), 404, "a forwarded request is remote, and remote access is off");
-    app.agent.set(None, Some(true));
+    app.agent.set(None, Some(true)).unwrap();
     let with_https_claimed = http
         .get(format!("{base}/api/downloads"))
         .header("host", "evil.example:47820")
@@ -114,7 +114,7 @@ async fn agent_api_is_off_until_enabled_then_refuses_rebinding_and_cross_origin_
 #[tokio::test]
 async fn rest_routes_validate_and_report_errors() {
     let (app, base, _dir) = start().await;
-    app.agent.set(Some(true), None);
+    app.agent.set(Some(true), None).unwrap();
     let http = client();
     let missing = http.get(format!("{base}/api/downloads/99")).send().await.unwrap();
     assert_eq!(missing.status(), 404);
@@ -144,7 +144,7 @@ async fn rest_routes_validate_and_report_errors() {
 #[tokio::test]
 async fn mcp_initializes_lists_and_calls_tools() {
     let (app, base, _dir) = start().await;
-    app.agent.set(Some(true), None);
+    app.agent.set(Some(true), None).unwrap();
     let http = client();
     let rpc =
         |body: Value| http.post(format!("{base}/mcp")).header("accept", "application/json, text/event-stream").json(&body).send();
@@ -373,7 +373,7 @@ mod stdio_bridge {
     #[tokio::test]
     async fn passes_requests_to_the_running_app_line_by_line() {
         let (app, base, _dir) = start().await;
-        app.agent.set(Some(true), None);
+        app.agent.set(Some(true), None).unwrap();
         let input = [
             json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18" } })
                 .to_string(),
@@ -438,7 +438,7 @@ mod stdio_bridge {
     #[tokio::test]
     async fn a_started_app_is_waited_for() {
         let (app, base, _dir) = start().await;
-        app.agent.set(Some(true), None);
+        app.agent.set(Some(true), None).unwrap();
         let ready = Arc::new(AtomicBool::new(false));
         let (flag, url) = (ready.clone(), format!("{base}/mcp"));
         // The endpoint file appears only once the "app" has been started.

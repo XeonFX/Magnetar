@@ -338,6 +338,51 @@ async fn agent_access_writes_an_owner_only_endpoint_file() {
     assert_ne!(c.ok("agent.regenerateToken", json!({})).await["token"], token.as_str());
 }
 
+/// The app as it starts again on the same data folder.
+fn restarted(h: &Harness) -> Arc<App> {
+    App::new(AppOptions {
+        paths: Paths::new(h.dir.path().join("data")).unwrap(),
+        engine: EngineSource::Off,
+        providers: vec![],
+        legacy_database: None,
+        show_lookups: false,
+    })
+    .unwrap()
+}
+
+#[tokio::test]
+async fn turning_agent_access_off_or_replacing_its_token_is_never_reported_done_unless_saved() {
+    let h = harness();
+    let mut c = Client::new(&h.app, true);
+    let token = c.ok("agent.set", json!({ "enabled": true, "allowRemote": true })).await["token"].as_str().unwrap().to_owned();
+
+    // The disk refuses every write.
+    h.app.db.lock().pragma_update(None, "query_only", true).unwrap();
+    for (method, params) in [("agent.set", json!({ "enabled": false })), ("agent.regenerateToken", json!({}))] {
+        let error = c.call(method, params).await.unwrap_err();
+        assert!(error.starts_with("internal: The change could not be saved, so nothing changed"), "{method}: {error}");
+    }
+    let error = c.call("settings.update", json!({ "telegramBotToken": "123:abc" })).await.unwrap_err();
+    assert!(error.starts_with("internal: The change could not be saved"), "{error}");
+    let status = c.ok("agent.status", json!({})).await;
+    assert_eq!((status["enabled"].clone(), status["token"].clone()), (json!(true), json!(token)));
+    assert_eq!(c.ok("settings.get", json!({})).await["telegramBotTokenSet"], false);
+    let endpoint: Value = serde_json::from_slice(&std::fs::read(&h.app.paths.endpoint).unwrap()).unwrap();
+    assert_eq!(endpoint["token"], token.as_str());
+    // What the next start finds is what the dashboard still shows.
+    let again = restarted(&h);
+    assert!(again.agent.enabled() && again.agent.allow_remote());
+    assert_eq!(again.agent.token(), token);
+
+    // Saved, a new token replaces the old one for good.
+    h.app.db.lock().pragma_update(None, "query_only", false).unwrap();
+    let rotated = c.ok("agent.regenerateToken", json!({})).await["token"].as_str().unwrap().to_owned();
+    assert_ne!(rotated, token);
+    assert_eq!(restarted(&h).agent.token(), rotated);
+    assert_eq!(c.ok("agent.set", json!({ "enabled": false })).await["enabled"], false);
+    assert!(!restarted(&h).agent.enabled());
+}
+
 #[tokio::test]
 async fn linked_browsers_ask_for_push_and_lose_it_with_their_key() {
     use base64::Engine as _;

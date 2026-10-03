@@ -276,51 +276,84 @@ impl SecretName {
 }
 
 /// Named secrets in the `secrets` table, sealed by a SecretBox. Decrypted values are cached: the
-/// agent token is checked on every API request and the store is the only writer.
+/// agent token is checked on every API request and the store is the only writer. The cache only
+/// ever holds what the database has: a write changes it once committed, a failed read is not kept.
 pub struct SecretStore {
     db: Db,
     pub(crate) sealer: Arc<SecretBox>,
     cache: Mutex<HashMap<SecretName, String>>,
+    /// Held from a write's commit to its cache update, so the cache ends with the value committed last.
+    writing: Mutex<()>,
 }
 
 impl SecretStore {
     pub fn new(db: Db, sealer: Arc<SecretBox>) -> Self {
-        Self { db, sealer, cache: Mutex::default() }
+        Self { db, sealer, cache: Mutex::default(), writing: Mutex::default() }
     }
 
+    fn cache(&self) -> MutexGuard<'_, HashMap<SecretName, String>> {
+        self.cache.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The secret, or empty when unset. Empty too while the database can't be read, without
+    /// remembering that: the next call reads again.
     pub fn get(&self, name: SecretName) -> String {
-        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(value) = cache.get(&name) {
+        if let Some(value) = self.cache().get(&name) {
             return value.clone();
         }
-        let row: Option<String> = self
+        let row: rusqlite::Result<Option<String>> = self
             .db
             .lock()
             .query_row("SELECT value FROM secrets WHERE name = ?", [name.key()], |r| r.get(0))
-            .optional()
-            .ok()
-            .flatten();
-        // A key file replaced underneath us: treat as unset rather than crash.
-        let value = row.and_then(|sealed| self.sealer.open_sealed(&sealed).ok()).unwrap_or_default();
-        cache.insert(name, value.clone());
-        value
+            .optional();
+        match row {
+            Ok(row) => {
+                // A key file replaced underneath us: treat as unset rather than crash.
+                let value = row.and_then(|sealed| self.sealer.open_sealed(&sealed).ok()).unwrap_or_default();
+                self.cache().entry(name).or_insert(value).clone()
+            }
+            Err(error) => {
+                crate::log_failure!(&error, "Could not read a secret: {error}");
+                String::new()
+            }
+        }
     }
 
-    pub fn set(&self, name: SecretName, value: &str) {
-        let db = self.db.lock();
-        let result = if value.is_empty() {
-            db.execute("DELETE FROM secrets WHERE name = ?", [name.key()])
-        } else {
-            db.execute(
-                "INSERT INTO secrets (name, value) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value",
-                params![name.key(), self.sealer.seal(value)],
-            )
+    /// Saves a secret (empty removes it). Nothing changes, the cache included, unless it is committed.
+    pub fn set(&self, name: SecretName, value: &str) -> rusqlite::Result<()> {
+        self.set_with(&[(name, value)], |_| Ok(()))
+    }
+
+    /// Saves `secrets`, and whatever `also` writes, in one transaction; the cache changes once it commits.
+    pub fn set_with(
+        &self,
+        secrets: &[(SecretName, &str)],
+        also: impl FnOnce(&Connection) -> rusqlite::Result<()>,
+    ) -> rusqlite::Result<()> {
+        let _writing = self.writing.lock().unwrap_or_else(|e| e.into_inner());
+        let committed = {
+            let mut db = self.db.lock();
+            db.transaction().and_then(|tx| {
+                for (name, value) in secrets {
+                    if value.is_empty() {
+                        tx.execute("DELETE FROM secrets WHERE name = ?", [name.key()])?;
+                    } else {
+                        tx.execute(
+                            "INSERT INTO secrets (name, value) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value",
+                            params![name.key(), self.sealer.seal(value)],
+                        )?;
+                    }
+                }
+                also(&tx)?;
+                tx.commit()
+            })
         };
-        drop(db);
-        if let Err(error) = result {
-            crate::log_failure!(&error, "Could not save a secret: {error}");
+        committed?;
+        let mut cache = self.cache();
+        for (name, value) in secrets {
+            cache.insert(*name, (*value).to_owned());
         }
-        self.cache.lock().unwrap_or_else(|e| e.into_inner()).insert(name, value.to_owned());
+        Ok(())
     }
 
     pub fn has(&self, name: SecretName) -> bool {
@@ -365,5 +398,41 @@ mod tests {
         assert_eq!(sealer.open_sealed(&sealed).unwrap(), "hunter2");
         let tampered = sealed.replacen("v1:", "v1:A", 1);
         assert!(sealer.open_sealed(&tampered).is_err());
+    }
+
+    #[test]
+    fn a_secret_is_only_what_was_committed() {
+        let dir = tempfile::tempdir().unwrap();
+        let open = || {
+            let db = Db::open(&dir.path().join("magnetar.db")).unwrap();
+            let sealer = Arc::new(SecretBox::open(&dir.path().join("secret.key")).unwrap());
+            (db.clone(), SecretStore::new(db, sealer))
+        };
+        let (db, store) = open();
+        store.set(SecretName::AgentApiToken, "old").unwrap();
+        db.lock().pragma_update(None, "query_only", true).unwrap();
+        assert!(store.set(SecretName::AgentApiToken, "new").is_err());
+        assert!(store.set(SecretName::AgentApiToken, "").is_err());
+        assert_eq!(store.get(SecretName::AgentApiToken), "old");
+        assert_eq!(open().1.get(SecretName::AgentApiToken), "old");
+
+        db.lock().pragma_update(None, "query_only", false).unwrap();
+        store.set(SecretName::AgentApiToken, "new").unwrap();
+        assert_eq!(open().1.get(SecretName::AgentApiToken), "new");
+        store.set(SecretName::AgentApiToken, "").unwrap();
+        assert!(!open().1.has(SecretName::AgentApiToken));
+    }
+
+    #[test]
+    fn a_secret_that_cannot_be_read_is_read_again_next_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::open(&dir.path().join("magnetar.db")).unwrap();
+        let sealer = Arc::new(SecretBox::open(&dir.path().join("secret.key")).unwrap());
+        SecretStore::new(db.clone(), sealer.clone()).set(SecretName::DeviceToken, "token").unwrap();
+        let store = SecretStore::new(db.clone(), sealer);
+        db.lock().execute_batch("ALTER TABLE secrets RENAME TO secrets_away").unwrap();
+        assert_eq!(store.get(SecretName::DeviceToken), "");
+        db.lock().execute_batch("ALTER TABLE secrets_away RENAME TO secrets").unwrap();
+        assert_eq!(store.get(SecretName::DeviceToken), "token");
     }
 }
