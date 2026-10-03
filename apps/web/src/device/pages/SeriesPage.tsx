@@ -36,7 +36,12 @@ export function SeriesPage() {
   // One pass per update; each card keeps its list until one of its own downloads changes.
   const byTask = useMemo(() => {
     const groups = new Map<number, DownloadDto[]>()
-    for (const d of downloads) if (d.seriesTaskId !== null) groups.set(d.seriesTaskId, [...(groups.get(d.seriesTaskId) ?? []), d])
+    for (const d of downloads) {
+      if (d.seriesTaskId === null) continue
+      const group = groups.get(d.seriesTaskId)
+      if (group) group.push(d)
+      else groups.set(d.seriesTaskId, [d])
+    }
     return groups
   }, [downloads])
   const add = <button type="button" className="btn btn-primary" onClick={() => setEditing('new')}><Plus size={16} />{t('series.add')}</button>

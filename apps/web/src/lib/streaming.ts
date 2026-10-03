@@ -1,3 +1,4 @@
+import type { DownloadFileDto } from '@magnetar/protocol'
 import { fromBase64 } from '@magnetar/protocol/base64'
 import { errorMessage } from './errors.ts'
 import type { RpcClient } from './rpcClient.ts'
@@ -20,7 +21,7 @@ interface RelayStream {
 const relayed = new Map<string, RelayStream>()
 let listening = false
 
-/** Answers the service worker's questions about streams this page opened (see public/sw.js). */
+/** Answers the service worker's questions about streams this page opened (see streamWorker.ts). */
 function listen(): void {
   if (listening || !('serviceWorker' in navigator)) return
   listening = true
@@ -75,6 +76,38 @@ export async function openStream(connection: RpcClient, id: number, index: numbe
       void connection.call('stream.close', { streamId: opened.streamId }).catch(() => {})
     },
   }
+}
+
+/**
+ * A download's subtitle files read into WebVTT for <track>s, as object URLs the caller revokes. Each file's stream
+ * is closed once it is read. Once `signal` aborts, reads stop, streams still opening are closed as they open, and
+ * every URL already made is revoked: it resolves with none. A file that can't be read is left out.
+ */
+export async function loadSubtitles(connection: RpcClient, id: number, files: DownloadFileDto[], signal: AbortSignal): Promise<{ file: DownloadFileDto; url: string }[]> {
+  const made: string[] = []
+  const loaded = await Promise.all(files.map(async file => {
+    try {
+      const stream = await openStream(connection, id, file.index, file.path.split('/').pop()!)
+      let text: string
+      try {
+        if (signal.aborted) return null
+        text = await (await fetch(stream.url, { signal })).text()
+      } finally {
+        stream.close()
+      }
+      if (signal.aborted) return null
+      const url = URL.createObjectURL(new Blob([file.path.toLowerCase().endsWith('.srt') ? srtToVtt(text) : text], { type: 'text/vtt' }))
+      made.push(url)
+      return { file, url }
+    } catch {
+      return null
+    }
+  }))
+  if (signal.aborted) {
+    made.forEach(url => URL.revokeObjectURL(url))
+    return []
+  }
+  return loaded.filter(track => track !== null)
 }
 
 /** SubRip to WebVTT, which is what <track> reads. */

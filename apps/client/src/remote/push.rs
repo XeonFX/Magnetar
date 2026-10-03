@@ -16,14 +16,31 @@ pub struct PushSubscription {
     pub auth: String,
 }
 
-/// What a notification shows, as the website's service worker reads it.
-#[derive(Serialize)]
+/// What a notification shows, as the website's service worker reads it (`handlePushes` of
+/// `@codefusion-cc/web-push`): title, body, where a click goes, and a tag for a finished download.
 pub struct PushPayload<'a> {
     pub title: &'a str,
     pub body: &'a str,
     pub kind: &'a str,
     /// Where a click takes the browser: this device's dashboard.
     pub url: String,
+}
+
+impl Serialize for PushPayload<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        #[derive(Serialize)]
+        struct Wire<'a> {
+            title: &'a str,
+            body: &'a str,
+            kind: &'a str,
+            url: &'a str,
+            /// A newer notification with the same tag replaces the older one: a download finishing again says so once.
+            #[serde(skip_serializing_if = "Option::is_none")]
+            tag: Option<String>,
+        }
+        let tag = (self.kind == "completed").then(|| format!("magnetar-{}", self.body));
+        Wire { title: self.title, body: self.body, kind: self.kind, url: &self.url, tag }.serialize(serializer)
+    }
 }
 
 /// Push services this app sends to: the ones the Worker's `@codefusion-cc/web-push` sends to, which
@@ -118,6 +135,18 @@ mod tests {
             &format!("https://fcm.googleapis.com/{}", "a".repeat(1024)),
         ] {
             assert!(!is_push_service(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_finished_download_replaces_its_earlier_notification_and_nothing_else_does() {
+        let payload = |kind| PushPayload { title: "Download complete", body: "Movie.2024", kind, url: "/office".into() };
+        assert_eq!(
+            serde_json::to_value(payload("completed")).unwrap(),
+            serde_json::json!({ "title": "Download complete", "body": "Movie.2024", "kind": "completed", "url": "/office", "tag": "magnetar-Movie.2024" })
+        );
+        for kind in ["started", "update", "test"] {
+            assert_eq!(serde_json::to_value(payload(kind)).unwrap().get("tag"), None, "{kind}");
         }
     }
 }

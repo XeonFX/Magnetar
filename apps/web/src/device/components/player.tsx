@@ -2,7 +2,7 @@ import type { DownloadFileDto } from '@magnetar/protocol'
 import { Copy, ExternalLink, Play } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { errorMessage } from '../../lib/errors.ts'
-import { openStream, srtToVtt, type OpenedStream } from '../../lib/streaming.ts'
+import { loadSubtitles, openStream, type OpenedStream } from '../../lib/streaming.ts'
 import { useT } from '../../lib/i18n.tsx'
 import { Loading } from '../../ui/Loading.tsx'
 import { Modal } from '../../ui/Modal.tsx'
@@ -58,31 +58,22 @@ function Player({ target, finished }: { target: PlayTarget; finished: boolean })
   const complete = target.file.done === target.file.size
 
   useEffect(() => {
-    let cancelled = false
-    const opened: OpenedStream[] = []
-    const blobs: string[] = []
-    const name = target.file.path.split('/').pop()!
-    void openStream(connection, target.downloadId, target.file.index, name).then(async main => {
-      opened.push(main)
-      if (cancelled) return main.close()
-      setStream(main)
-      const loaded = await Promise.all(target.subtitles.map(async sub => {
-        try {
-          const subStream = await openStream(connection, target.downloadId, sub.index, sub.path.split('/').pop()!)
-          opened.push(subStream)
-          const text = await (await fetch(subStream.url)).text()
-          const url = URL.createObjectURL(new Blob([sub.path.toLowerCase().endsWith('.srt') ? srtToVtt(text) : text], { type: 'text/vtt' }))
-          blobs.push(url)
-          return { label: trackLabel(sub.path), url }
-        } catch {
-          return null
-        }
-      }))
-      if (!cancelled) setTracks(loaded.filter(t => t !== null))
-    }).catch((e: unknown) => !cancelled && setError(errorMessage(e)))
+    // Closing the player stops what is still on its way: whatever it opens or makes after that is let go of at once.
+    const abort = new AbortController()
+    const { signal } = abort
+    let main: OpenedStream | null = null
+    let blobs: string[] = []
+    void openStream(connection, target.downloadId, target.file.index, target.file.path.split('/').pop()!).then(async opened => {
+      if (signal.aborted) return opened.close()
+      main = opened
+      setStream(opened)
+      const loaded = await loadSubtitles(connection, target.downloadId, target.subtitles, signal)
+      blobs = loaded.map(track => track.url)
+      setTracks(loaded.map(({ file, url }) => ({ label: trackLabel(file.path), url })))
+    }).catch((e: unknown) => !signal.aborted && setError(errorMessage(e)))
     return () => {
-      cancelled = true
-      opened.forEach(s => s.close())
+      abort.abort()
+      main?.close()
       blobs.forEach(url => URL.revokeObjectURL(url))
     }
   }, [connection, target])
