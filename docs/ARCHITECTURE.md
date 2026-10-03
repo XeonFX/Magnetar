@@ -104,6 +104,13 @@ checks the sessions of open browser sockets in D1 every hour, so an expired or o
 browser without a session that asks to connect is answered the same way, with 4004 instead of an HTTP 401. The page
 stops retrying on 4003 and 4004.
 
+A socket the relay closes stays in `getWebSockets()` (reading `CLOSING`) until its other end answers the close, which
+a dead connection never does: a reconnecting app's replaced socket, or a signed-out dashboard whose network dropped.
+So the relay marks every socket it closes (`closed` in the attachment), does at once what its close event would (tell
+the device a dashboard left, or the dashboards that the device went offline), and finds sockets to send to, count or
+reopen only through `openSockets`/`device()`/`openBrowsers()`. A socket that refuses a send although it reads as open
+is closed with 1011 as lost, and both ends reconnect.
+
 ## Accounts and sessions
 
 Google sign-in is an OpenID Connect redirect (`response_type=id_token`, `response_mode=fragment`) from
