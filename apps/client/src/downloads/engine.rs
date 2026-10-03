@@ -409,11 +409,12 @@ impl Engine {
     }
 }
 
-/// Whether `path` is plain names only: no root, prefix, `.` or `..`. On Windows also no name ending in a dot or a space,
-/// which Windows strips: `...` would be the folder itself.
+/// Whether `path` is plain names only: no root, prefix, `.` or `..`. On Windows also nothing Windows reads as something
+/// else (`system::folders::windows_plain`): a name ending in a dot or a space, which it strips (`...` would be the
+/// folder itself), a stream or a device.
 fn plain(path: &Path) -> bool {
     path.components().all(|c| match c {
-        Component::Normal(name) => !cfg!(windows) || !name.to_string_lossy().ends_with(['.', ' ']),
+        Component::Normal(name) => !cfg!(windows) || crate::system::folders::windows_plain(&name.to_string_lossy()),
         _ => false,
     })
 }

@@ -141,6 +141,17 @@ export const content: FeaturesContent = {
             'Da un telefono o da un altro browser, fino a quattro video contemporaneamente',
           ],
         },
+        browse: {
+          title: 'I tuoi download, cartella per cartella',
+          gain: 'Guarda cosa è arrivato dove, riproducilo o scegli una nuova cartella di download, dal computer o dal telefono.',
+          text: 'File mostra la cartella di download e ogni cartella aggiunta sul computer che esegue Magnetar: prima le cartelle, poi i file, con dimensioni e date. I file di un download si possono riprodurre o aprire nei suoi dettagli.',
+          points: [
+            'Ordinati come si leggono i nomi: l\'episodio 2 prima del 10',
+            'Crea una cartella o usa quella mostrata come cartella di download',
+            'Dal sito si vedono solo queste cartelle, sullo stesso canale cifrato; i file nascosti e i collegamenti che portano fuori restano esclusi',
+            'Le cartelle si aggiungono solo sul computer stesso, mai da un altro dispositivo',
+          ],
+        },
         speed: {
           title: 'Limiti che seguono la tua giornata',
           gain: 'Download che non si prendono tutta la connessione mentre lavori, e velocità massima di notte.',

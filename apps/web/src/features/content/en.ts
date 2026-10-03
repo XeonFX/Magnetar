@@ -141,6 +141,17 @@ export const en: FeaturesContent = {
             'From a phone or another browser, up to four videos at once',
           ],
         },
+        browse: {
+          title: 'Your downloads, folder by folder',
+          gain: 'See what landed where, play it, or pick a new download folder, from the computer or from your phone.',
+          text: 'Files shows the download folder and any folder you add on the computer running Magnetar: folders first, then files, with their sizes and dates. Files that came from a download can be played or opened in its details.',
+          points: [
+            'Sorted as people read names: episode 2 before episode 10',
+            'Make a folder, or use the one on screen as the download folder',
+            'Through the website, only these folders can be seen, over the same encrypted channel; hidden files and links leading out of them stay out',
+            'Folders are added only on the computer itself, never from another device',
+          ],
+        },
         speed: {
           title: 'Limits that follow your day',
           gain: 'Downloads that don\'t take the whole connection while you work, and full speed at night.',

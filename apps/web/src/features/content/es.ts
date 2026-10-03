@@ -141,6 +141,17 @@ export const content: FeaturesContent = {
             'Desde un móvil u otro navegador, hasta cuatro vídeos a la vez',
           ],
         },
+        browse: {
+          title: 'Tus descargas, carpeta a carpeta',
+          gain: 'Mira qué llegó a dónde, reprodúcelo o elige otra carpeta de descarga, desde el ordenador o desde el móvil.',
+          text: 'Archivos muestra la carpeta de descarga y cualquier carpeta que añadas en el ordenador que ejecuta Magnetar: primero carpetas, luego archivos, con su tamaño y fecha. Los archivos de una descarga se pueden reproducir o abrir en sus detalles.',
+          points: [
+            'Ordenados como se leen los nombres: el episodio 2 antes del 10',
+            'Crea una carpeta o usa la que ves como carpeta de descarga',
+            'Desde el sitio web solo se ven estas carpetas, por el mismo canal cifrado; los archivos ocultos y los enlaces que salen de ellas quedan fuera',
+            'Las carpetas se añaden solo en el propio ordenador, nunca desde otro dispositivo',
+          ],
+        },
         speed: {
           title: 'Límites que se adaptan a tu día',
           gain: 'Descargas que no acaparan la conexión mientras trabajas, y a toda velocidad por la noche.',

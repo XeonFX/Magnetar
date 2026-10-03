@@ -12,6 +12,7 @@ test('names the screen a path shows, never the device in it', () => {
   expect(consolePage('/MacBook-Pro/search/dragon')).toBe('device-search')
   expect(consolePage('/MacBook-Pro/series/releases')).toBe('device-series')
   expect(consolePage('/MacBook-Pro/settings/agents')).toBe('device-settings')
+  expect(consolePage('/MacBook-Pro/files')).toBe('device-files')
   expect(consolePage('/MacBook-Pro/nope')).toBe('device-downloads')
   // Addresses by id, before they move to the name.
   expect(consolePage('/d/d_123/search')).toBe('device-search')
