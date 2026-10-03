@@ -1,8 +1,11 @@
 import type { DownloadDto, DownloadFileDto } from '@magnetar/protocol'
 import { formatBytes } from '@magnetar/protocol/bytes'
-import { FileAudio, FileText, FileVideo, FolderOpen, Info, Play } from 'lucide-react'
+import { FileAudio, FileText, FileVideo, FolderOpen, FolderSearch, Info, Play } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router'
 import { errorMessage } from '../../lib/errors.ts'
+import { isWithin, separatorOf } from '../../lib/folderPaths.ts'
+import type { FilesLocation } from '../pages/FilesPage.tsx'
 import { useFormatDate, useT } from '../../lib/i18n.tsx'
 import { Modal } from '../../ui/Modal.tsx'
 import { useDevice, useDownloads } from '../DeviceContext.tsx'
@@ -28,8 +31,11 @@ function Details({ download: d }: { download: DownloadDto }) {
   const t = useT()
   const formatDate = useFormatDate()
   const run = useRun()
-  const { connection } = useDevice()
+  const navigate = useNavigate()
+  const { connection, info, settings, basePath } = useDevice()
   const local = connection.kind === 'local'
+  // Files shows the download folder; a download saved elsewhere may be in a folder it can't browse.
+  const browsable = info?.fileBrowser === true && !!settings && isWithin(d.savePath, settings.downloadFolder, separatorOf(settings.downloadFolder))
   const facts: [string, string][] = [
     [t('info.size'), d.totalBytes > 0 ? formatBytes(d.totalBytes) : '—'],
     [t('details.uploaded'), formatBytes(d.uploadedBytes)],
@@ -52,6 +58,11 @@ function Details({ download: d }: { download: DownloadDto }) {
       </dl>
       <div className="mb-5 flex flex-wrap items-center gap-2">
         <span className="muted min-w-0 flex-1 break-all font-mono text-xs">{d.savePath}</span>
+        {browsable && (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => navigate(`${basePath}/files`, { state: { path: d.savePath } satisfies FilesLocation })}>
+            <FolderSearch size={14} />{t('files.showInFiles')}
+          </button>
+        )}
         {local && (
           <button type="button" className="btn btn-sm" onClick={() => void run(() => connection.call('downloads.reveal', { id: d.id }))}>
             <FolderOpen size={14} />{t('details.reveal')}

@@ -10,6 +10,7 @@ import { Shell, type DeviceMenu } from './Shell.tsx'
 // Downloads is where the dashboard opens; the other pages load when first visited.
 const SearchPage = lazy(() => updates.importOrReload(() => import('./pages/SearchPage.tsx')).then(m => ({ default: m.SearchPage })))
 const SeriesPage = lazy(() => updates.importOrReload(() => import('./pages/SeriesPage.tsx')).then(m => ({ default: m.SeriesPage })))
+const FilesPage = lazy(() => updates.importOrReload(() => import('./pages/FilesPage.tsx')).then(m => ({ default: m.FilesPage })))
 const SettingsPage = lazy(() => updates.importOrReload(() => import('./pages/SettingsPage.tsx')).then(m => ({ default: m.SettingsPage })))
 
 function Page({ children }: { children: ReactNode }) {
@@ -31,6 +32,7 @@ export function DeviceRoutes({ headerStart, headerEnd, deviceMenu, fallbackLangu
           <Route index element={<DownloadsPage />} />
           <Route path="search/*" element={<Page><SearchPage /></Page>} />
           <Route path="series/:tab?" element={<Page><SeriesPage /></Page>} />
+          <Route path="files" element={<Page><FilesPage /></Page>} />
           <Route path="settings/:section?" element={<Page><SettingsPage /></Page>} />
           <Route path="*" element={<DownloadsPage />} />
         </Route>

@@ -14,11 +14,12 @@ export const CONSOLE_PAGES = [
   'device-search',
   'device-series',
   'device-settings',
+  'device-files',
 ] as const
 
 export type ConsolePage = (typeof CONSOLE_PAGES)[number]
 
-const DEVICE_TABS = new Set(['search', 'series', 'settings'])
+const DEVICE_TABS = new Set(['search', 'series', 'settings', 'files'])
 /** The website's own top-level pages, which no device may be named after (device-names.json). */
 export const SITE_PAGES = new Set(['about', 'login', 'pair', 'link', 'add', 'features'])
 
