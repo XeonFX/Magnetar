@@ -18,7 +18,7 @@ static RULES: LazyLock<Rules> = LazyLock::new(|| Rules {
     magnet: Regex::new(r#"(?i)magnet:\?[^\s'")]+"#).unwrap(),
     email: Regex::new(r"[\w.+-]+@[\w-]+\.[\w.-]+").unwrap(),
     quoted: Regex::new("\"[^\"\\n]*\"|'[^'\\n]*'|“[^”\\n]*”").unwrap(),
-    path: Regex::new(r#"(?:[A-Za-z]:)?(?:[\\/][^\\/\s:'"()]+)+"#).unwrap(),
+    path: Regex::new(r#"(?:[A-Za-z]:)?(?:[\\/]+[^\\/\s:'"()]+)+"#).unwrap(),
     ip: Regex::new(r"\b\d{1,3}(?:\.\d{1,3}){3}\b").unwrap(),
     hex: Regex::new(r"(?i)\b[0-9a-f]{16,}\b").unwrap(),
     token: Regex::new(r"\b[A-Za-z0-9_-]{32,}\b").unwrap(),
@@ -32,10 +32,8 @@ pub fn scrub(text: &str) -> String {
     let text = r.magnet.replace_all(&text, "<magnet>");
     let text = r.email.replace_all(&text, "<email>");
     let text = r.quoted.replace_all(&text, "\"…\"");
-    let text = r.path.replace_all(&text, |caps: &regex::Captures| {
-        let last = caps[0].rsplit(['/', '\\']).next().unwrap_or_default().to_owned();
-        format!("…/{last}")
-    });
+    // All of it: a file's own name is often the torrent's.
+    let text = r.path.replace_all(&text, "<path>");
     let text = r.ip.replace_all(&text, "<ip>");
     let text = r.hex.replace_all(&text, "<hex>");
     r.token.replace_all(&text, "<token>").into_owned()
@@ -43,14 +41,29 @@ pub fn scrub(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+    use serde_json::Value;
+
+    use super::scrub;
+
+    /// The cases `packages/protocol/src/scrub.ts` is held to as well.
     #[test]
-    fn removes_titles_paths_urls_addresses_hashes_and_tokens() {
-        let scrubbed = super::scrub(
-            "Could not resolve \"Some.Show.S01E01.1080p\" at /Users/alice/Downloads/x.mkv from https://nyaa.si/view/1 for bob@example.com 10.0.0.4 hash abcdef0123456789abcdef0123456789abcdef01 token AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-",
-        );
-        for leaked in ["Some.Show", "alice", "nyaa", "bob@", "10.0.0.4", "abcdef0123", "AbCdEfGh"] {
-            assert!(!scrubbed.contains(leaked), "{leaked} leaked: {scrubbed}");
+    fn scrubs_as_the_shared_vector_says() {
+        let vector: Value = serde_json::from_str(include_str!("../../../../packages/protocol/src/scrub-vector.json")).unwrap();
+        for case in vector["cases"].as_array().unwrap() {
+            assert_eq!(scrub(case["input"].as_str().unwrap()), case["output"].as_str().unwrap());
         }
-        assert!(scrubbed.contains("Could not resolve"));
+    }
+
+    proptest! {
+        #[test]
+        fn no_part_of_a_path_is_left(
+            drive in "([A-Z]:)?",
+            separator in "[/\\\\]",
+            parts in prop::collection::vec(r"[A-Za-z0-9._\[\]-]{1,24}", 1..6),
+        ) {
+            let path = format!("{drive}{separator}{}", parts.join(&separator));
+            prop_assert_eq!(scrub(&format!("could not open {path}: denied")), "could not open <path>: denied");
+        }
     }
 }

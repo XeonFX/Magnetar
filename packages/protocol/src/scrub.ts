@@ -10,7 +10,8 @@ export function scrub(text: string): string {
     .replace(/magnet:\?[^\s'")]+/gi, '<magnet>')
     .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '<email>')
     .replace(/"[^"\n]*"|'[^'\n]*'|“[^”\n]*”/g, '"…"')
-    .replace(/(?:[A-Za-z]:)?(?:[\\/][^\\/\s:'"()]+)+/g, match => `…/${match.split(/[\\/]/).pop()}`)
+    // All of it: a file's own name is often the torrent's.
+    .replace(/(?:[A-Za-z]:)?(?:[\\/]+[^\\/\s:'"()]+)+/g, '<path>')
     .replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '<ip>')
     .replace(/\b[0-9a-f]{16,}\b/gi, '<hex>')
     .replace(/\b[A-Za-z0-9_-]{32,}\b/g, '<token>')

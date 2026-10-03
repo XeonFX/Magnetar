@@ -1,0 +1,41 @@
+{
+  "comment": "What scrub() makes of error messages. The Rust (apps/client/src/protocol/scrub.rs) and TypeScript (scrub.ts) scrubbers must both turn each input into its output.",
+  "cases": [
+    {
+      "input": "Could not delete /Users/alice/Downloads/Some.Show.S01E01.1080p.mkv: Permission denied (os error 13)",
+      "output": "Could not delete <path>: Permission denied (os error 13)"
+    },
+    {
+      "input": "error opening C:\\Users\\bob\\Downloads\\Show.Name.S02\\Show.Name.S02E03.mkv for writing",
+      "output": "error opening <path> for writing"
+    },
+    {
+      "input": "read \\\\nas\\media\\Movie.2024.2160p.mkv failed",
+      "output": "read <path> failed"
+    },
+    {
+      "input": "No space left on device writing ./downloads/Season.1/E01.mkv",
+      "output": "No space left on device writing .<path>"
+    },
+    {
+      "input": "error opening \"/Users/someone/Library/Caches/dht.json\": No space left on device (os error 28)",
+      "output": "error opening \"…\": No space left on device (os error 28)"
+    },
+    {
+      "input": "Could not resolve \"Some.Show.S01E01.1080p\" from https://nyaa.si/view/1 for bob@example.com at 10.0.0.4",
+      "output": "Could not resolve \"…\" from <url> for <email> at <ip>"
+    },
+    {
+      "input": "metadata for magnet:?xt=urn:btih:abcdef0123456789abcdef0123456789abcdef01&dn=Show never came",
+      "output": "metadata for <magnet> never came"
+    },
+    {
+      "input": "hash abcdef0123456789abcdef0123456789abcdef01 token AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-Z",
+      "output": "hash <hex> token <token>"
+    },
+    {
+      "input": "The torrent engine could not start: Address already in use (os error 48)",
+      "output": "The torrent engine could not start: Address already in use (os error 48)"
+    }
+  ]
+}
