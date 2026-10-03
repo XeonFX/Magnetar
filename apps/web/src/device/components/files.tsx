@@ -210,7 +210,8 @@ export function FolderPanel({ path, roots, foldersOnly = false, onOpen, onHome, 
 
   const page = state?.status === 'ready' ? state.page : null
   const separator = page?.separator ?? separatorOf(path)
-  const root = page?.root ?? roots.find(r => isWithin(path, r.path, separator))?.path ?? path
+  // Before the page says, the outermost root holding the folder, as the device picks it.
+  const root = page?.root ?? roots.filter(r => isWithin(path, r.path, separator)).sort((a, b) => a.path.length - b.path.length)[0]?.path ?? path
   const up = parentOf(root, path, separator)
   const name = crumbs(root, path, separator).length === 1 ? rootLabel(roots.find(r => r.path === root) ?? { kind: 'added', path }, separator, t) : baseName(path, separator)
 
@@ -377,7 +378,7 @@ export function RootList({ roots, canAdd, onOpen, onChanged, compact = false }: 
                 </span>
               </span>
             </button>
-            {root.kind === 'added' && (
+            {root.kind === 'added' && canAdd && (
               <button type="button" className="btn btn-ghost btn-sm btn-square m-2" aria-label={t('files.remove', root.path)} title={t('files.remove', root.path)}
                 onClick={() => setRemoving(root)}>
                 <X size={16} aria-hidden />

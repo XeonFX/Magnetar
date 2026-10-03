@@ -105,7 +105,7 @@ export const RPC_PARAMS = {
   'fs.createFolder': z.strictObject({ parent: z.string().min(1), name: z.string().trim().min(1).max(255) }),
   /** Lets the dashboard browse one more folder. Only on the device itself, never through the relay. */
   'fs.addRoot': z.strictObject({ path: z.string().trim().min(1) }),
-  /** Stops browsing an added folder. */
+  /** Stops browsing an added folder. Only on the device itself, never through the relay. */
   'fs.removeRoot': z.strictObject({ path: z.string().min(1) }),
   /** Shows the OS folder chooser on the device's own screen. Only offered on the local dashboard. */
   'fs.pickNative': z.strictObject({ start: z.string().optional(), prompt: z.string().optional() }),

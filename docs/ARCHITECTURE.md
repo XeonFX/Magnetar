@@ -194,7 +194,7 @@ builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the ser
   two files at once, drops a file whose pieces arrive out of order or short, and lets them go when the connection
   closes.
 - **Files** (`system/folders.rs`): the dashboard browses only its roots, the download folder and the folders added
-  on the device itself (`fs.addRoot`, refused through the relay; `browse_folders` in the settings, outside
+  on the device itself (`fs.addRoot` and `fs.removeRoot`, refused through the relay; `browse_folders` in the settings, outside
   `SettingsPatch`). A requested path must be a root followed by plain names (no `..`, no name starting with a dot,
   no Windows verbatim, device or stream spellings); it is resolved to learn where links lead, refused when that is
   outside the root, and opened from a cap-std handle on the root, so a link swapped in meanwhile is refused while

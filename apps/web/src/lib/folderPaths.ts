@@ -64,6 +64,11 @@ export function isWithin(path: string, folder: string, separator: Separator): bo
  */
 export function appendPage(shown: FolderEntryDto[], next: FolderEntryDto[]): FolderEntryDto[] {
   const seen = new Set(shown.map(e => e.name))
-  const added = next.filter(e => !seen.has(e.name))
+  const added: FolderEntryDto[] = []
+  for (const entry of next) {
+    if (seen.has(entry.name)) continue
+    seen.add(entry.name)
+    added.push(entry)
+  }
   return added.length === 0 ? shown : [...shown, ...added]
 }

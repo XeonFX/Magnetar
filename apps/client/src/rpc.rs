@@ -28,10 +28,11 @@ use crate::system;
 use crate::system::folders;
 
 /// Methods that act on the device's own screen or programs, not offered through the relay.
-const LOCAL_ONLY_METHODS: [&str; 9] = [
+const LOCAL_ONLY_METHODS: [&str; 10] = [
     "fs.pickNative",
     // What a relayed browser may browse is decided on the device itself.
     "fs.addRoot",
+    "fs.removeRoot",
     "agent.clients",
     "agent.connect",
     "downloads.reveal",
@@ -616,9 +617,7 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
             ok(json!({ "path": folders::create_folder(&app.settings, parent, name).await? }))
         }
         "fs.addRoot" => ok(folders::add_root(app.settings.clone(), parse::<FolderPath>(params)?.path).await?),
-        "fs.removeRoot" => {
-            ok(folders::remove_root(app.settings.clone(), parse::<FolderPath>(params)?.path, session.local()).await?)
-        }
+        "fs.removeRoot" => ok(folders::remove_root(app.settings.clone(), parse::<FolderPath>(params)?.path).await?),
         "fs.pickNative" => {
             let PickNative { start, prompt } = parse(params)?;
             let prompt = prompt.unwrap_or_else(|| "Choose a folder".into());

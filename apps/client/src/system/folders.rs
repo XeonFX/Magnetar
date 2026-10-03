@@ -281,12 +281,22 @@ fn disk_error(error: &std::io::Error, at_root: bool) -> ApiError {
     }
 }
 
+/// Disk work of the file browser under way at once. A read stuck on a dead network share keeps its thread until the
+/// system gives up, whatever stops waiting for it: past this many, browsing answers at once rather than tie up more.
+static DISK_WORK: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(8);
+
 /// Runs disk work off the async workers, and stops waiting for it after a while.
 async fn on_disk<T: Send + 'static>(work: impl FnOnce() -> ApiResult<T> + Send + 'static) -> ApiResult<T> {
-    match tokio::time::timeout(DISK_TIMEOUT, tokio::task::spawn_blocking(work)).await {
+    let too_long = || ApiError::bad("The folder took too long to answer. Its disk may be asleep, busy or disconnected.");
+    let Ok(Ok(permit)) = tokio::time::timeout(DISK_TIMEOUT, DISK_WORK.acquire()).await else { return Err(too_long()) };
+    let work = tokio::task::spawn_blocking(move || {
+        let _held = permit;
+        work()
+    });
+    match tokio::time::timeout(DISK_TIMEOUT, work).await {
         Ok(Ok(result)) => result,
         Ok(Err(failed)) => Err(ApiError::internal_from("The folder could not be read.", failed)),
-        Err(_) => Err(ApiError::bad("The folder took too long to answer. Its disk may be asleep, busy or disconnected.")),
+        Err(_) => Err(too_long()),
     }
 }
 
@@ -434,28 +444,23 @@ fn make_folder(roots: &[Root], parent: &str, name: &str) -> ApiResult<String> {
     Ok(display(&root.path.join(relative).join(name)))
 }
 
-/// `fs.roots`: every root, whether it can be read now, and the free space on its disk.
+/// `fs.roots`: every root, whether it can be read now, and the free space on its disk. Each is looked at on its own,
+/// so a disk that doesn't answer shows as unavailable instead of keeping the others from being listed.
 pub async fn describe_roots(settings: &SettingsService, local: bool) -> ApiResult<FolderRootsDto> {
-    let roots = roots(&settings.get());
-    let roots = on_disk(move || {
-        Ok(roots
-            .into_iter()
-            .map(|root| {
-                if root.kind == FolderRootKind::Downloads {
-                    make_download_folder(&root.path);
-                }
-                let available = open(&root, Path::new("")).is_ok();
-                FolderRootDto {
-                    path: display(&root.path),
-                    kind: root.kind,
-                    available,
-                    free_bytes: if available { free_space(&root.path) } else { None },
-                }
-            })
-            .collect())
-    })
-    .await?;
-    Ok(FolderRootsDto { roots, can_add: local })
+    let looks = roots(&settings.get()).into_iter().map(|root| async move {
+        let probe = root.clone();
+        let (available, free_bytes) = on_disk(move || {
+            if probe.kind == FolderRootKind::Downloads {
+                make_download_folder(&probe.path);
+            }
+            let available = open(&probe, Path::new("")).is_ok();
+            Ok((available, if available { free_space(&probe.path) } else { None }))
+        })
+        .await
+        .unwrap_or((false, None));
+        FolderRootDto { path: display(&root.path), kind: root.kind, available, free_bytes }
+    });
+    Ok(FolderRootsDto { roots: futures::future::join_all(looks).await, can_add: local })
 }
 
 /// Makes the download folder when it isn't there yet (a new install's `~/Downloads/Magnetar`), as the first download
@@ -479,30 +484,33 @@ pub async fn add_root(settings: Arc<SettingsService>, path: String) -> ApiResult
         Err(error) => Err(disk_error(&error, true)),
     })
     .await?;
-    let current = settings.get();
-    if !roots(&current).iter().any(|root| root.path == folder) {
-        if current.browse_folders.len() >= MAX_ADDED {
-            return Err(ApiError::bad(format!("Files can show up to {MAX_ADDED} added folders. Remove one first.")));
-        }
-        let text = display(&folder);
-        settings
-            .update(|s| {
-                if !s.browse_folders.contains(&text) {
-                    s.browse_folders.push(text);
-                }
-            })
-            .map_err(crate::settings::saving_failed)?;
+    // Checked and added in one change, so two adding at once can't pass the limit together.
+    let mut full = false;
+    settings
+        .update(|s| {
+            if roots(s).iter().any(|root| root.path == folder) {
+                return;
+            }
+            if s.browse_folders.len() >= MAX_ADDED {
+                full = true;
+                return;
+            }
+            s.browse_folders.push(display(&folder));
+        })
+        .map_err(crate::settings::saving_failed)?;
+    if full {
+        return Err(ApiError::bad(format!("Files can show up to {MAX_ADDED} added folders. Remove one first.")));
     }
     describe_roots(&settings, true).await
 }
 
-/// `fs.removeRoot`: the dashboard no longer browses an added folder. Only narrows what it sees, so a relayed browser may.
-pub async fn remove_root(settings: Arc<SettingsService>, path: String, local: bool) -> ApiResult<FolderRootsDto> {
+/// `fs.removeRoot`, on the device itself only, like adding: the owner decides there what can be browsed.
+pub async fn remove_root(settings: Arc<SettingsService>, path: String) -> ApiResult<FolderRootsDto> {
     let folder = normalize(&path);
     settings
         .update(|s| s.browse_folders.retain(|added| *added != path && (folder.is_none() || normalize(added) != folder)))
         .map_err(crate::settings::saving_failed)?;
-    describe_roots(&settings, local).await
+    describe_roots(&settings, true).await
 }
 
 /// Shows the macOS folder chooser via `osascript`: the dashboard runs in a browser, but on the

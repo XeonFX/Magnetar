@@ -677,7 +677,9 @@ mod files {
         let made = relayed.ok("fs.createFolder", json!({ "parent": text(&media.join("Sub")), "name": "Season 1" })).await;
         assert_eq!(made["path"], text(&media.join("Sub").join("Season 1")));
         assert!(media.join("Sub").join("Season 1").is_dir());
-        assert_eq!(relayed.ok("fs.removeRoot", json!({ "path": text(&media) })).await["roots"].as_array().unwrap().len(), 1);
+        // Removing is the owner's too, on the computer.
+        assert!(relayed.call("fs.removeRoot", json!({ "path": text(&media) })).await.unwrap_err().starts_with("forbidden"));
+        assert_eq!(local.ok("fs.removeRoot", json!({ "path": text(&media) })).await["roots"].as_array().unwrap().len(), 1);
         assert!(relayed.call("fs.browse", json!({ "path": text(&media) })).await.unwrap_err().starts_with("forbidden"));
 
         // A root must be an existing folder, written in full.

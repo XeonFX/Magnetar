@@ -215,6 +215,12 @@ struct FilesOf {
     engaged: bool,
 }
 
+/// Where a torrent's files go below its save folder: its own folder (`Metadata::content_folder`) and their paths.
+struct Layout {
+    content_folder: Option<PathBuf>,
+    files: Vec<PathBuf>,
+}
+
 pub struct DownloadFile {
     pub name: String,
     pub size: u64,
@@ -236,6 +242,8 @@ pub struct DownloadManager {
     items: Mutex<BTreeMap<i64, Item>>,
     /// Parsed .torrent files, by info hash: the file list is read every few seconds while shown.
     metadata: Mutex<HashMap<String, Arc<Metadata>>>,
+    /// Each torrent's folder and files, by info hash, for the file browser.
+    layouts: Mutex<HashMap<String, Arc<Layout>>>,
     transfer: Mutex<TransferStatusDto>,
     changed: Notify,
     shutting_down: AtomicBool,
@@ -267,6 +275,7 @@ impl DownloadManager {
             torrent_session: paths.torrent_session.clone(),
             items: Mutex::default(),
             metadata: Mutex::default(),
+            layouts: Mutex::default(),
             transfer: Mutex::new(TransferStatusDto {
                 engine: state,
                 message: None,
@@ -817,25 +826,40 @@ impl DownloadManager {
             .filter(|(_, _, save_path)| folder.starts_with(save_path))
             .collect();
         for (id, hash, save_path) in candidates {
-            let Some(metadata) = self.metadata(&hash) else { continue };
+            let Some(layout) = self.layout(&hash) else { continue };
             let mut claim = |name: &OsStr, index: Option<usize>| {
                 if let Some(name) = name.to_str().filter(|name| names.contains(name)) {
                     found.entry(name.to_owned()).or_insert(EntryDownloadDto { id, index });
                 }
             };
             if folder == save_path
-                && let Some(Component::Normal(name)) = metadata.content_folder().and_then(|f| f.components().next())
+                && let Some(Component::Normal(name)) = layout.content_folder.as_deref().and_then(|f| f.components().next())
             {
                 claim(name, None);
             }
-            let Ok(inside) = folder.strip_prefix(metadata.output_folder(&save_path)) else { continue };
-            for (index, file) in metadata.files.iter().enumerate() {
+            let output = layout.content_folder.as_deref().map_or_else(|| save_path.clone(), |f| save_path.join(f));
+            let Ok(inside) = folder.strip_prefix(output) else { continue };
+            for (index, file) in layout.files.iter().enumerate() {
                 if let Some(name) = file.file_name().filter(|_| file.parent() == Some(inside)) {
                     claim(name, Some(index));
                 }
             }
         }
         found
+    }
+
+    /// A torrent's folder and files, kept for every torrent once read: browsing a folder of many downloads then reads
+    /// no .torrent file again, where the metadata cache keeps only a few whole torrents.
+    fn layout(&self, hash: &str) -> Option<Arc<Layout>> {
+        let key = hash.to_lowercase();
+        if let Some(found) = self.layouts.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+            return Some(found.clone());
+        }
+        let metadata = self.metadata(hash)?;
+        let layout =
+            Arc::new(Layout { content_folder: metadata.content_folder().map(Path::to_path_buf), files: metadata.files.clone() });
+        self.layouts.lock().unwrap_or_else(|e| e.into_inner()).insert(key, layout.clone());
+        Some(layout)
     }
 
     /// How much of each file is really there, and whether that is settled. The engine sets every

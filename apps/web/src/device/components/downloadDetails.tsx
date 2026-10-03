@@ -22,12 +22,12 @@ export function DownloadDetailsDialog({ id, onClose }: { id: number | null; onCl
   const download = useDownloads().find(d => d.id === id) ?? null
   return (
     <Modal open={download !== null} title={t('details.title')} icon={<Info size={20} />} onClose={onClose} wide>
-      {download && <Details download={download} />}
+      {download && <Details download={download} onClose={onClose} />}
     </Modal>
   )
 }
 
-function Details({ download: d }: { download: DownloadDto }) {
+function Details({ download: d, onClose }: { download: DownloadDto; onClose: () => void }) {
   const t = useT()
   const formatDate = useFormatDate()
   const run = useRun()
@@ -59,7 +59,7 @@ function Details({ download: d }: { download: DownloadDto }) {
       <div className="mb-5 flex flex-wrap items-center gap-2">
         <span className="muted min-w-0 flex-1 break-all font-mono text-xs">{d.savePath}</span>
         {browsable && (
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => navigate(`${basePath}/files`, { state: { path: d.savePath } satisfies FilesLocation })}>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => { onClose(); navigate(`${basePath}/files`, { state: { path: d.savePath } satisfies FilesLocation }) }}>
             <FolderSearch size={14} />{t('files.showInFiles')}
           </button>
         )}
