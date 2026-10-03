@@ -129,7 +129,7 @@ impl SettingsService {
             .execute("INSERT INTO settings (id, json) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET json = excluded.json", [json]);
         *self.cached.lock().unwrap_or_else(|e| e.into_inner()) = Some(next.clone());
         if let Err(error) = saved {
-            tracing::error!("Could not save settings: {error}");
+            crate::log_failure!(&error, "Could not save settings: {error}");
         }
         self.events.emit("settings.changed", self.to_dto());
         next

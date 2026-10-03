@@ -557,7 +557,7 @@ impl UpdateService {
                 std::process::exit(0);
             }
             Err(error) => {
-                tracing::error!("Update install failed: {error:#}");
+                crate::log_failure!(error.as_ref(), "Update install failed: {error:#}");
                 {
                     let mut state = self.state();
                     state.last_check_error = Some(format!("Update failed: {error:#}"));

@@ -1170,14 +1170,14 @@ impl DownloadManager {
             tx.commit()
         });
         if let Err(error) = saved {
-            tracing::error!("Could not save downloads: {error}");
+            crate::log_failure!(&error, "Could not save downloads: {error}");
         }
     }
 
     fn persist(&self, item: &Item) {
         let saved = write_item(&self.db.lock(), item);
         if let Err(error) = saved {
-            tracing::error!("Could not save download {}: {error}", item.id);
+            crate::log_failure!(&error, "Could not save download {}: {error}", item.id);
         }
     }
 }
