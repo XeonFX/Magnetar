@@ -1,5 +1,6 @@
-use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::ffi::OsStr;
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::Duration;
@@ -17,10 +18,12 @@ use crate::notifications::NotificationDispatcher;
 use crate::paths::Paths;
 use crate::protocol::encoding::now_iso;
 use crate::protocol::{
-    DownloadDto, DownloadFileDto, DownloadStatus, EngineState, FileSelectionDto, PostDownloadAction, TransferStatusDto,
+    DownloadDto, DownloadFileDto, DownloadStatus, EngineState, EntryDownloadDto, FileSelectionDto, PostDownloadAction,
+    TransferStatusDto,
 };
 use crate::search::magnet::{build_magnet, extract_info_hash, magnet_name, normalize_info_hash};
 use crate::settings::{AppSettings, SettingsService};
+use crate::system::folders::normalize;
 
 /// A dead torrent otherwise sits on "Fetching metadata" forever with no feedback.
 pub const METADATA_TIMEOUT: Duration = Duration::from_secs(3 * 60);
@@ -797,6 +800,42 @@ impl DownloadManager {
             Some(metadata) => metadata.output_folder(&save_path),
             None => save_path,
         })
+    }
+
+    /// Which of `names`, entries of `folder`, are a download's own folder or one of its files: for the file browser.
+    /// Paths compare by their words (`system::folders::normalize`), so a download saved through another spelling of
+    /// the folder (a link to it) isn't recognised there. Downloads whose details haven't arrived have no files yet.
+    pub fn in_folder(&self, folder: &Path, names: &HashSet<&str>) -> HashMap<String, EntryDownloadDto> {
+        let mut found = HashMap::new();
+        if names.is_empty() {
+            return found;
+        }
+        let candidates: Vec<(i64, String, PathBuf)> = self
+            .items()
+            .values()
+            .filter_map(|item| Some((item.id, item.info_hash.clone(), normalize(&item.save_path)?)))
+            .filter(|(_, _, save_path)| folder.starts_with(save_path))
+            .collect();
+        for (id, hash, save_path) in candidates {
+            let Some(metadata) = self.metadata(&hash) else { continue };
+            let mut claim = |name: &OsStr, index: Option<usize>| {
+                if let Some(name) = name.to_str().filter(|name| names.contains(name)) {
+                    found.entry(name.to_owned()).or_insert(EntryDownloadDto { id, index });
+                }
+            };
+            if folder == save_path
+                && let Some(Component::Normal(name)) = metadata.content_folder().and_then(|f| f.components().next())
+            {
+                claim(name, None);
+            }
+            let Ok(inside) = folder.strip_prefix(metadata.output_folder(&save_path)) else { continue };
+            for (index, file) in metadata.files.iter().enumerate() {
+                if let Some(name) = file.file_name().filter(|_| file.parent() == Some(inside)) {
+                    claim(name, Some(index));
+                }
+            }
+        }
+        found
     }
 
     /// How much of each file is really there, and whether that is settled. The engine sets every

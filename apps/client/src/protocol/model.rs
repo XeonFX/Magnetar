@@ -399,13 +399,78 @@ pub struct SettingsDto {
     pub error_reports_enabled: bool,
 }
 
+/// Why the dashboard may browse a folder: it is the download folder, or the owner added it on the device itself.
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum FolderRootKind {
+    Downloads,
+    Added,
+}
+
+/// A folder the dashboard may browse, with everything below it.
 #[derive(Serialize, Clone, Debug)]
-pub struct FolderListing {
+#[serde(rename_all = "camelCase")]
+pub struct FolderRootDto {
     pub path: String,
-    pub parent: Option<String>,
-    pub folders: Vec<String>,
-    pub exists: bool,
-    pub error: Option<String>,
+    pub kind: FolderRootKind,
+    /// False while it can't be read: a disk that isn't connected, a folder that was removed or isn't made yet.
+    pub available: bool,
+    pub free_bytes: Option<u64>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderRootsDto {
+    pub roots: Vec<FolderRootDto>,
+    /// Whether this dashboard may add folders: only the one on the device itself.
+    pub can_add: bool,
+}
+
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum FolderEntryKind {
+    Folder,
+    File,
+}
+
+/// The download an entry belongs to: its folder (no `index`), or one of its files.
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct EntryDownloadDto {
+    pub id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index: Option<usize>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderEntryDto {
+    pub name: String,
+    pub kind: FolderEntryKind,
+    /// Bytes, for files.
+    pub size: Option<u64>,
+    /// Last change, milliseconds since 1970.
+    pub modified: Option<i64>,
+    /// "video" or "audio", for files a browser can play.
+    pub media: Option<&'static str>,
+    pub download: Option<EntryDownloadDto>,
+}
+
+/// One page of a folder's entries: folders first, then files, each by name as people sort them ("2" before "10").
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderPageDto {
+    pub path: String,
+    /// The root the folder is in; the breadcrumb starts there.
+    pub root: String,
+    /// What joins a folder and a name on the device: `/`, or `\` on Windows.
+    pub separator: &'static str,
+    pub entries: Vec<FolderEntryDto>,
+    pub offset: usize,
+    /// Entries in the folder, on every page.
+    pub total: usize,
+    /// The folder holds more entries than are read from one folder: only the first of them are shown.
+    pub truncated: bool,
 }
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -559,6 +624,8 @@ pub struct AppInfoDto {
     pub arch: &'static str,
     pub data_directory: String,
     pub native_folder_picker: bool,
+    /// Answers `fs.roots`, `fs.browse` and `fs.createFolder` (absent from older apps).
+    pub file_browser: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]

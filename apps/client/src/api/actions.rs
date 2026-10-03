@@ -4,13 +4,14 @@ use serde::Serialize;
 use tokio_util::sync::CancellationToken;
 
 use super::rate_limiter::RateLimiter;
-use super::save_folder::resolve_agent_folder;
+use super::save_folder::{resolve_agent_folder, resolve_remote_folder};
 use crate::downloads::{AddDownload, DownloadManager};
 use crate::error::{ApiError, ApiResult, ErrorCode};
 use crate::protocol::{
-    DOWNLOAD_STATUSES, DownloadDto, DownloadStatus, SearchResponse, SeriesTaskDto, SeriesTaskInput, SeriesTaskPatch, SourceDto,
-    StartDownloadInput, StartFrom, TorrentDetailsDto,
+    DOWNLOAD_STATUSES, DownloadDto, DownloadStatus, SearchResponse, SeriesTaskDto, SeriesTaskInput, SeriesTaskPatch, SettingsDto,
+    SettingsPatch, SourceDto, StartDownloadInput, StartFrom, TorrentDetailsDto,
 };
+use crate::system::folders;
 use crate::search::SearchService;
 use crate::search::cache::{SearchResultCache, to_result_dto};
 use crate::search::types::SharedResult;
@@ -22,11 +23,13 @@ const DEFAULT_SEARCH_LIMIT: usize = 25;
 const MAX_SEARCH_LIMIT: usize = 200;
 
 /// Who is asking. Agents (REST/MCP) are rate limited and confined to the download folder because
-/// they choose arguments after reading untrusted text; the dashboard is a person.
+/// they choose arguments after reading untrusted text; the dashboard is a person. Through the relay it
+/// is a person too, running the website's code: the folders it chooses stay inside the ones it may browse.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Caller {
     Agent,
     User,
+    Remote,
 }
 
 #[derive(Serialize)]
@@ -95,12 +98,24 @@ impl Actions {
         if self.caller == Caller::Agent { self.limiter.ensure_allowed(operation) } else { Ok(()) }
     }
 
-    /// Agents only: confines a chosen folder to the download folder.
+    /// Confines a chosen folder: an agent's to the download folder, a relayed browser's to the folders it may browse.
     fn folder(&self, requested: Option<&str>) -> ApiResult<Option<String>> {
+        let settings = self.settings.get();
         match self.caller {
-            Caller::Agent => resolve_agent_folder(requested, &self.settings.get().download_folder),
+            Caller::Agent => resolve_agent_folder(requested, &settings.download_folder),
+            Caller::Remote => resolve_remote_folder(requested, &folders::root_texts(&settings)),
             Caller::User => Ok(requested.map(str::trim).filter(|f| !f.is_empty()).map(str::to_owned)),
         }
+    }
+
+    /// Applies the dashboard's settings change; a relayed browser's download folder is confined like any folder it chooses.
+    pub fn update_settings(&self, mut patch: SettingsPatch) -> ApiResult<SettingsDto> {
+        if self.caller != Caller::User
+            && let Some(folder) = patch.download_folder.take()
+        {
+            patch.download_folder = self.folder(Some(&folder))?;
+        }
+        self.settings.apply_patch(patch)
     }
 
     pub fn sources(&self) -> Vec<SourceDto> {

@@ -9,15 +9,36 @@ use crate::error::{ApiError, ApiResult};
 /// attacker-named files anywhere the user can write (a LaunchAgents folder, a shell rc directory).
 /// People choosing a folder in the dashboard are not restricted.
 pub fn resolve_agent_folder(requested: Option<&str>, download_root: &str) -> ApiResult<Option<String>> {
-    let Some(requested) = requested.map(str::trim).filter(|r| !r.is_empty()) else { return Ok(None) };
-    let (candidate, root) = match (canonicalize(Path::new(requested), 0), canonicalize(Path::new(download_root), 0)) {
-        (Ok(candidate), Ok(root)) => (candidate, root),
-        _ => return Err(ApiError::bad(format!("'{requested}' is not a usable folder path."))),
-    };
-    if !candidate.starts_with(&root) {
-        return Err(ApiError::bad(format!(
+    confine_folder(requested, &[download_root], |requested| {
+        format!(
             "Downloads can only be saved inside the configured download folder ('{download_root}'). '{requested}' is outside it. Use an absolute path inside that folder, or change the download folder in Settings."
-        )));
+        )
+    })
+}
+
+/// Confines a folder chosen through the relay to the folders the dashboard may browse (`system::folders::roots`).
+///
+/// A browser through the relay runs the website's code, which the device can't vouch for (docs/ARCHITECTURE.md): it
+/// may save downloads and move the download folder only inside what it can already see, so that choosing a folder
+/// never widens what it can browse. The dashboard on the device itself chooses freely.
+pub fn resolve_remote_folder(requested: Option<&str>, roots: &[&str]) -> ApiResult<Option<String>> {
+    confine_folder(requested, roots, |requested| {
+        format!(
+            "From another device, folders can only be chosen inside the download folder or a folder added to Files on the computer running Magnetar. '{requested}' is outside them. Add it there first, or choose a folder inside one of them."
+        )
+    })
+}
+
+/// `requested`, every link along it resolved, when that is inside one of `roots` (resolved the same way); else the
+/// error `outside` words. A root that can't be resolved confines nothing.
+fn confine_folder(requested: Option<&str>, roots: &[&str], outside: impl FnOnce(&str) -> String) -> ApiResult<Option<String>> {
+    let Some(requested) = requested.map(str::trim).filter(|r| !r.is_empty()) else { return Ok(None) };
+    let Ok(candidate) = canonicalize(Path::new(requested), 0) else {
+        return Err(ApiError::bad(format!("'{requested}' is not a usable folder path.")));
+    };
+    let inside = roots.iter().filter_map(|root| canonicalize(Path::new(root), 0).ok()).any(|root| candidate.starts_with(root));
+    if !inside {
+        return Err(ApiError::bad(outside(requested)));
     }
     Ok(Some(candidate.to_string_lossy().into_owned()))
 }

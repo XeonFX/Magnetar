@@ -11,3 +11,6 @@ export const MAX_TORRENT_FILE = 4 * 1024 * 1024
  * base64 in JSON in a sealed frame stays well under the relay's 1 MiB (`MAX_RELAY_FRAME`).
  */
 export const TORRENT_UPLOAD_CHUNK = 512 * 1024
+
+/** Entries one `fs.browse` page holds at most (`system::folders::MAX_PAGE` on the device). */
+export const FOLDER_PAGE_MAX = 200

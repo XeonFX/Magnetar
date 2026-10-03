@@ -25,10 +25,13 @@ use crate::protocol::{
 };
 use crate::search::cache::to_result_dto;
 use crate::system;
+use crate::system::folders;
 
 /// Methods that act on the device's own screen or programs, not offered through the relay.
-const LOCAL_ONLY_METHODS: [&str; 8] = [
+const LOCAL_ONLY_METHODS: [&str; 9] = [
     "fs.pickNative",
+    // What a relayed browser may browse is decided on the device itself.
+    "fs.addRoot",
     "agent.clients",
     "agent.connect",
     "downloads.reveal",
@@ -285,6 +288,30 @@ struct PathParams {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct FolderPath {
+    path: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct Browse {
+    path: String,
+    #[serde(default)]
+    offset: usize,
+    limit: Option<usize>,
+    #[serde(default)]
+    folders_only: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CreateFolder {
+    parent: String,
+    name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct PickNative {
     start: Option<String>,
     prompt: Option<String>,
@@ -347,7 +374,7 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
     if !session.local() && LOCAL_ONLY_METHODS.contains(&method) {
         return Err(ApiError::new(ErrorCode::Forbidden, format!("{method} is only available on the device itself")));
     }
-    let a = &app.actions;
+    let a = if session.local() { &app.actions } else { &app.remote_actions };
     match method {
         "app.info" => {
             parse::<NoParams>(params)?;
@@ -358,6 +385,7 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
                 arch: ARCH,
                 data_directory: app.paths.data_dir.to_string_lossy().into_owned(),
                 native_folder_picker: session.local() && cfg!(target_os = "macos"),
+                file_browser: true,
             })
         }
         "sources.list" => {
@@ -546,7 +574,7 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
             parse::<NoParams>(params)?;
             ok(app.settings.to_dto())
         }
-        "settings.update" => ok(app.settings.apply_patch(parse::<SettingsPatch>(params)?.validated()?)?),
+        "settings.update" => ok(a.update_settings(parse::<SettingsPatch>(params)?.validated()?)?),
         "notifications.test" => {
             parse::<NoParams>(params)?;
             let event = NotificationEvent {
@@ -575,16 +603,24 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
             ok(Value::Null)
         }
 
-        "fs.list" => ok(system::folders::list_folder(parse::<PathParams>(params)?.path.as_deref())),
-        "fs.mkdir" => {
-            let path = parse::<PathParams>(params)?.path.filter(|p| !p.is_empty());
-            let path = path.ok_or_else(|| ApiError::bad("path: must not be empty"))?;
-            ok(system::folders::make_folder(&path)?)
+        "fs.roots" => {
+            parse::<NoParams>(params)?;
+            ok(folders::describe_roots(&app.settings, session.local()).await?)
         }
+        "fs.browse" => {
+            let Browse { path, offset, limit, folders_only } = parse(params)?;
+            ok(folders::browse(&app.settings, app.downloads.clone(), path, offset, limit, folders_only).await?)
+        }
+        "fs.createFolder" => {
+            let CreateFolder { parent, name } = parse(params)?;
+            ok(json!({ "path": folders::create_folder(&app.settings, parent, name).await? }))
+        }
+        "fs.addRoot" => ok(folders::add_root(app.settings.clone(), parse::<FolderPath>(params)?.path).await?),
+        "fs.removeRoot" => ok(folders::remove_root(app.settings.clone(), parse::<FolderPath>(params)?.path, session.local()).await?),
         "fs.pickNative" => {
             let PickNative { start, prompt } = parse(params)?;
             let prompt = prompt.unwrap_or_else(|| "Choose a folder".into());
-            ok(json!({ "path": system::folders::pick_folder_natively(start.as_deref(), &prompt).await }))
+            ok(json!({ "path": folders::pick_folder_natively(start.as_deref(), &prompt).await }))
         }
 
         "updates.status" => {

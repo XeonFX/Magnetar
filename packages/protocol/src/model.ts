@@ -352,12 +352,50 @@ export const StartDownloadInput = z.strictObject({
 })
 export type StartDownloadInput = z.infer<typeof StartDownloadInput>
 
-export interface FolderListing {
+/**
+ * A folder the dashboard may browse, with everything below it: the download folder, or one the owner added on the
+ * device itself (never through the relay).
+ */
+export interface FolderRootDto {
   path: string
-  parent: string | null
-  folders: string[]
-  exists: boolean
-  error: string | null
+  kind: 'downloads' | 'added'
+  /** False while it can't be read: a disk that isn't connected, a folder that was removed or isn't made yet. */
+  available: boolean
+  freeBytes: number | null
+}
+
+export interface FolderRootsDto {
+  roots: FolderRootDto[]
+  /** Whether this dashboard may add folders: only the one on the device itself. */
+  canAdd: boolean
+}
+
+export interface FolderEntryDto {
+  name: string
+  kind: 'folder' | 'file'
+  /** Bytes, for files. */
+  size: number | null
+  /** Last change, milliseconds since 1970. */
+  modified: number | null
+  /** Files a browser can play. */
+  media: 'video' | 'audio' | null
+  /** The download it belongs to: its folder (no `index`), or one of its files. */
+  download: { id: number; index?: number } | null
+}
+
+/** One page of a folder: folders first, then files, each by name as people sort them ("2" before "10"). */
+export interface FolderPageDto {
+  path: string
+  /** The root the folder is in; the breadcrumb starts there. */
+  root: string
+  /** What joins a folder and a name on the device. */
+  separator: '/' | '\\'
+  entries: FolderEntryDto[]
+  offset: number
+  /** Entries in the folder, on every page. */
+  total: number
+  /** The folder holds more entries than the device reads from one folder: only the first of them are shown. */
+  truncated: boolean
 }
 
 /** `unavailable` outside the installed app. */
@@ -474,4 +512,6 @@ export interface AppInfoDto {
   arch: string
   dataDirectory: string
   nativeFolderPicker: boolean
+  /** Answers `fs.roots`, `fs.browse` and `fs.createFolder` (absent from older apps). */
+  fileBrowser?: boolean
 }

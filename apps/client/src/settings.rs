@@ -15,6 +15,9 @@ use crate::protocol::{AltSpeedMode, PostDownloadAction, SettingsDto, SettingsPat
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
     pub download_folder: String,
+    /// Folders the dashboard may browse besides the download folder (`system::folders`). Only the dashboard on this
+    /// computer adds them, never one through the relay; they are not part of `SettingsPatch`.
+    pub browse_folders: Vec<String>,
     pub post_download_action: PostDownloadAction,
     pub seed_ratio: f64,
     /// Bytes per second; 0 is no limit.
@@ -60,6 +63,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             download_folder: default_download_folder().to_string_lossy().into_owned(),
+            browse_folders: Vec::new(),
             post_download_action: PostDownloadAction::StopSeeding,
             seed_ratio: 1.0,
             download_limit: 0,
