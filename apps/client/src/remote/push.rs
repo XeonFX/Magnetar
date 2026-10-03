@@ -167,14 +167,17 @@ mod tests {
         let long = |last: char| format!("{}{last}", "Série.Ünïcode.".repeat(150));
         let (a, b) = (long('a'), long('b'));
         let tag = |body: &str| {
-            serde_json::to_value(PushPayload { title: "Download complete", body, kind: "completed", url: "/office".into() }).unwrap()["tag"]
+            serde_json::to_value(PushPayload { title: "Download complete", body, kind: "completed", url: "/office".into() })
+                .unwrap()["tag"]
                 .as_str()
                 .unwrap()
                 .to_owned()
         };
         assert!(tag(&a).len() <= 200);
         assert_ne!(tag(&a), tag(&b));
-        let payload = serde_json::to_vec(&PushPayload { title: "Download complete", body: &a, kind: "completed", url: "/office".into() }).unwrap();
+        let payload =
+            serde_json::to_vec(&PushPayload { title: "Download complete", body: &a, kind: "completed", url: "/office".into() })
+                .unwrap();
         assert!(payload.len() < a.len() + 300, "the name is sent once");
     }
 }
