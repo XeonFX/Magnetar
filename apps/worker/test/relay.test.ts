@@ -1,9 +1,10 @@
-import { runDurableObjectAlarm } from 'cloudflare:test'
+import { runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test'
 import { env } from 'cloudflare:workers'
 import { CONNECTION_ID_BYTES, MAX_SEALED_FRAME, RELAY_CLOSE, RELAY_PING, RELAY_PONG, unwrapFromDevice, wrapForDevice } from '@magnetar/protocol/relay'
 import { describe, expect, test } from 'vitest'
 import { call, connectBrowser, connectDevice, deviceAuth, eventually, listDevices, openSocket, pairDevice, settle, signIn, type Device, type Socket, type User } from './client.ts'
 import { SESSION_COOKIE } from '../src/auth.ts'
+import type { DeviceRelay } from '../src/relay.ts'
 import { sha256 } from '@codefusion-cc/workers-http'
 
 const deviceRow = (id: string) =>
@@ -309,5 +310,103 @@ describe('the relay and the account session that opened a dashboard', () => {
     const { page } = await openDashboard(user, device, app)
     expect((await call(`/api/devices/${device.deviceId}`, { method: 'DELETE', headers: user.headers })).status).toBe(200)
     expect(await page.closed).toMatchObject({ code: RELAY_CLOSE.notOnAccount })
+  })
+})
+
+/** The relay's own sockets, as `handle` sees them, with the relay object to call. */
+const insideRelay = <T>(device: Device, handle: (relay: DeviceRelay, sockets: { device: WebSocket[]; browser: WebSocket[] }) => Promise<T>) =>
+  runInDurableObject(env.RELAY.getByName(device.deviceId), (relay: DeviceRelay, state) =>
+    handle(relay, { device: state.getWebSockets('device'), browser: state.getWebSockets('browser') }))
+
+const frameFrom = (connectionId: string, ...values: number[]) => wrapForDevice(connectionId, bytes(...values)).buffer
+
+describe('the relay and sockets that are closing', () => {
+  test('dashboard frames reach the new app connection while the replaced one is still closing', async () => {
+    const user = await signIn()
+    const device = await pairDevice(user)
+    // An old connection that never answers the close, as one whose network dropped: opened, never accepted.
+    expect((await connectDevice(device)).status).toBe(101)
+    const page = await openSocket(connectBrowser(user, device.deviceId))
+    expect(await page.nextJson()).toEqual({ t: 'device', online: true })
+
+    const newer = await openSocket(connectDevice(device))
+    const open = await newer.nextJson<{ t: string; c: string }>()
+    expect(open.t).toBe('open')
+    expect(await page.nextJson()).toEqual({ t: 'device', online: true })
+
+    page.ws.send(bytes(4, 2))
+    const frame = unwrapFromDevice(await newer.next() as Uint8Array)
+    expect(frame.connectionId).toBe(open.c)
+    expect([...frame.payload]).toEqual([4, 2])
+    // And the other way.
+    newer.ws.send(wrapForDevice(open.c, bytes(7)))
+    expect([...(await page.next() as Uint8Array)]).toEqual([7])
+    expect((await deviceRow(device.deviceId))!.online).toBe(1)
+
+    // The app quitting takes the device offline, though the replaced connection is still listed.
+    newer.ws.close(1000, 'Quit')
+    expect(await page.nextJson()).toEqual({ t: 'device', online: false })
+    await eventually(async () => expect((await deviceRow(device.deviceId))!.online).toBe(0))
+  })
+
+  test('a frame for a dashboard the relay is closing is dropped without an error', async () => {
+    const { user, device, app } = await onlineDevice()
+    const { page, connectionId } = await openDashboard(user, device, app)
+    await insideRelay(device, async (relay, sockets) => {
+      sockets.browser[0]!.close(RELAY_CLOSE.closedByDevice, 'Closed by the device')
+      expect(sockets.browser[0]!.readyState).toBe(WebSocket.CLOSING)
+      await expect(relay.webSocketMessage(sockets.device[0]!, frameFrom(connectionId, 9))).resolves.toBeUndefined()
+    })
+    expect((await page.closed).code).toBe(RELAY_CLOSE.closedByDevice)
+    expect(page.pending()).toEqual([])
+  })
+
+  test('a dashboard frame while the app connection is closing is dropped without an error', async () => {
+    const { user, device, app } = await onlineDevice()
+    const { page } = await openDashboard(user, device, app)
+    await insideRelay(device, async (relay, sockets) => {
+      sockets.device[0]!.close(1000, 'Quit')
+      await expect(relay.webSocketMessage(sockets.browser[0]!, bytes(5).buffer)).resolves.toBeUndefined()
+    })
+    expect((await app.closed).code).toBe(1000)
+    expect(app.pending()).toEqual([])
+    expect(await page.nextJson()).toEqual({ t: 'device', online: false })
+  })
+
+  test('a dashboard whose socket refuses a frame though it reads as open is closed, and the app told once', async () => {
+    const { user, device, app } = await onlineDevice()
+    const lost = await openDashboard(user, device, app)
+    const live = await openDashboard(user, device, app)
+    await insideRelay(device, async (relay, sockets) => {
+      // The runtime refusing the send, as it does for a socket that closed between the lookup and the send.
+      const refusing = sockets.browser.find(ws => (ws.deserializeAttachment() as { connectionId: string }).connectionId === lost.connectionId)!
+      refusing.send = () => {
+        throw new TypeError("Can't call WebSocket send() after close().")
+      }
+      await expect(relay.webSocketMessage(sockets.device[0]!, frameFrom(lost.connectionId, 1))).resolves.toBeUndefined()
+    })
+    expect(await lost.page.closed).toMatchObject({ code: 1011 })
+    expect(await app.nextJson()).toEqual({ t: 'close', c: lost.connectionId })
+    await settle()
+    expect(app.pending()).toEqual([])
+    // The other dashboard is untouched.
+    app.ws.send(wrapForDevice(live.connectionId, bytes(3)))
+    expect([...(await live.page.next() as Uint8Array)]).toEqual([3])
+  })
+
+  test('an app socket that refuses a frame though it reads as open is closed, and its dashboards told it is offline', async () => {
+    const { user, device, app } = await onlineDevice()
+    const { page } = await openDashboard(user, device, app)
+    await insideRelay(device, async (relay, sockets) => {
+      sockets.device[0]!.send = () => {
+        throw new TypeError("Can't call WebSocket send() after close().")
+      }
+      await expect(relay.webSocketMessage(sockets.browser[0]!, bytes(6).buffer)).resolves.toBeUndefined()
+    })
+    expect(await app.closed).toMatchObject({ code: 1011 })
+    expect(await page.nextJson()).toEqual({ t: 'device', online: false })
+    await eventually(async () => expect((await deviceRow(device.deviceId))!.online).toBe(0))
+    await settle()
+    expect(page.pending()).toEqual([])
   })
 })
