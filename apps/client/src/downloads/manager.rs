@@ -13,7 +13,7 @@ use super::engine::{
     Engine, Metadata, NetworkOptions, SpeedLimits, TorrentHandle, bytes_in_pieces, check_torrent_file, delete_files,
     drop_unsafe_session_torrents,
 };
-use super::transfer::{current_limits, free_space, interface_index, wanted_interface};
+use super::transfer::{current_limits, disk_full_notice, free_space, interface_index, wanted_interface};
 use crate::db::{Db, KeyValue};
 use crate::error::{ApiError, ApiResult};
 use crate::events::EventBus;
@@ -276,6 +276,7 @@ impl DownloadManager {
                 download_limit: 0,
                 upload_limit: 0,
                 free_bytes: None,
+                disk_full: None,
             }),
             changed: Notify::new(),
             shutting_down: AtomicBool::new(false),
@@ -422,6 +423,8 @@ impl DownloadManager {
     async fn supervise_engine(self: Arc<Self>, paths: Paths) {
         const CHECK: Duration = Duration::from_secs(5);
         const RETRY: Duration = Duration::from_secs(30);
+        // An error naming a full disk shows the notice this long (errors recur while it is full), or until room is made.
+        const DISK_FULL_FOR: Duration = Duration::from_secs(10 * 60);
         let mut settings_changed = self.events.subscribe();
         // The options and interface index the current engine was started with.
         let mut running: Option<(NetworkOptions, Option<u32>)> = None;
@@ -479,6 +482,11 @@ impl DownloadManager {
                 applied = Some(limits);
             }
             let free = free_space(Path::new(&settings.download_folder));
+            let disk_full = disk_full_notice(
+                crate::log::disk_full_within(DISK_FULL_FOR),
+                &[Path::new(&settings.download_folder), &paths.data_dir],
+                free_space,
+            );
             self.set_transfer(|t| {
                 t.network_interface = network.interface.clone();
                 t.alt_speed_active = alt;
@@ -486,6 +494,7 @@ impl DownloadManager {
                 t.upload_limit = limits.upload;
                 // Coarse, so a running download doesn't re-send this every few seconds.
                 t.free_bytes = free.map(|f| f / (64 << 20) * (64 << 20));
+                t.disk_full = disk_full;
             });
             // Every event goes past, a download's progress each second among them; only a settings
             // change (or a missed one) is worth looking again before the next check.

@@ -5,6 +5,7 @@ Monorepo: `packages/protocol` (TypeScript: the RPC contract and E2E crypto for t
 Worker), `apps/worker` (Cloudflare Worker). npm workspaces on Node 24 for the TypeScript, a Cargo workspace at the
 root for Rust.
 See docs/ARCHITECTURE.md before touching the relay, pairing or either `e2e` implementation.
+Read docs/MAP.md before exploring; update it when you move or add something it names.
 
 - Checks: `npm run check` (oxlint, clippy with `-D warnings`, `cargo fmt --check`, tsc for every package, Vitest,
   cargo test). Vitest runs the `packages/*` and `apps/web` tests in Node, and `apps/worker/test` in workerd with a local
