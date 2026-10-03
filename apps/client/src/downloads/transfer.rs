@@ -6,7 +6,7 @@ use std::path::Path;
 use chrono::{Datelike, Timelike};
 
 use super::engine::SpeedLimits;
-use crate::protocol::{AltSpeedMode, NetworkInterfaceDto};
+use crate::protocol::{AltSpeedMode, DiskFullDto, NetworkInterfaceDto};
 use crate::settings::AppSettings;
 
 /// Whether the alternative limits apply at this local weekday (0 = Monday) and minute of the day.
@@ -135,6 +135,49 @@ pub fn free_space(path: &Path) -> Option<u64> {
     }
 }
 
+/// Below this much free space a disk an error named full still counts as full.
+const ROOM_MADE: u64 = 1 << 30;
+
+/// The dashboard's notice for a full disk. `reported` is that an error named one lately (`log::disk_full_within`),
+/// which Magnetar logs as a warning and no longer reports as a failure. The error does not say which disk, so the
+/// one of `folders` (where downloads go, the app's own data) with the least room is the one; the notice goes once it
+/// has a gigabyte free.
+pub fn disk_full_notice(reported: bool, folders: &[&Path], free: impl Fn(&Path) -> Option<u64>) -> Option<DiskFullDto> {
+    if !reported {
+        return None;
+    }
+    let fullest = folders.iter().filter_map(|folder| Some((*folder, free(folder)?))).min_by_key(|(_, free)| *free);
+    match fullest {
+        Some((_, free)) if free >= ROOM_MADE => None,
+        Some((folder, _)) => Some(DiskFullDto { drive: drive_label(folder) }),
+        None => Some(DiskFullDto { drive: None }),
+    }
+}
+
+/// What a person calls the disk holding `path`: a Windows drive ("C:"), or a mounted volume ("/Volumes/Media",
+/// "/media/me/Media", "/mnt/data"); None for the system disk of a Unix, which has no name to free space on.
+fn drive_label(path: &Path) -> Option<String> {
+    use std::path::Component;
+    let mut parts = path.components();
+    if let Some(Component::Prefix(prefix)) = parts.next() {
+        return Some(prefix.as_os_str().to_string_lossy().into_owned());
+    }
+    let names: Vec<_> = path
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(name) => Some(name.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect();
+    let depth = match names.first().map(String::as_str) {
+        Some("Volumes" | "mnt") => 2,
+        Some("media") => 3,
+        Some("run") if names.get(1).map(String::as_str) == Some("media") => 4,
+        _ => return None,
+    };
+    (path.has_root() && names.len() >= depth).then(|| format!("/{}", names[..depth].join("/")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,6 +238,55 @@ mod tests {
         let free = free_space(&dir.path().join("not/yet/created")).expect("free space");
         assert!(free > 0);
         assert_eq!(interface_index("definitely-not-an-interface0"), None);
+    }
+
+    #[test]
+    fn a_full_disk_is_named_by_the_drive_or_volume_holding_the_fullest_folder() {
+        let free = |path: &Path| match path.to_str().unwrap() {
+            "/Volumes/Media/Torrents" => Some(10 << 20),
+            "/Users/me/Library/Application Support/Magnetar" => Some(300 << 30),
+            "/unreadable" => None,
+            _ => Some(0),
+        };
+        let downloads = Path::new("/Volumes/Media/Torrents");
+        let data = Path::new("/Users/me/Library/Application Support/Magnetar");
+        assert_eq!(disk_full_notice(true, &[data, downloads], free), Some(DiskFullDto { drive: Some("/Volumes/Media".into()) }));
+        // The system disk is the full one: it has no name to free space on.
+        assert_eq!(disk_full_notice(true, &[data, Path::new("/Users/me/Downloads")], free), Some(DiskFullDto { drive: None }));
+        // Nothing was named full, or room has been made since.
+        assert_eq!(disk_full_notice(false, &[downloads], free), None);
+        assert_eq!(disk_full_notice(true, &[data], free), None);
+        assert_eq!(disk_full_notice(true, &[data, Path::new("/")], |_| Some(ROOM_MADE)), None);
+        assert_eq!(disk_full_notice(true, &[data, Path::new("/")], |_| Some(ROOM_MADE - 1)), Some(DiskFullDto { drive: None }));
+        // Free space that cannot be read keeps the notice, unnamed; no folder at all too.
+        assert_eq!(disk_full_notice(true, &[Path::new("/unreadable")], free), Some(DiskFullDto { drive: None }));
+        assert_eq!(disk_full_notice(true, &[], free), Some(DiskFullDto { drive: None }));
+    }
+
+    #[test]
+    fn drives_are_named_the_way_people_say_them() {
+        for (path, label) in [
+            ("/Volumes/Media/Torrents/Linux", Some("/Volumes/Media")),
+            ("/Volumes/Media", Some("/Volumes/Media")),
+            ("/Volumes", None),
+            ("/media/me/Backup/dl", Some("/media/me/Backup")),
+            ("/media/me", None),
+            ("/run/media/me/Backup/dl", Some("/run/media/me/Backup")),
+            ("/mnt/data/dl", Some("/mnt/data")),
+            ("/home/me/Downloads", None),
+            ("/Users/me/Downloads", None),
+            ("/", None),
+            ("relative/Volumes/x", None),
+        ] {
+            assert_eq!(drive_label(Path::new(path)).as_deref(), label, "{path}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_drive_is_its_letter_and_a_share_its_name() {
+        assert_eq!(drive_label(Path::new(r"D:\Torrents\x")).as_deref(), Some("D:"));
+        assert_eq!(drive_label(Path::new(r"\\nas\media\x")).as_deref(), Some(r"\\nas\media"));
     }
 
     #[test]
