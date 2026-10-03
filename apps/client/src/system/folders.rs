@@ -780,6 +780,19 @@ mod tests {
             }
         }
 
+        /// Names that read alike (case aside, numbers with leading zeros) still get one order each, both ways round.
+        #[test]
+        fn names_that_read_alike_still_differ(name in "[a-zA-Z0-9 ]{1,10}", zeros in 1usize..3) {
+            let toggled: String = name.chars().map(|c| if c.is_lowercase() { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() }).collect();
+            let padded = format!("{}{name}", "0".repeat(zeros));
+            for other in [toggled, padded] {
+                if other != name {
+                    prop_assert_ne!(natural_cmp(&name, &other), Ordering::Equal);
+                    prop_assert_eq!(natural_cmp(&name, &other), natural_cmp(&other, &name).reverse());
+                }
+            }
+        }
+
         /// Any name `new_folder_name` takes is one the browser then shows and opens.
         #[test]
         fn a_new_folder_can_be_browsed(name in "\\PC{0,40}") {
