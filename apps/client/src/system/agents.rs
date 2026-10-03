@@ -321,9 +321,21 @@ async fn run_for(program: &Path, args: &[String], timeout: Duration) -> std::io:
         super::hidden_command(program)
     });
     command.args(args).stdin(std::process::Stdio::null()).kill_on_drop(true);
-    tokio::time::timeout(timeout, command.output())
-        .await
-        .unwrap_or_else(|_| Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "timed out")))
+    // A program still being written, by its installer or another process that briefly holds it open, is busy
+    // (Linux's "Text file busy"): try again a few times before calling it a failure.
+    let mut attempts = 0;
+    loop {
+        let output = tokio::time::timeout(timeout, command.output())
+            .await
+            .unwrap_or_else(|_| Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "timed out")));
+        match output {
+            Err(error) if error.kind() == std::io::ErrorKind::ExecutableFileBusy && attempts < 5 => {
+                attempts += 1;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            output => return output,
+        }
+    }
 }
 
 /// Adds the server to `client`'s settings (or points it at `url` again). Not installed is an error;
@@ -644,6 +656,23 @@ mod tests {
                 connect(client, URL, &env).await.unwrap();
                 assert_eq!(std::fs::read_to_string(&log).unwrap(), calls, "{client:?}");
             }
+        }
+
+        /// Linux refuses to run a file open for writing; once the writer lets go, the command runs.
+        #[cfg(target_os = "linux")]
+        #[tokio::test]
+        async fn a_command_still_being_written_is_tried_again() {
+            let _turn = ONE_AT_A_TIME.lock().await;
+            let (dir, env) = scratch();
+            let log = fake(&env, dir.path(), "codex", "exit 0");
+            let writer = std::fs::OpenOptions::new().append(true).open(env.path[0].join("codex")).unwrap();
+            let release = tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(150)).await;
+                drop(writer);
+            });
+            connect(AgentClient::Codex, URL, &env).await.unwrap();
+            release.await.unwrap();
+            assert!(std::fs::read_to_string(&log).unwrap().contains("mcp add magnetar"));
         }
 
         #[tokio::test]
