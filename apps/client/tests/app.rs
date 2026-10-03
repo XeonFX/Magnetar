@@ -201,6 +201,37 @@ async fn streams_a_search_to_the_connection_that_started_it() {
     assert_eq!(download["source"], "Fake");
 }
 
+/// The dashboard takes a search's events only once the reply has told it the search's id, so nothing
+/// of a search may arrive before that reply. Many searches on several workers at once, so the search
+/// gets every chance to run ahead of the reply.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_search_replies_with_its_id_before_it_sends_anything() {
+    let h = harness();
+    let searchers = (0..8).map(|_| {
+        let mut c = Client::new(&h.app, true);
+        tokio::spawn(async move {
+            for _ in 0..40 {
+                c.next_id += 1;
+                let id = c.next_id;
+                c.session.handle(json!({ "id": id, "method": "search.start", "params": { "query": "Show" } }));
+                let search_id = loop {
+                    let message = c.next().await;
+                    if message["id"] == id {
+                        break message["result"]["searchId"].clone();
+                    }
+                    let event = message["event"].as_str().unwrap_or_default();
+                    assert!(!event.starts_with("search."), "{event} arrived before the reply naming its search");
+                };
+                while !(c.next().await["event"] == "search.done") {}
+                assert!(search_id.is_string());
+            }
+        })
+    });
+    for searcher in searchers.collect::<Vec<_>>() {
+        searcher.await.unwrap();
+    }
+}
+
 #[tokio::test]
 async fn a_source_is_named_by_its_name_or_its_short_id() {
     let h = harness();
