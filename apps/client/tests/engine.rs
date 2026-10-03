@@ -265,10 +265,12 @@ async fn downloads_wait_for_the_chosen_interface_and_stop_without_it() {
         show_lookups: false,
     })
     .unwrap();
-    app.settings.update(|s| {
-        s.network_interface = "magnetar-missing0".into();
-        s.download_folder = dir.path().join("Downloads").display().to_string();
-    }).unwrap();
+    app.settings
+        .update(|s| {
+            s.network_interface = "magnetar-missing0".into();
+            s.download_folder = dir.path().join("Downloads").display().to_string();
+        })
+        .unwrap();
     app.start();
     let wait_engine = |state: EngineState| {
         let app = app.clone();

@@ -301,11 +301,8 @@ impl SecretStore {
         if let Some(value) = self.cache().get(&name) {
             return value.clone();
         }
-        let row: rusqlite::Result<Option<String>> = self
-            .db
-            .lock()
-            .query_row("SELECT value FROM secrets WHERE name = ?", [name.key()], |r| r.get(0))
-            .optional();
+        let row: rusqlite::Result<Option<String>> =
+            self.db.lock().query_row("SELECT value FROM secrets WHERE name = ?", [name.key()], |r| r.get(0)).optional();
         match row {
             Ok(row) => {
                 // A key file replaced underneath us: treat as unset rather than crash.

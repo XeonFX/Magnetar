@@ -351,7 +351,10 @@ mod tests {
         let saved = store.settings.apply_patch(patch).unwrap();
         assert!(saved.smtp_password_set);
         let reopened = store.reopened();
-        assert_eq!((reopened.secrets.get(SecretName::SmtpPassword), reopened.get().email_to), ("hunter2".into(), "me@example.com".into()));
+        assert_eq!(
+            (reopened.secrets.get(SecretName::SmtpPassword), reopened.get().email_to),
+            ("hunter2".into(), "me@example.com".into())
+        );
     }
 
     #[test]
