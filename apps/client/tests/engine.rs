@@ -182,6 +182,13 @@ async fn a_torrent_file_starts_at_once_and_its_files_can_be_chosen() {
     let again = app.downloads.add_torrent_file(torrent.as_bytes().unwrap().to_vec(), "Torrent file", None).unwrap();
     assert_eq!(again.id, added.id);
     assert!(app.downloads.add_torrent_file(b"d4:junke".to_vec(), "Torrent file", None).is_err());
+    // Nested one level past what the engine's parser takes, or 100,000 levels: refused before it parses it.
+    for depth in [127, 100_000] {
+        let refused = app.downloads.add_torrent_file(crafted_torrent(depth), "Torrent file", None).err().map(|e| e.message);
+        let expected = "That .torrent file is not usable: its data is nested more than 128 levels deep.";
+        assert_eq!(refused.as_deref(), Some(expected), "{depth} deep");
+    }
+    assert_eq!(app.downloads.list().len(), 1);
     bounded!(app.stop());
 }
 
@@ -336,5 +343,73 @@ async fn pause_all_and_resume_all_touch_only_what_they_should() {
         wait_for(&app, id, DownloadStatus::Seeding).await;
     }
     assert_eq!(app.actions.resume_all(), 0, "nothing left stopped");
+    bounded!(app.stop());
+}
+
+/// A torrent whose info dictionary nests `depth` lists under a key nobody reads: what crashed the
+/// engine's parser, a few hundred kilobytes of it.
+fn crafted_torrent(depth: usize) -> Vec<u8> {
+    let info = [b"d6:lengthi1e4:name7:crafted12:piece lengthi16384e6:pieces20:".to_vec(), vec![0; 20]].concat();
+    [b"d4:info".to_vec(), info, b"3:zzz".to_vec(), vec![b'l'; depth], vec![b'e'; depth], b"ee".to_vec()].concat()
+}
+
+/// A crafted torrent the engine had saved and the download list still has queued: the next start
+/// drops it with the reason before anything parses it, and runs the rest.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_crafted_torrent_left_queued_is_dropped_on_start_with_the_reason() {
+    use magnetar::protocol::EngineState;
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("Downloads");
+    let paths = Paths::new(dir.path().join("data")).unwrap();
+    let options =
+        |engine| AppOptions { paths: paths.clone(), engine, providers: Vec::new(), legacy_database: None, show_lookups: false };
+    let fine = bounded!(seed_file(&folder, &paths));
+    let crafted = "0123456789abcdef0123456789abcdef01234567";
+    let (fine_id, crafted_id) = {
+        let app = App::new(options(EngineSource::Off)).unwrap();
+        // Loopback only: nothing of this test leaves the machine.
+        let loopback = if cfg!(target_os = "macos") { "lo0" } else { "lo" };
+        app.settings.update(|s| s.network_interface = loopback.into()).unwrap();
+        app.start();
+        let fine = app.downloads.add(magnet(&fine, &folder)).unwrap().id;
+        let crafted = app.downloads.add(magnet(crafted, &folder)).unwrap().id;
+        bounded!(app.stop());
+        (fine, crafted)
+    };
+    let bytes = crafted_torrent(100_000);
+    std::fs::create_dir_all(&paths.torrent_session).unwrap();
+    let saved =
+        [paths.torrent_files.join(format!("{crafted}.torrent")), paths.torrent_session.join(format!("{crafted}.torrent"))];
+    for file in &saved {
+        std::fs::write(file, &bytes).unwrap();
+    }
+    let bitv = paths.torrent_session.join(format!("{crafted}.bitv"));
+    std::fs::write(&bitv, [0]).unwrap();
+    let list = serde_json::json!({ "torrents": { "0": {
+        "info_hash": crafted, "trackers": [], "output_folder": folder, "only_files": null, "is_paused": false
+    } } });
+    std::fs::write(paths.torrent_session.join("session.json"), list.to_string()).unwrap();
+
+    let app = App::new(options(EngineSource::Managed(paths.clone()))).unwrap();
+    app.start();
+    let failed = app.downloads.get(crafted_id).unwrap();
+    assert_eq!(failed.status, DownloadStatus::Error);
+    assert_eq!(failed.error.as_deref(), Some("This torrent can't be used: its data is nested more than 128 levels deep."));
+    for gone in saved.iter().chain([&bitv]) {
+        assert!(!gone.exists(), "{} is left", gone.display());
+    }
+    let list = std::fs::read_to_string(paths.torrent_session.join("session.json")).unwrap();
+    assert!(!list.contains(crafted), "the engine's list still has it: {list}");
+
+    for _ in 0..200 {
+        if app.downloads.transfer_status().engine == EngineState::Running {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(app.downloads.transfer_status().engine, EngineState::Running);
+    wait_for(&app, fine_id, DownloadStatus::Completed).await;
+    assert_eq!(app.downloads.get(crafted_id).unwrap().status, DownloadStatus::Error, "it stays out of the engine");
     bounded!(app.stop());
 }

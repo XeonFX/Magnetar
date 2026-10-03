@@ -8,7 +8,11 @@ use rusqlite::{Row, params};
 use tokio::sync::{Notify, broadcast};
 use tokio_util::sync::CancellationToken;
 
-use super::engine::{Engine, Metadata, NetworkOptions, SpeedLimits, TorrentHandle, bytes_in_pieces, delete_files};
+use super::bencode::{self, Refused};
+use super::engine::{
+    Engine, Metadata, NetworkOptions, SpeedLimits, TorrentHandle, bytes_in_pieces, check_torrent_file, delete_files,
+    drop_unsafe_session_torrents,
+};
 use super::transfer::{current_limits, free_space, interface_index, wanted_interface};
 use crate::db::{Db, KeyValue};
 use crate::error::{ApiError, ApiResult};
@@ -316,6 +320,9 @@ impl DownloadManager {
                 items.insert(item.id, item);
             }
         }
+        if !matches!(self.source, EngineSource::Off) {
+            self.drop_unsafe_torrents();
+        }
         let manager = self.clone();
         tokio::spawn(async move { manager.publish_changes().await });
         match &self.source {
@@ -330,6 +337,37 @@ impl DownloadManager {
                 self.spawn_tick_loop();
             }
         }
+    }
+
+    /// Before the engine or anything else parses them, drops the saved torrents that fail
+    /// `bencode::check`: those in the engine's session, and the cached .torrent of every download
+    /// that may run. Those downloads fail with the reason. A crafted torrent would otherwise crash
+    /// the app, and again on every start while it stays queued.
+    fn drop_unsafe_torrents(&self) {
+        let mut dropped: HashMap<String, Refused> = drop_unsafe_session_torrents(&self.torrent_session).into_iter().collect();
+        let unfinished: Vec<String> =
+            self.items().values().filter(|i| i.status != DownloadStatus::Completed).map(|i| i.info_hash.to_lowercase()).collect();
+        for hash in unfinished {
+            let cached = self.cached_torrent_path(&hash);
+            if let Err(refused) = check_torrent_file(&cached) {
+                tracing::warn!("Dropped the cached torrent {hash}: {refused}");
+                let _ = std::fs::remove_file(&cached);
+                dropped.entry(hash).or_insert(refused);
+            }
+        }
+        if dropped.is_empty() {
+            return;
+        }
+        let mut items = self.items();
+        let mut failed = Vec::new();
+        for item in items.values_mut().filter(|i| i.status != DownloadStatus::Completed) {
+            if let Some(refused) = dropped.get(&item.info_hash.to_lowercase()) {
+                item.status = DownloadStatus::Error;
+                item.error = Some(format!("This torrent can't be used: {refused}."));
+                failed.push(item.id);
+            }
+        }
+        self.save(failed.iter().filter_map(|id| items.get(id)));
     }
 
     fn spawn_tick_loop(self: &Arc<Self>) {
@@ -593,6 +631,8 @@ impl DownloadManager {
         if bytes.len() > MAX_TORRENT_FILE {
             return Err(torrent_too_large());
         }
+        bencode::check(&bytes, MAX_TORRENT_FILE)
+            .map_err(|refused| ApiError::bad(format!("That .torrent file is not usable: {refused}.")))?;
         let (hash, trackers) = torrent_identity(&bytes).ok_or_else(|| ApiError::bad("That is not a valid .torrent file."))?;
         let metadata =
             Metadata::from_torrent(bytes).map_err(|e| ApiError::bad(format!("That .torrent file is not usable: {e:#}")))?;
@@ -603,8 +643,9 @@ impl DownloadManager {
         }
         let name = metadata.name.clone().unwrap_or_default();
         let trackers: Vec<&str> = trackers.iter().map(String::as_str).collect();
+        let magnet = build_magnet(&hash, &name, &trackers).ok_or_else(|| ApiError::bad("That is not a valid .torrent file."))?;
         self.add(AddDownload {
-            magnet_uri: build_magnet(&hash, &name, &trackers),
+            magnet_uri: magnet.uri,
             name,
             source: source.to_owned(),
             series_task_id: None,

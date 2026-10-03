@@ -1,6 +1,14 @@
 [workspace]
 members = ["apps/client"]
 resolver = "3"
+exclude = ["vendor"]
+
+# librqbit 9.0.1's bencode parser recursed without a limit: a crafted torrent, peer message or DHT packet
+# overflowed the stack. Upstream fixed it (rqbit #660, eb96f1c) after 9.0.1; this is 9.0.1 with that commit
+# applied. Drop it once librqbit releases the fix (docs/upstream/librqbit-bencode-depth.md). A librqbit update
+# that leaves this patch unused fails `downloads::bencode::tests::the_engine_refuses_what_this_refuses_instead_of_crashing`.
+[patch.crates-io]
+librqbit-bencode = { path = "vendor/librqbit-bencode" }
 
 # What ships: the whole program optimized together. Slow to build; only releases build it.
 [profile.release]

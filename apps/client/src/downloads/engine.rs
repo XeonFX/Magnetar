@@ -2,6 +2,7 @@
 //! metadata, run a torrent into a folder, read its progress, pause it, and remove it.
 
 use std::collections::{HashMap, HashSet};
+use std::io::Read;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::path::{Component, Path, PathBuf};
@@ -20,6 +21,7 @@ use librqbit::{
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
+use super::bencode::{self, MAX_TORRENT_BYTES, Refused};
 use crate::config::VERSION;
 use crate::paths::Paths;
 use crate::search::magnet::DEFAULT_TRACKERS;
@@ -47,8 +49,9 @@ pub struct Metadata {
 }
 
 impl Metadata {
-    /// Parses a cached .torrent file.
+    /// Parses a .torrent file, once `bencode::check` has found it safe to.
     pub fn from_torrent(bytes: Vec<u8>) -> anyhow::Result<Self> {
+        bencode::check(&bytes, MAX_TORRENT_BYTES)?;
         let torrent = librqbit::torrent_from_bytes(&bytes)?;
         let described = describe(torrent.info_hash, &torrent.info.data.validate()?, Vec::new(), Vec::new());
         Ok(Self { torrent_bytes: bytes, ..described })
@@ -103,6 +106,63 @@ pub fn bytes_in_pieces(have: &[u8], piece_length: u64, file_sizes: &[u64]) -> Ve
                 .filter(|&piece| has(piece))
                 .map(|piece| end.min((piece + 1) * piece_length) - start.max(piece * piece_length))
                 .sum()
+        })
+        .collect()
+}
+
+/// `bencode::check` on a saved .torrent file, reading no more of it than the check allows. A file
+/// that can't be read passes: nothing parses it either.
+pub fn check_torrent_file(path: &Path) -> Result<(), Refused> {
+    let mut bytes = Vec::new();
+    match std::fs::File::open(path).and_then(|file| file.take(MAX_TORRENT_BYTES as u64 + 1).read_to_end(&mut bytes)) {
+        Ok(_) => bencode::check(&bytes, MAX_TORRENT_BYTES),
+        Err(_) => Ok(()),
+    }
+}
+
+/// Takes the torrents saved in the engine's `session` folder that fail `bencode::check` out of it,
+/// before the engine starts and parses every one: a torrent its parser can't cope with would crash
+/// the app, and again on every start. Returns each one's info hash (lowercase hex) and why.
+pub fn drop_unsafe_session_torrents(session: &Path) -> Vec<(String, Refused)> {
+    let Ok(entries) = std::fs::read_dir(session) else { return Vec::new() };
+    let dropped: Vec<(PathBuf, String, Refused)> = entries
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            if path.extension()? != "torrent" {
+                return None;
+            }
+            let hash = path.file_stem()?.to_str()?.to_ascii_lowercase();
+            let refused = check_torrent_file(&path).err()?;
+            Some((path, hash, refused))
+        })
+        .collect();
+    if dropped.is_empty() {
+        return Vec::new();
+    }
+    // Out of the session's list first: a torrent listed without its file comes back as a magnet.
+    let list = session.join("session.json");
+    let edited = std::fs::read(&list).map_err(anyhow::Error::from).and_then(|json| {
+        let mut saved: serde_json::Value = serde_json::from_slice(&json)?;
+        if let Some(torrents) = saved.get_mut("torrents").and_then(serde_json::Value::as_object_mut) {
+            torrents.retain(|_, torrent| {
+                let hash = torrent.get("info_hash").and_then(serde_json::Value::as_str).unwrap_or_default();
+                !dropped.iter().any(|(_, dropped, _)| dropped.eq_ignore_ascii_case(hash))
+            });
+        }
+        let temporary = session.join("session.json.magnetar");
+        std::fs::write(&temporary, serde_json::to_vec(&saved)?)?;
+        Ok(std::fs::rename(temporary, &list)?)
+    });
+    if let Err(error) = edited {
+        tracing::warn!("Could not take unusable torrents out of {}: {error:#}", list.display());
+    }
+    dropped
+        .into_iter()
+        .map(|(path, hash, refused)| {
+            tracing::warn!("Dropped torrent {hash} from the engine's session: {refused}");
+            let _ = std::fs::remove_file(path.with_extension("bitv"));
+            let _ = std::fs::remove_file(path);
+            (hash, refused)
         })
         .collect()
 }
