@@ -9,7 +9,7 @@ Design and security are in [ARCHITECTURE.md](ARCHITECTURE.md), deploy and signin
 - `apps/client/` the Rust app (crate `magnetar`). `src/rpc.rs` RPC handlers, `src/api/actions.rs` actions shared by REST, MCP and dashboard, `src/http/` local server (REST, MCP, assets, streaming), `src/downloads/` torrent engine and manager, `src/search/` providers, `src/series/` show monitoring, `src/remote/` relay link, browser keys and push, `src/system/folders.rs` the Files browser (only the download folder and folders added on the device; `api/save_folder.rs` confines folders agents and relayed browsers choose), `src/db.rs` SQLite and migrations, `src/settings.rs`, `src/updates/`. Tests in `apps/client/tests/`. `package.ts` builds the release executable.
 - `apps/web/src/` the dashboard, one build for both transports: `LocalApp.tsx` (in the app), `cloud/` (website: login, devices, pairing), `device/` (pages of one device), `lib/` (`rpcClient.ts`, `localConnection.ts`, `relayConnection.ts`, `keyStore.ts`), `ui/`, `i18n/` (8 catalogs), `features/` (features page).
 - `apps/worker/src/` Cloudflare Worker: `index.ts` routes and `serveSinglePageApp`, `relay.ts` (`DeviceRelay` Durable Object), `auth.ts` (Google sign-in, sessions), `devices.ts`, `push.ts`, `releases.ts`, `console/`. `migrations/` D1 SQL, `test/` workerd tests, `wrangler.jsonc` (has an `env.dev`).
-- `apps/e2e/` Playwright (`tests/*.e2e.ts`) and `features/screenshots.ts`. `scripts/` release signing. `Cargo.toml` is the workspace root; `vendor/librqbit-bencode` patches librqbit's bencode parser (`[patch.crates-io]`) until upstream releases the fix (`docs/upstream/`).
+- `apps/e2e/` Playwright (`tests/*.e2e.ts`) and `features/screenshots.ts`. `scripts/` release signing and `release-version.ts`. `Cargo.toml` is the workspace root; `vendor/librqbit-bencode` patches librqbit's bencode parser (`[patch.crates-io]`) until upstream releases the fix (`docs/upstream/`).
 
 ## Main flows
 
@@ -34,7 +34,7 @@ Design and security are in [ARCHITECTURE.md](ARCHITECTURE.md), deploy and signin
 
 - Merge to `main`: the `deploy` job in `.github/workflows/ci.yml` (after checks and e2e) builds the dashboard, runs `wrangler d1 migrations apply magnetar --remote`, then `wrangler deploy`. No preview environments; try locally with `npm run dev:worker`.
 - Worker D1 migrations: add `apps/worker/migrations/NNNN_name.sql`; the old Worker must keep working during the deploy. App-side SQLite migrations are in `apps/client/src/db.rs` (append only).
-- App release: tag `vX.Y.Z` after bumping versions (`.github/workflows/release.yml`); PR titles become the "What's new" notes.
+- App release: every merge to `main` that changes the app is released as the next patch (`release` job in `ci.yml` calls `.github/workflows/release.yml`; `scripts/release-version.ts` picks the version from the latest `v*` tag and skips docs/tests/CI-only merges, and the Worker deploy shows the same version). A minor or major is a hand-pushed `vX.Y.0` tag. PR titles become the "What's new" notes.
 
 ## Gotchas
 
