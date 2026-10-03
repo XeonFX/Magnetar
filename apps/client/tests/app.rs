@@ -481,7 +481,10 @@ mod torrent_uploads {
         let medium = torrent_of_size(750_000, "Medium");
         let received = send_pieces(&mut c, "m", &medium, 0..2).await.unwrap();
         assert_eq!(received, json!({ "received": 750_000 }));
-        let folder = h.dir.path().join("Medium");
+        // Through the relay, a folder inside the download folder.
+        let downloads = std::fs::canonicalize(h.dir.path()).unwrap();
+        h.app.settings.update(|s| s.download_folder = downloads.display().to_string()).unwrap();
+        let folder = downloads.join("Medium");
         let download = c.ok("downloads.startUpload", json!({ "uploadId": "m", "folder": folder })).await;
         assert_eq!(download["name"], "Medium");
         assert_eq!(download["savePath"], folder.display().to_string());
@@ -589,5 +592,209 @@ mod torrent_uploads {
         let mut again = Client::new(&h.app, false);
         assert!(send_pieces(&mut again, "y", &torrent, 1..2).await.unwrap_err().starts_with("not_found"));
         assert_eq!(upload(&mut again, "y", &torrent).await.unwrap()["name"], "Mine");
+    }
+}
+
+/// Files: what a dashboard may browse and choose, on this computer and through the relay.
+mod files {
+    use std::path::{Path, PathBuf};
+
+    use librqbit::spawn_utils::BlockingSpawner;
+    use librqbit::{CreateTorrentOptions, create_torrent};
+
+    use super::*;
+
+    /// The download folder (with a folder and a file), a folder that may be added, and a private one beside them.
+    fn folders(h: &Harness) -> (PathBuf, PathBuf, PathBuf) {
+        // Real names (macOS's /var is /private/var, Windows runners' RUNNER~1 a short name), written as people do.
+        let real = std::fs::canonicalize(h.dir.path()).unwrap();
+        let base = PathBuf::from(text(&real).trim_start_matches(r"\\?\"));
+        let (downloads, media, private) = (base.join("Downloads"), base.join("Media"), base.join("Private"));
+        for folder in [&downloads, &media, &private] {
+            std::fs::create_dir_all(folder.join("Sub")).unwrap();
+        }
+        std::fs::write(downloads.join("notes.txt"), "hi").unwrap();
+        std::fs::write(private.join("secret.txt"), "secret").unwrap();
+        h.app.settings.update(|s| s.download_folder = text(&downloads)).unwrap();
+        (downloads, media, private)
+    }
+
+    fn text(path: &Path) -> String {
+        path.display().to_string()
+    }
+
+    fn names(page: &Value) -> Vec<&str> {
+        page["entries"].as_array().unwrap().iter().map(|e| e["name"].as_str().unwrap()).collect()
+    }
+
+    #[tokio::test]
+    async fn a_relayed_browser_sees_only_the_download_folder_and_folders_added_on_the_computer() {
+        let h = harness();
+        let (downloads, media, private) = folders(&h);
+        let mut local = Client::new(&h.app, true);
+        let mut relayed = Client::new(&h.app, false);
+
+        assert_eq!(relayed.ok("app.info", json!({})).await["fileBrowser"], true);
+        let roots = relayed.ok("fs.roots", json!({})).await;
+        assert_eq!((&roots["canAdd"], roots["roots"].as_array().unwrap().len()), (&json!(false), 1));
+        assert_eq!((&roots["roots"][0]["path"], &roots["roots"][0]["kind"]), (&json!(text(&downloads)), &json!("downloads")));
+        assert!(roots["roots"][0]["available"] == true && roots["roots"][0]["freeBytes"].as_u64().unwrap() > 0);
+        let page = relayed.ok("fs.browse", json!({ "path": text(&downloads) })).await;
+        assert_eq!(
+            (names(&page), &page["root"], &page["total"]),
+            (vec!["Sub", "notes.txt"], &json!(text(&downloads)), &json!(2))
+        );
+
+        // Nothing outside the roots, however it is spelled, and only the computer itself adds a root.
+        let outside = [
+            text(&private),
+            text(&downloads.join("..").join("Private")),
+            text(&downloads.join("Sub").join("..").join("..")),
+            text(downloads.parent().unwrap()),
+            text(&media),
+            "relative".into(),
+        ];
+        for path in outside.iter().chain(&[text(Path::new(&std::path::MAIN_SEPARATOR.to_string()))]) {
+            assert!(relayed.call("fs.browse", json!({ "path": path })).await.unwrap_err().starts_with("forbidden"), "{path}");
+        }
+        assert!(relayed.call("fs.addRoot", json!({ "path": text(&private) })).await.unwrap_err().starts_with("forbidden"));
+        let made = relayed.call("fs.createFolder", json!({ "parent": text(&private), "name": "x" })).await;
+        assert!(made.unwrap_err().starts_with("forbidden") && !private.join("x").exists());
+        // The removed methods that listed and made folders anywhere are gone for good.
+        for method in ["fs.list", "fs.mkdir"] {
+            assert!(local.call(method, json!({ "path": text(&private) })).await.unwrap_err().starts_with("not_found"));
+        }
+
+        // The owner adds Media on the computer: the relayed browser sees it too, and may stop seeing it.
+        let added = local.ok("fs.addRoot", json!({ "path": format!("{}{}", text(&media), std::path::MAIN_SEPARATOR) })).await;
+        assert_eq!(
+            (&added["canAdd"], &added["roots"][1]["path"], &added["roots"][1]["kind"]),
+            (&json!(true), &json!(text(&media)), &json!("added"))
+        );
+        assert_eq!(local.ok("fs.addRoot", json!({ "path": text(&media) })).await["roots"].as_array().unwrap().len(), 2, "once");
+        assert_eq!(names(&relayed.ok("fs.browse", json!({ "path": text(&media) })).await), ["Sub"]);
+        let made = relayed.ok("fs.createFolder", json!({ "parent": text(&media.join("Sub")), "name": "Season 1" })).await;
+        assert_eq!(made["path"], text(&media.join("Sub").join("Season 1")));
+        assert!(media.join("Sub").join("Season 1").is_dir());
+        assert_eq!(relayed.ok("fs.removeRoot", json!({ "path": text(&media) })).await["roots"].as_array().unwrap().len(), 1);
+        assert!(relayed.call("fs.browse", json!({ "path": text(&media) })).await.unwrap_err().starts_with("forbidden"));
+
+        // A root must be an existing folder, written in full.
+        assert!(local.call("fs.addRoot", json!({ "path": "relative/x" })).await.unwrap_err().starts_with("bad_request"));
+        assert!(
+            local.call("fs.addRoot", json!({ "path": text(&media.join("gone")) })).await.unwrap_err().starts_with("not_found")
+        );
+        assert!(
+            local
+                .call("fs.addRoot", json!({ "path": text(&downloads.join("notes.txt")) }))
+                .await
+                .unwrap_err()
+                .starts_with("bad_request")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_relayed_browser_chooses_folders_only_inside_what_it_may_browse() {
+        let h = harness();
+        let (downloads, media, private) = folders(&h);
+        let mut local = Client::new(&h.app, true);
+        let mut relayed = Client::new(&h.app, false);
+        let magnet = format!("magnet:?xt=urn:btih:{}&dn=x", "E".repeat(40));
+
+        for folder in [text(&private), text(&downloads.join("..").join("Private")), text(&media)] {
+            let refused = |result: Result<Value, String>| result.unwrap_err().contains("From another device");
+            assert!(refused(relayed.call("settings.update", json!({ "downloadFolder": folder })).await), "{folder}");
+            assert!(refused(relayed.call("downloads.start", json!({ "magnet": magnet, "folder": folder })).await), "{folder}");
+            assert!(refused(relayed.call("series.create", json!({ "name": "S", "query": "S", "downloadFolder": folder })).await));
+        }
+        assert_eq!(local.ok("settings.get", json!({})).await["downloadFolder"], text(&downloads));
+        assert_eq!(local.ok("downloads.list", json!({})).await, json!([]));
+
+        let inside = downloads.join("Sub").join("New");
+        assert_eq!(
+            relayed.ok("downloads.start", json!({ "magnet": magnet, "folder": text(&inside) })).await["savePath"],
+            text(&inside)
+        );
+        local.ok("fs.addRoot", json!({ "path": text(&media) })).await;
+        let moved = relayed.ok("settings.update", json!({ "downloadFolder": text(&media.join("Sub")) })).await;
+        assert_eq!(moved["downloadFolder"], text(&media.join("Sub")));
+        // The dashboard on the computer itself chooses freely.
+        assert_eq!(
+            local.ok("settings.update", json!({ "downloadFolder": text(&private) })).await["downloadFolder"],
+            text(&private)
+        );
+    }
+
+    #[tokio::test]
+    async fn pages_list_folders_first_with_the_downloads_their_entries_belong_to() {
+        let h = harness();
+        let (downloads, _, _) = folders(&h);
+        let show = downloads.join("Show S01");
+        std::fs::create_dir_all(&show).unwrap();
+        std::fs::write(downloads.join("clip.mp4"), vec![1u8; 70_000]).unwrap();
+        std::fs::write(show.join("E01.mkv"), vec![2u8; 50_000]).unwrap();
+        std::fs::write(show.join("E01.srt"), "1").unwrap();
+        let spawner = BlockingSpawner::new(1);
+        let add = async |path: &Path| {
+            let torrent = create_torrent(path, CreateTorrentOptions::default(), &spawner).await.unwrap();
+            h.app
+                .downloads
+                .add_torrent_file(torrent.as_bytes().unwrap().to_vec(), "Torrent file", Some(text(&downloads)))
+                .unwrap()
+                .id
+        };
+        let (clip, pack) = (add(&downloads.join("clip.mp4")).await, add(&show).await);
+
+        let mut relayed = Client::new(&h.app, false);
+        let page = relayed.ok("fs.browse", json!({ "path": text(&downloads) })).await;
+        assert_eq!(
+            (names(&page), &page["total"], &page["truncated"]),
+            (vec!["Show S01", "Sub", "clip.mp4", "notes.txt"], &json!(4), &json!(false))
+        );
+        let entries = page["entries"].as_array().unwrap();
+        assert_eq!((&entries[0]["kind"], &entries[0]["download"]), (&json!("folder"), &json!({ "id": pack })));
+        assert_eq!(&entries[1]["download"], &Value::Null);
+        assert_eq!(
+            (&entries[2]["kind"], &entries[2]["size"], &entries[2]["media"], &entries[2]["download"]),
+            (&json!("file"), &json!(70_000), &json!("video"), &json!({ "id": clip, "index": 0 }))
+        );
+        assert_eq!((&entries[3]["media"], &entries[3]["download"]), (&Value::Null, &Value::Null));
+
+        let inner = relayed.ok("fs.browse", json!({ "path": text(&show) })).await;
+        assert_eq!(page["separator"], std::path::MAIN_SEPARATOR.to_string());
+        assert_eq!((names(&inner), &inner["root"]), (vec!["E01.mkv", "E01.srt"], &json!(text(&downloads))));
+        let files = relayed.ok("downloads.files", json!({ "id": pack })).await;
+        for entry in inner["entries"].as_array().unwrap() {
+            let index = entry["download"]["index"].as_u64().unwrap() as usize;
+            assert_eq!(files[index]["path"], entry["name"], "the index is the file's own");
+        }
+
+        // Pages split the same order; past the end is empty; only folders when asked.
+        let page_of = |offset: u64, limit: u64| json!({ "path": text(&downloads), "offset": offset, "limit": limit });
+        assert_eq!(names(&relayed.ok("fs.browse", page_of(0, 1)).await), ["Show S01"]);
+        assert_eq!(names(&relayed.ok("fs.browse", page_of(3, 1)).await), ["notes.txt"]);
+        let past = relayed.ok("fs.browse", page_of(4, 1)).await;
+        assert_eq!((names(&past), &past["total"]), (Vec::<&str>::new(), &json!(4)));
+        assert_eq!(
+            names(&relayed.ok("fs.browse", page_of(0, 100_000)).await).len(),
+            4,
+            "a limit beyond the page size is the page size"
+        );
+        let folders_only = relayed.ok("fs.browse", json!({ "path": text(&downloads), "foldersOnly": true })).await;
+        assert_eq!(names(&folders_only), ["Show S01", "Sub"]);
+        assert!(
+            relayed
+                .call("fs.browse", json!({ "path": text(&downloads), "offset": -1 }))
+                .await
+                .unwrap_err()
+                .starts_with("bad_request")
+        );
+        assert!(
+            relayed
+                .call("fs.browse", json!({ "path": text(&downloads), "sort": "size" }))
+                .await
+                .unwrap_err()
+                .starts_with("bad_request")
+        );
     }
 }

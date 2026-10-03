@@ -616,7 +616,9 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
             ok(json!({ "path": folders::create_folder(&app.settings, parent, name).await? }))
         }
         "fs.addRoot" => ok(folders::add_root(app.settings.clone(), parse::<FolderPath>(params)?.path).await?),
-        "fs.removeRoot" => ok(folders::remove_root(app.settings.clone(), parse::<FolderPath>(params)?.path, session.local()).await?),
+        "fs.removeRoot" => {
+            ok(folders::remove_root(app.settings.clone(), parse::<FolderPath>(params)?.path, session.local()).await?)
+        }
         "fs.pickNative" => {
             let PickNative { start, prompt } = parse(params)?;
             let prompt = prompt.unwrap_or_else(|| "Choose a folder".into());

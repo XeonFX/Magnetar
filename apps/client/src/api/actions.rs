@@ -11,13 +11,13 @@ use crate::protocol::{
     DOWNLOAD_STATUSES, DownloadDto, DownloadStatus, SearchResponse, SeriesTaskDto, SeriesTaskInput, SeriesTaskPatch, SettingsDto,
     SettingsPatch, SourceDto, StartDownloadInput, StartFrom, TorrentDetailsDto,
 };
-use crate::system::folders;
 use crate::search::SearchService;
 use crate::search::cache::{SearchResultCache, to_result_dto};
 use crate::search::types::SharedResult;
 use crate::series::episode::EpisodeRule;
 use crate::series::{SeriesMonitor, SeriesStore};
 use crate::settings::SettingsService;
+use crate::system::folders;
 
 const DEFAULT_SEARCH_LIMIT: usize = 25;
 const MAX_SEARCH_LIMIT: usize = 200;
@@ -103,7 +103,7 @@ impl Actions {
         let settings = self.settings.get();
         match self.caller {
             Caller::Agent => resolve_agent_folder(requested, &settings.download_folder),
-            Caller::Remote => resolve_remote_folder(requested, &folders::root_texts(&settings)),
+            Caller::Remote => resolve_remote_folder(requested, &folders::roots(&settings)),
             Caller::User => Ok(requested.map(str::trim).filter(|f| !f.is_empty()).map(str::to_owned)),
         }
     }

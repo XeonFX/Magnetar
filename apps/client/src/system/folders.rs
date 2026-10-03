@@ -14,7 +14,7 @@ use std::ffi::OsStr;
 use std::io::ErrorKind;
 use std::path::{Component, MAIN_SEPARATOR_STR, Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use cap_std::ambient_authority;
 use cap_std::fs::Dir;
@@ -47,15 +47,11 @@ pub struct Root {
     pub kind: FolderRootKind,
 }
 
-/// The download folder and the added folders, as saved.
-pub fn root_texts(settings: &AppSettings) -> Vec<&str> {
-    std::iter::once(settings.download_folder.as_str()).chain(settings.browse_folders.iter().map(String::as_str)).collect()
-}
-
 /// The roots: the download folder first, then the added ones; each once, and only absolute ones.
 pub fn roots(settings: &AppSettings) -> Vec<Root> {
     let mut roots: Vec<Root> = Vec::new();
-    for (index, text) in root_texts(settings).into_iter().enumerate() {
+    let saved = std::iter::once(&settings.download_folder).chain(&settings.browse_folders);
+    for (index, text) in saved.enumerate() {
         let kind = if index == 0 { FolderRootKind::Downloads } else { FolderRootKind::Added };
         if let Some(path) = normalize(text)
             && !roots.iter().any(|r| r.path == path)
@@ -143,8 +139,9 @@ pub fn locate<'r>(roots: &'r [Root], requested: &str) -> ApiResult<(&'r Root, Pa
 /// A name the browser shows and opens: text (the dashboard gets paths as text), not hidden (a leading dot), and on
 /// Windows nothing it would read as something else (`windows_plain`).
 pub fn browsable(name: &OsStr) -> bool {
-    name.to_str()
-        .is_some_and(|name| !name.is_empty() && !name.starts_with('.') && !name.contains('\0') && (!cfg!(windows) || windows_plain(name)))
+    name.to_str().is_some_and(|name| {
+        !name.is_empty() && !name.starts_with('.') && !name.contains('\0') && (!cfg!(windows) || windows_plain(name))
+    })
 }
 
 /// Not a name Windows reads as something else: an alternate data stream (`name:stream`), a name it shortens
@@ -153,7 +150,8 @@ pub fn windows_plain(name: &str) -> bool {
     const DEVICES: [&str; 6] = ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"];
     let stem = name.split('.').next().unwrap_or_default().trim_end_matches(' ').to_ascii_uppercase();
     let numbered = ["COM", "LPT"].iter().any(|device| {
-        stem.strip_prefix(device).is_some_and(|n| matches!(n, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"))
+        stem.strip_prefix(device)
+            .is_some_and(|n| matches!(n, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"))
     });
     !name.contains(':') && !name.ends_with(['.', ' ']) && !DEVICES.contains(&stem.as_str()) && !numbered
 }
@@ -208,11 +206,59 @@ fn digits(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
     run
 }
 
-/// Opens `relative` below the root through a handle on it: cap-std refuses a path that leads out of the root, links
-/// included, at the moment it opens it.
-fn open(root: &Root, relative: &Path) -> std::io::Result<Dir> {
-    let dir = Dir::open_ambient_dir(&root.path, ambient_authority())?;
-    if relative.as_os_str().is_empty() { Ok(dir) } else { dir.open_dir(relative) }
+/// A folder opened inside a root: the handle it is read through, and where it and its root really are on disk.
+struct Opened {
+    dir: Dir,
+    root: PathBuf,
+    here: PathBuf,
+}
+
+/// What an entry is, a link counting as what it leads to.
+struct Facts {
+    kind: Option<FolderEntryKind>,
+    size: u64,
+    modified: Option<SystemTime>,
+}
+
+impl Facts {
+    fn of(is_dir: bool, is_file: bool, size: u64, modified: Option<SystemTime>) -> Self {
+        let kind = if is_dir {
+            Some(FolderEntryKind::Folder)
+        } else if is_file {
+            Some(FolderEntryKind::File)
+        } else {
+            None
+        };
+        Self { kind, size, modified }
+    }
+}
+
+/// Opens `relative` below the root. Links along it are resolved first only to learn where they lead: what is outside
+/// the root is refused, and the folder is then opened from the root's handle by its real names, so cap-std refuses a
+/// way out (a link swapped in meanwhile) at the moment it opens it.
+fn open(root: &Root, relative: &Path) -> std::io::Result<Opened> {
+    let real_root = std::fs::canonicalize(&root.path)?;
+    let dir = Dir::open_ambient_dir(&real_root, ambient_authority())?;
+    if relative.as_os_str().is_empty() {
+        return Ok(Opened { dir, here: real_root.clone(), root: real_root });
+    }
+    let here = std::fs::canonicalize(real_root.join(relative))?;
+    let inside = here.strip_prefix(&real_root).map_err(|_| std::io::Error::from(ErrorKind::PermissionDenied))?;
+    let dir = if inside.as_os_str().is_empty() { dir } else { dir.open_dir(inside)? };
+    Ok(Opened { dir, here, root: real_root })
+}
+
+impl Opened {
+    /// What `name` here is. cap-std follows a relative link that stays inside the root itself, but refuses every link
+    /// by an absolute path: one of those counts when it leads inside the root. A link out of it, or nowhere, is None.
+    fn facts(&self, name: &str) -> Option<Facts> {
+        if let Ok(m) = self.dir.metadata(name) {
+            return Some(Facts::of(m.is_dir(), m.is_file(), m.len(), m.modified().ok().map(|t| t.into_std())));
+        }
+        let real = std::fs::canonicalize(self.here.join(name)).ok().filter(|real| real.starts_with(&self.root))?;
+        let m = std::fs::metadata(real).ok()?;
+        Some(Facts::of(m.is_dir(), m.is_file(), m.len(), m.modified().ok()))
+    }
 }
 
 /// What people are told when the disk says no. Their surroundings, not Magnetar's failures: nothing is reported.
@@ -255,19 +301,26 @@ pub struct Listing {
 /// Lists `relative` below `root`: folders first, then files, by `natural_cmp`, `limit` from `offset` on, out of the
 /// first `max_entries` the folder gives. Hidden entries, names that aren't text, links that lead out of the root or
 /// nowhere, and anything that is neither a file nor a folder are left out.
-pub fn list(root: &Root, relative: &Path, offset: usize, limit: usize, folders_only: bool, max_entries: usize) -> ApiResult<Listing> {
+pub fn list(
+    root: &Root,
+    relative: &Path,
+    offset: usize,
+    limit: usize,
+    folders_only: bool,
+    max_entries: usize,
+) -> ApiResult<Listing> {
     let at_root = relative.as_os_str().is_empty();
-    let dir = open(root, relative).map_err(|e| disk_error(&e, at_root))?;
+    let opened = open(root, relative).map_err(|e| disk_error(&e, at_root))?;
     let mut found: Vec<(FolderEntryKind, String)> = Vec::new();
     let mut truncated = false;
-    for entry in dir.entries().map_err(|e| disk_error(&e, at_root))? {
+    for entry in opened.dir.entries().map_err(|e| disk_error(&e, at_root))? {
         // One entry that can't be read (removed meanwhile, a permission) doesn't hide the others.
         let Ok(entry) = entry else { continue };
         let Ok(name) = entry.file_name().into_string() else { continue };
         if !browsable(OsStr::new(&name)) || hidden_on_windows(&entry) {
             continue;
         }
-        let Some(kind) = kind_of(&dir, &entry, &name) else { continue };
+        let Some(kind) = kind_of(&opened, &entry, &name) else { continue };
         if folders_only && kind == FolderEntryKind::File {
             continue;
         }
@@ -281,22 +334,17 @@ pub fn list(root: &Root, relative: &Path, offset: usize, limit: usize, folders_o
         (*a_kind == FolderEntryKind::File).cmp(&(*b_kind == FolderEntryKind::File)).then_with(|| natural_cmp(a, b))
     });
     let total = found.len();
-    let entries = found.into_iter().skip(offset).take(limit).map(|(kind, name)| describe(&dir, kind, name)).collect();
+    let entries = found.into_iter().skip(offset).take(limit).map(|(kind, name)| describe(&opened, kind, name)).collect();
     Ok(Listing { entries, total, truncated })
 }
 
-/// A folder or a file; a link counts as what it leads to, if that is inside the root.
-fn kind_of(dir: &Dir, entry: &cap_std::fs::DirEntry, name: &str) -> Option<FolderEntryKind> {
-    let mut file_type = entry.file_type().ok()?;
+/// A folder or a file, from what reading the folder told (no look at each entry), except for links.
+fn kind_of(opened: &Opened, entry: &cap_std::fs::DirEntry, name: &str) -> Option<FolderEntryKind> {
+    let file_type = entry.file_type().ok()?;
     if file_type.is_symlink() {
-        file_type = dir.metadata(name).ok()?.file_type();
-    }
-    if file_type.is_dir() {
-        Some(FolderEntryKind::Folder)
-    } else if file_type.is_file() {
-        Some(FolderEntryKind::File)
+        opened.facts(name)?.kind
     } else {
-        None
+        Facts::of(file_type.is_dir(), file_type.is_file(), 0, None).kind
     }
 }
 
@@ -313,16 +361,16 @@ fn hidden_on_windows(_: &cap_std::fs::DirEntry) -> bool {
 }
 
 /// An entry with its size and date, read only for the page shown.
-fn describe(dir: &Dir, kind: FolderEntryKind, name: String) -> FolderEntryDto {
-    let metadata = dir.metadata(&name).ok();
-    let modified = metadata
+fn describe(opened: &Opened, kind: FolderEntryKind, name: String) -> FolderEntryDto {
+    let facts = opened.facts(&name);
+    let modified = facts
         .as_ref()
-        .and_then(|m| m.modified().ok())
-        .and_then(|time| time.into_std().duration_since(UNIX_EPOCH).ok())
+        .and_then(|f| f.modified)
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
         .and_then(|since| i64::try_from(since.as_millis()).ok());
     let file = kind == FolderEntryKind::File;
     FolderEntryDto {
-        size: metadata.filter(|_| file).map(|m| m.len()),
+        size: facts.filter(|_| file).map(|f| f.size),
         modified,
         media: if file { media_kind(Path::new(&name)) } else { None },
         name,
@@ -367,22 +415,23 @@ pub async fn browse(
 /// `fs.createFolder`: makes `name` in the folder at `parent`; its path. A folder already there is fine.
 pub async fn create_folder(settings: &SettingsService, parent: String, name: String) -> ApiResult<String> {
     let roots = roots(&settings.get());
-    on_disk(move || {
-        let (root, relative) = locate(&roots, &parent)?;
-        let name = new_folder_name(&name)?;
-        let dir = open(root, &relative).map_err(|e| disk_error(&e, relative.as_os_str().is_empty()))?;
-        match dir.create_dir(name) {
-            Ok(()) => {}
-            Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-                if !dir.metadata(name).is_ok_and(|m| m.is_dir()) {
-                    return Err(ApiError::bad("Something that isn't a folder already has that name."));
-                }
+    on_disk(move || make_folder(&roots, &parent, &name)).await
+}
+
+fn make_folder(roots: &[Root], parent: &str, name: &str) -> ApiResult<String> {
+    let (root, relative) = locate(roots, parent)?;
+    let name = new_folder_name(name)?;
+    let Opened { dir, .. } = open(root, &relative).map_err(|e| disk_error(&e, relative.as_os_str().is_empty()))?;
+    match dir.create_dir(name) {
+        Ok(()) => {}
+        Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+            if !dir.metadata(name).is_ok_and(|m| m.is_dir()) {
+                return Err(ApiError::bad("Something that isn't a folder already has that name."));
             }
-            Err(error) => return Err(disk_error(&error, false)),
         }
-        Ok(display(&root.path.join(relative).join(name)))
-    })
-    .await
+        Err(error) => return Err(disk_error(&error, false)),
+    }
+    Ok(display(&root.path.join(relative).join(name)))
 }
 
 /// `fs.roots`: every root, whether it can be read now, and the free space on its disk.
@@ -462,4 +511,459 @@ pub async fn pick_folder_natively(start: Option<&str>, prompt: &str) -> Option<S
         return None;
     }
     Some(if chosen.len() > 1 { chosen.trim_end_matches('/').to_owned() } else { chosen })
+}
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+    use crate::protocol::FolderRootKind::{Added, Downloads};
+
+    /// An absolute path written with `/`, as this platform writes it (`C:\…` on Windows).
+    fn abs(path: &str) -> String {
+        if cfg!(windows) { format!("C:{}", path.replace('/', "\\")) } else { path.to_owned() }
+    }
+
+    fn root(path: &str, kind: FolderRootKind) -> Root {
+        Root { path: PathBuf::from(abs(path)), kind }
+    }
+
+    fn settings(download_folder: &str, added: &[&str]) -> AppSettings {
+        AppSettings {
+            download_folder: download_folder.into(),
+            browse_folders: added.iter().map(|f| f.to_string()).collect(),
+            ..AppSettings::default()
+        }
+    }
+
+    #[test]
+    fn the_download_folder_comes_first_and_every_root_once() {
+        let s = settings(&abs("/m/dl/"), &[&abs("/m/dl"), "relative/x", "", "  ", &abs("/m/shows/./x/.."), &abs("/m")]);
+        assert_eq!(roots(&s), [root("/m/dl", Downloads), root("/m/shows", Added), root("/m", Added)]);
+        assert_eq!(roots(&settings("", &[])), []);
+    }
+
+    #[test]
+    fn a_path_belongs_to_the_outermost_root_that_holds_it() {
+        let roots = [root("/m/dl", Downloads), root("/m", Added), root("/m/.cache/dl", Added)];
+        let found = |p: &str| locate(&roots, &abs(p)).map(|(root, relative)| (root.path.clone(), relative)).unwrap();
+        assert_eq!(found("/m/dl"), (PathBuf::from(abs("/m")), PathBuf::from("dl")));
+        assert_eq!(found("/m"), (PathBuf::from(abs("/m")), PathBuf::new()));
+        assert_eq!(found("/m/dl/Show S01/E01.mkv").1, Path::new("dl").join("Show S01").join("E01.mkv"));
+        // Below a hidden folder of the outer root, the inner root still holds it.
+        assert_eq!(found("/m/.cache/dl/x"), (PathBuf::from(abs("/m/.cache/dl")), PathBuf::from("x")));
+        // Doubled and trailing separators name the same folder.
+        assert_eq!(found("/m/a//b/").1, Path::new("a").join("b"));
+    }
+
+    #[test]
+    fn anything_but_plain_names_below_a_root_is_refused_alike() {
+        let roots = [root("/m/dl", Downloads)];
+        let absolute = [
+            "/",
+            "/m",
+            "/m/d",
+            "/m/dl-other",
+            "/m/dl/../x",
+            "/m/dl/x/../../etc",
+            "/m/dl/.ssh",
+            "/m/dl/x/.git/config",
+            "/m/dl/x\0y",
+            "/etc/passwd",
+        ];
+        let long = abs(&format!("/m/dl/{}", "a/".repeat(MAX_PATH_BYTES / 2)));
+        let requests = absolute.iter().map(|p| abs(p)).chain(["", "dl", "m/dl/x", "./x"].map(str::to_owned)).chain([long]);
+        for requested in requests {
+            let error = locate(&roots, &requested).unwrap_err();
+            assert_eq!((error.code, error.message), (ErrorCode::Forbidden, outside().message), "{requested:?}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_spellings_that_name_something_else_are_refused() {
+        let roots = [root("/dl", Downloads)];
+        for requested in [
+            r"\\?\C:\dl\x",
+            r"\\.\C:\dl\x",
+            r"\\?\GLOBALROOT\Device\HarddiskVolume1\dl\x",
+            r"C:dl\x",
+            r"\dl\x",
+            r"D:\dl\x",
+            r"C:\dl\x:secret",
+            r"C:\dl\x::$DATA",
+            r"C:\dl\NUL",
+            r"C:\dl\com1.txt",
+            r"C:\dl\x.",
+            r"C:\dl\x ",
+        ] {
+            assert!(locate(&roots, requested).is_err(), "{requested}");
+        }
+        assert_eq!(locate(&roots, "C:/dl/x").unwrap().1, PathBuf::from("x"));
+        let share = [Root { path: PathBuf::from(r"\\nas\media"), kind: Added }];
+        assert_eq!(locate(&share, r"\\nas\media\shows").unwrap().1, PathBuf::from("shows"));
+        assert!(locate(&share, r"\\nas\other\x").is_err());
+        assert_eq!(normalize(r"\\?\C:\dl\x"), Some(PathBuf::from(r"C:\dl\x")));
+        assert_eq!(normalize(r"\\?\UNC\nas\media"), Some(PathBuf::from(r"\\nas\media")));
+    }
+
+    #[test]
+    fn windows_device_stream_and_shortened_names_are_not_plain() {
+        for name in ["CON", "con", "Nul.txt", "AUX .txt", "COM1", "lpt9.log", "COM²", "CONIN$", "a:b", "a.", "a ", "..."] {
+            assert!(!windows_plain(name), "{name}");
+        }
+        for name in ["CONSOLE", "COM10", "COM0", "nul-x", "a.b", "Ünïcödé 😀", "LPT"] {
+            assert!(windows_plain(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_new_folder_name_fits_every_file_system() {
+        let accepted = ["New", "  Trimmed  ", "Ünïcödé 😀", &"a".repeat(255), &"é".repeat(127), "a.b", "x-y_z (1)"];
+        for name in accepted {
+            assert_eq!(new_folder_name(name).unwrap(), name.trim(), "{name}");
+        }
+        let refused = [
+            "",
+            "   ",
+            ".",
+            "..",
+            ".hidden",
+            "a/b",
+            r"a\b",
+            "a:b",
+            "a*",
+            "a?",
+            "a|b",
+            "<a>",
+            "\"a\"",
+            "a\0",
+            "a\nb",
+            "CON",
+            "nul.txt",
+            "a.",
+            &"a".repeat(256),
+            &"é".repeat(128),
+        ];
+        for name in refused {
+            assert_eq!(new_folder_name(name).unwrap_err().code, ErrorCode::BadRequest, "{name:?}");
+        }
+    }
+
+    #[test]
+    fn names_sort_as_people_read_them() {
+        let mut names = vec![
+            "Episode 10",
+            "episode 2",
+            "Episode 1",
+            "b",
+            "A",
+            "a",
+            "x007",
+            "x7",
+            "x10",
+            "",
+            "10",
+            "9",
+            "Ä",
+            "f100000000000000000000000",
+            "f99999999999999999999999",
+        ];
+        names.sort_by(|a, b| natural_cmp(a, b));
+        assert_eq!(
+            names,
+            [
+                "",
+                "9",
+                "10",
+                "A",
+                "a",
+                "b",
+                "Episode 1",
+                "episode 2",
+                "Episode 10",
+                "f99999999999999999999999",
+                "f100000000000000000000000",
+                "x007",
+                "x7",
+                "x10",
+                "Ä",
+            ]
+        );
+    }
+
+    #[test]
+    fn errors_never_repeat_what_the_system_said() {
+        let leaky = |kind| std::io::Error::new(kind, "/Users/someone/secret/path");
+        for kind in
+            [ErrorKind::NotFound, ErrorKind::PermissionDenied, ErrorKind::StorageFull, ErrorKind::Other, ErrorKind::TimedOut]
+        {
+            for at_root in [true, false] {
+                let error = disk_error(&leaky(kind), at_root);
+                assert!(!error.message.contains("secret"), "{kind:?}: {}", error.message);
+                assert!(!error.is_internal(), "{kind:?} is the computer's surroundings, not a fault to report");
+            }
+        }
+        assert_eq!(disk_error(&leaky(ErrorKind::PermissionDenied), false).code, ErrorCode::Forbidden);
+        assert_eq!(disk_error(&leaky(ErrorKind::NotFound), false).code, ErrorCode::NotFound);
+        assert_eq!(disk_error(&leaky(ErrorKind::StorageFull), false).message, "The disk is full.");
+        assert!(disk_error(&leaky(ErrorKind::NotFound), true).message.contains("connect it"));
+    }
+
+    fn segment() -> impl Strategy<Value = String> {
+        prop_oneof![
+            Just("..".to_owned()),
+            Just(".".to_owned()),
+            Just(String::new()),
+            Just(".hidden".to_owned()),
+            Just("dl".to_owned()),
+            Just("dl-other".to_owned()),
+            Just("m".to_owned()),
+            Just("NUL".to_owned()),
+            Just("x:y".to_owned()),
+            Just("x.".to_owned()),
+            "[a-zA-Z0-9 _-]{1,12}",
+            "\\PC{1,8}",
+        ]
+    }
+
+    proptest! {
+        /// Whatever is asked for, a found folder is a root and plain names below it, at the very place the words name.
+        #[test]
+        fn a_found_folder_is_a_root_and_plain_names_below_it(segments in prop::collection::vec(segment(), 0..8), absolute in any::<bool>()) {
+            let roots = [root("/m/dl", Downloads), root("/m/shows", Added)];
+            let joined = segments.join("/");
+            let requested = if absolute { abs(&format!("/m/{joined}")) } else { joined };
+            if let Ok((root, relative)) = locate(&roots, &requested) {
+                prop_assert!(roots.contains(root));
+                prop_assert!(relative.components().all(|c| matches!(c, Component::Normal(name) if browsable(name))));
+                prop_assert!(!segments.iter().any(|s| s == ".." || (s.starts_with('.') && s != ".")));
+                prop_assert_eq!(Path::new(&requested).components().collect::<PathBuf>(), root.path.join(&relative));
+            }
+        }
+
+        /// The paths the browser hands out lead back to where they came from.
+        #[test]
+        fn every_plain_path_below_a_root_is_found_again(names in prop::collection::vec("\\PC{1,16}", 0..6)) {
+            prop_assume!(names.iter().all(|n| !n.contains(['/', '\\']) && n.trim() == n && browsable(OsStr::new(n))));
+            let roots = [root("/m/dl", Downloads)];
+            let relative: PathBuf = names.iter().collect();
+            let requested = display(&roots[0].path.join(&relative));
+            let (root, found) = locate(&roots, &requested).unwrap();
+            prop_assert_eq!(root, &roots[0]);
+            prop_assert_eq!(found, relative);
+        }
+
+        #[test]
+        fn natural_order_is_a_total_order(
+            a in prop_oneof!["[0-9aAbB ]{0,6}", "\\PC{0,8}"],
+            b in prop_oneof!["[0-9aAbB ]{0,6}", "\\PC{0,8}"],
+            c in prop_oneof!["[0-9aAbB ]{0,6}", "\\PC{0,8}"],
+        ) {
+            prop_assert_eq!(natural_cmp(&a, &b), natural_cmp(&b, &a).reverse());
+            prop_assert_eq!(natural_cmp(&a, &b) == Ordering::Equal, a == b);
+            if natural_cmp(&a, &b).is_le() && natural_cmp(&b, &c).is_le() {
+                prop_assert!(natural_cmp(&a, &c).is_le(), "{a:?} <= {b:?} <= {c:?}");
+            }
+        }
+
+        /// Any name `new_folder_name` takes is one the browser then shows and opens.
+        #[test]
+        fn a_new_folder_can_be_browsed(name in "\\PC{0,40}") {
+            if let Ok(name) = new_folder_name(&name) {
+                prop_assert!(browsable(OsStr::new(name)) && windows_plain(name) && name.len() <= MAX_NAME_BYTES);
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    mod disk {
+        use std::os::unix::fs::symlink;
+
+        use super::*;
+
+        /// A root on disk with folders, files, hidden entries and links into it, out of it and nowhere, and a folder
+        /// outside it with a secret.
+        struct Disk {
+            _dir: tempfile::TempDir,
+            root: Root,
+            outside: PathBuf,
+        }
+
+        impl Disk {
+            fn new() -> Self {
+                let dir = tempfile::tempdir().unwrap();
+                let base = std::fs::canonicalize(dir.path()).unwrap();
+                let (path, outside) = (base.join("root"), base.join("outside"));
+                for folder in ["a", "B", "Episode 10", "Episode 2", ".hidden"] {
+                    std::fs::create_dir_all(path.join(folder)).unwrap();
+                }
+                std::fs::create_dir_all(&outside).unwrap();
+                std::fs::write(outside.join("secret.txt"), "secret").unwrap();
+                std::fs::write(path.join("a/inner.txt"), "inner").unwrap();
+                std::fs::write(path.join("A.txt"), "hello").unwrap();
+                std::fs::write(path.join("z.mkv"), [0; 10]).unwrap();
+                std::fs::write(path.join("song.mp3"), [0; 3]).unwrap();
+                std::fs::write(path.join(".env"), "TOKEN=x").unwrap();
+                symlink(path.join("a"), path.join("in")).unwrap();
+                symlink(path.join("A.txt"), path.join("A-link.txt")).unwrap();
+                symlink(&outside, path.join("out")).unwrap();
+                symlink(outside.join("secret.txt"), path.join("secret.txt")).unwrap();
+                symlink(path.join("gone"), path.join("dangling")).unwrap();
+                symlink("a", path.join("rel-in")).unwrap();
+                symlink("../outside", path.join("rel-out")).unwrap();
+                symlink("a/../../outside/secret.txt", path.join("rel-secret.txt")).unwrap();
+                Self { _dir: dir, root: Root { path, kind: Downloads }, outside }
+            }
+
+            fn list(&self, relative: &str) -> ApiResult<Listing> {
+                list(&self.root, Path::new(relative), 0, MAX_PAGE, false, MAX_ENTRIES)
+            }
+
+            fn path(&self, relative: &str) -> String {
+                display(&self.root.path.join(relative))
+            }
+        }
+
+        fn names(listing: &Listing) -> Vec<&str> {
+            listing.entries.iter().map(|e| e.name.as_str()).collect()
+        }
+
+        #[test]
+        fn folders_come_first_then_files_and_nothing_hidden_or_outside() {
+            let disk = Disk::new();
+            let listing = disk.list("").unwrap();
+            assert_eq!(
+                names(&listing),
+                ["a", "B", "Episode 2", "Episode 10", "in", "rel-in", "A-link.txt", "A.txt", "song.mp3", "z.mkv"]
+            );
+            assert_eq!((listing.total, listing.truncated), (10, false));
+            let entry = |name: &str| listing.entries.iter().find(|e| e.name == name).unwrap();
+            assert_eq!((entry("in").kind, entry("in").size), (FolderEntryKind::Folder, None));
+            assert_eq!((entry("A.txt").kind, entry("A.txt").size, entry("A.txt").media), (FolderEntryKind::File, Some(5), None));
+            assert_eq!(
+                (entry("A-link.txt").size, entry("z.mkv").media, entry("song.mp3").media),
+                (Some(5), Some("video"), Some("audio"))
+            );
+            assert!(listing.entries.iter().all(|e| e.modified.is_some_and(|m| m > 1_600_000_000_000)));
+            let folders = list(&disk.root, Path::new(""), 0, MAX_PAGE, true, MAX_ENTRIES).unwrap();
+            assert_eq!(names(&folders), ["a", "B", "Episode 2", "Episode 10", "in", "rel-in"]);
+        }
+
+        #[test]
+        fn pages_split_the_same_order() {
+            let disk = Disk::new();
+            let page = |offset, limit| {
+                let listing = list(&disk.root, Path::new(""), offset, limit, false, MAX_ENTRIES).unwrap();
+                (names(&listing).into_iter().map(str::to_owned).collect::<Vec<_>>(), listing.total)
+            };
+            assert_eq!(page(0, 1), (vec!["a".to_owned()], 10));
+            assert_eq!(page(9, 5), (vec!["z.mkv".to_owned()], 10));
+            assert_eq!(page(10, 5), (vec![], 10));
+            assert_eq!(page(usize::MAX, 5), (vec![], 10));
+            let all: Vec<String> = (0..10).flat_map(|offset| page(offset, 1).0).collect();
+            assert_eq!(all, page(0, MAX_PAGE).0);
+        }
+
+        #[test]
+        fn a_huge_folder_shows_only_the_first_entries_it_gives() {
+            let disk = Disk::new();
+            let at_most = |max| {
+                let listing = list(&disk.root, Path::new(""), 0, MAX_PAGE, false, max).unwrap();
+                (listing.entries.len(), listing.total, listing.truncated)
+            };
+            assert_eq!(at_most(3), (3, 3, true));
+            assert_eq!(at_most(9), (9, 9, true));
+            assert_eq!(at_most(10), (10, 10, false));
+            assert_eq!(at_most(0), (0, 0, true));
+        }
+
+        #[test]
+        fn links_are_followed_only_inside_the_root() {
+            let disk = Disk::new();
+            assert_eq!(names(&disk.list("in").unwrap()), ["inner.txt"]);
+            assert_eq!(names(&disk.list("rel-in").unwrap()), ["inner.txt"]);
+            for escape in ["out", "rel-out", "dangling", "secret.txt", "rel-secret.txt", "in/../out"] {
+                assert!(disk.list(escape).is_err(), "{escape}");
+            }
+            assert_eq!(disk.list("out").unwrap_err().code, ErrorCode::Forbidden);
+            assert_eq!(disk.list("rel-out").unwrap_err().code, ErrorCode::Forbidden);
+            assert_eq!(disk.list("dangling").unwrap_err().code, ErrorCode::NotFound);
+            // A folder swapped for a link out after it was found is still refused while opening.
+            let roots = [disk.root.clone()];
+            let (root, relative) = locate(&roots, &disk.path("B")).unwrap();
+            std::fs::remove_dir(disk.root.path.join("B")).unwrap();
+            symlink(&disk.outside, disk.root.path.join("B")).unwrap();
+            assert_eq!(list(root, &relative, 0, MAX_PAGE, false, MAX_ENTRIES).unwrap_err().code, ErrorCode::Forbidden);
+        }
+
+        #[test]
+        fn what_is_not_a_readable_folder_says_why() {
+            let disk = Disk::new();
+            assert_eq!(disk.list("A.txt").unwrap_err().message, "That is a file, not a folder.");
+            assert_eq!(disk.list("never").unwrap_err().message, "This folder isn't there anymore.");
+            let missing = Root { path: disk.root.path.join("unplugged"), kind: Added };
+            let error = list(&missing, Path::new(""), 0, 1, false, MAX_ENTRIES).unwrap_err();
+            assert_eq!(error.code, ErrorCode::NotFound);
+            assert!(error.message.contains("connect it"));
+        }
+
+        #[test]
+        fn a_folder_magnetar_may_not_read_is_forbidden() {
+            use std::os::unix::fs::PermissionsExt;
+            // Root reads everything; the check means nothing there.
+            if unsafe { libc::geteuid() } == 0 {
+                return;
+            }
+            let disk = Disk::new();
+            let locked = disk.root.path.join("B");
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let error = disk.list("B").unwrap_err();
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert_eq!(error.code, ErrorCode::Forbidden);
+            assert!(error.message.starts_with("Magnetar isn't allowed"));
+        }
+
+        #[test]
+        fn long_and_unicode_names_arrive_whole() {
+            let disk = Disk::new();
+            let long = format!("{}a", "é".repeat(127));
+            assert_eq!(long.len(), MAX_NAME_BYTES);
+            for name in [long.as_str(), "Ünïcödé 😀 – 第1話.mkv", "a b  c"] {
+                std::fs::write(disk.root.path.join("B").join(name), "x").unwrap();
+            }
+            let mut listed = names(&disk.list("B").unwrap()).into_iter().map(str::to_owned).collect::<Vec<_>>();
+            listed.sort();
+            let mut expected = vec![long.clone(), "Ünïcödé 😀 – 第1話.mkv".to_owned(), "a b  c".to_owned()];
+            expected.sort();
+            assert_eq!(listed, expected);
+        }
+
+        #[cfg(target_os = "linux")]
+        #[test]
+        fn names_that_are_not_text_are_left_out() {
+            use std::os::unix::ffi::OsStrExt;
+            let disk = Disk::new();
+            std::fs::write(disk.root.path.join("B").join(OsStr::from_bytes(b"bad\xff.mkv")), "x").unwrap();
+            std::fs::write(disk.root.path.join("B/good.mkv"), "x").unwrap();
+            assert_eq!(names(&disk.list("B").unwrap()), ["good.mkv"]);
+        }
+
+        #[test]
+        fn folders_are_made_only_inside_a_root() {
+            let disk = Disk::new();
+            let roots = [disk.root.clone()];
+            let made = make_folder(&roots, &disk.path("a"), " Season 1 ").unwrap();
+            assert_eq!(made, disk.path("a/Season 1"));
+            assert!(disk.root.path.join("a/Season 1").is_dir());
+            assert_eq!(make_folder(&roots, &disk.path("a"), "Season 1").unwrap(), made, "a folder already there is fine");
+            assert_eq!(make_folder(&roots, &disk.path(""), "A.txt").unwrap_err().code, ErrorCode::BadRequest);
+            assert_eq!(make_folder(&roots, &disk.path(""), "../escape").unwrap_err().code, ErrorCode::BadRequest);
+            assert_eq!(make_folder(&roots, &disk.path("never"), "x").unwrap_err().code, ErrorCode::NotFound);
+            assert_eq!(make_folder(&roots, &display(&disk.outside), "x").unwrap_err().code, ErrorCode::Forbidden);
+            assert_eq!(make_folder(&roots, &disk.path("out"), "x").unwrap_err().code, ErrorCode::Forbidden);
+            assert_eq!(std::fs::read_dir(&disk.outside).unwrap().count(), 1, "nothing was made outside");
+        }
+    }
 }
