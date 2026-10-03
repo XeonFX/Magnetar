@@ -44,6 +44,9 @@ const PING_EVERY: Duration = Duration::from_secs(30);
 const MAX_SESSIONS: usize = 16;
 const CLOUD_TIMEOUT: Duration = Duration::from_secs(15);
 const LINK_TTL: Duration = Duration::from_secs(10 * 60);
+/// How long past a pairing's end the Worker still hands over an approval nobody collected: polls that could not reach it
+/// keep trying until then, so an approval whose answer was lost is still collected.
+const PAIRING_HANDOFF: Duration = Duration::from_secs(10 * 60);
 /// How often expired links are looked for at most: the timer stops while the computer sleeps, the expiry doesn't.
 const SWEEP_EVERY: Duration = Duration::from_secs(15);
 
@@ -102,6 +105,8 @@ pub struct RemoteService {
     keys: BrowserKeyStore,
     events: EventBus,
     http: reqwest::Client,
+    /// magnetar.codefusion.cc, or the Worker `MAGNETAR_CLOUD_URL` names.
+    cloud_url: String,
     app: Weak<App>,
     state: Mutex<State>,
     stop: CancellationToken,
@@ -141,7 +146,18 @@ impl RemoteService {
         app: Weak<App>,
     ) -> Self {
         let pushes = PushSubscriptions::new(keys.db());
-        Self { pushes, kv, secrets, keys, events, http, app, state: Mutex::default(), stop: CancellationToken::new() }
+        Self {
+            pushes,
+            kv,
+            secrets,
+            keys,
+            events,
+            http,
+            cloud_url: CLOUD_URL.clone(),
+            app,
+            state: Mutex::default(),
+            stop: CancellationToken::new(),
+        }
     }
 
     /// Sends a notification to every linked browser that asked for them, sealed for each. The Worker
@@ -209,7 +225,7 @@ impl RemoteService {
         let device_id = self.device_id();
         let state = self.state();
         RemoteStatusDto {
-            cloud_url: CLOUD_URL.clone(),
+            cloud_url: self.cloud_url.clone(),
             paired: device_id.is_some(),
             browsers: if device_id.is_some() { self.keys.list() } else { Vec::new() },
             device_id,
@@ -261,7 +277,7 @@ impl RemoteService {
         let (key_id, key) = self.keys.mint("Browser used for pairing", false, None)?;
         let url = format!(
             "{}/pair/{}#i={}&k={}",
-            *CLOUD_URL,
+            self.cloud_url,
             encode_uri_component(&started.pairing_id),
             encode_uri_component(&key_id),
             to_base64url(&key)
@@ -300,45 +316,63 @@ impl RemoteService {
                 _ = cancel.cancelled() => return,
                 _ = tokio::time::sleep(POLL) => {}
             }
-            let Some((pairing_id, poll_secret, key_id, expires_at)) = self
-                .state()
-                .pairing
-                .as_ref()
-                .map(|p| (p.pairing_id.clone(), p.poll_secret.clone(), p.key_id.clone(), p.expires_at.clone()))
-            else {
-                return;
-            };
-            let body = json!({ "pairingId": pairing_id, "pollSecret": poll_secret });
-            match self.cloud("POST", "/api/pair/poll", Some(body), None).await.map(serde_json::from_value::<PairPollResponse>) {
-                _ if cancel.is_cancelled() => return,
-                Ok(Ok(PairPollResponse::Approved { device_id, device_token, device_name, account_email })) => {
-                    self.kv.set("remote.deviceId", Some(&device_id));
-                    // The name the account gave it, made unique there.
-                    if let Some(name) = &device_name {
-                        self.kv.set("remote.deviceName", Some(name));
-                    }
-                    self.kv.set("remote.accountEmail", Some(&account_email));
-                    self.secrets.set(SecretName::DeviceToken, &device_token);
-                    self.keys.activate(&key_id);
-                    self.state().pairing = None;
-                    tracing::info!("Paired with {account_email} as device {device_id}");
-                    self.connect();
-                    self.changed();
-                    return;
-                }
-                Ok(Ok(PairPollResponse::Expired)) => {
-                    self.expire_pairing();
-                    return;
-                }
-                Ok(Ok(PairPollResponse::Pending)) => {}
-                Ok(Err(error)) => tracing::warn!("Pairing poll returned an unexpected answer: {error}"),
-                Err(error) => tracing::warn!("Pairing poll failed: {error}"),
-            }
-            if parse_iso(&expires_at).is_some_and(|expires| expires < chrono::Utc::now()) {
-                self.expire_pairing();
+            if self.poll_pairing_once(&cancel).await {
                 return;
             }
         }
+    }
+
+    /// Asks the Worker once whether the pending pairing was approved, and finishes it if so. True once there is
+    /// nothing left to poll for: paired, expired, or cancelled.
+    async fn poll_pairing_once(self: &Arc<Self>, cancel: &CancellationToken) -> bool {
+        let Some((pairing_id, poll_secret, key_id, expires_at)) = self
+            .state()
+            .pairing
+            .as_ref()
+            .map(|p| (p.pairing_id.clone(), p.poll_secret.clone(), p.key_id.clone(), p.expires_at.clone()))
+        else {
+            return true;
+        };
+        let body = json!({ "pairingId": pairing_id, "pollSecret": poll_secret });
+        let answer = self.cloud("POST", "/api/pair/poll", Some(body.clone()), None).await;
+        match answer.map(serde_json::from_value::<PairPollResponse>) {
+            _ if cancel.is_cancelled() => return true,
+            Ok(Ok(PairPollResponse::Approved { device_id, device_token, device_name, account_email })) => {
+                self.kv.set("remote.deviceId", Some(&device_id));
+                // The name the account gave it, made unique there.
+                if let Some(name) = &device_name {
+                    self.kv.set("remote.deviceName", Some(name));
+                }
+                self.kv.set("remote.accountEmail", Some(&account_email));
+                self.secrets.set(SecretName::DeviceToken, &device_token);
+                self.keys.activate(&key_id);
+                self.state().pairing = None;
+                tracing::info!("Paired with {account_email} as device {device_id}");
+                self.connect();
+                self.changed();
+                // The Worker hands the token to every poll until told it arrived; unconfirmed, it drops it later.
+                if let Err(error) = self.cloud("POST", "/api/pair/ack", Some(body), None).await {
+                    tracing::warn!("Could not confirm the pairing to the server: {error}");
+                }
+                return true;
+            }
+            Ok(Ok(PairPollResponse::Expired)) => {
+                self.expire_pairing();
+                return true;
+            }
+            Ok(Ok(PairPollResponse::Pending)) => {}
+            Ok(Err(error)) => tracing::warn!("Pairing poll returned an unexpected answer: {error}"),
+            Err(error) => tracing::warn!("Pairing poll failed: {error}"),
+        }
+        // The Worker says when the pairing expired. Unreachable, it may have been approved with the answer lost:
+        // keep asking for as long as it would still hand the approval over.
+        let handoff_ended = parse_iso(&expires_at)
+            .and_then(|expires| chrono::Duration::from_std(PAIRING_HANDOFF).ok().map(|handoff| expires + handoff))
+            .is_some_and(|ended| ended < chrono::Utc::now());
+        if handoff_ended {
+            self.expire_pairing();
+        }
+        handoff_ended
     }
 
     fn expire_pairing(&self) {
@@ -382,7 +416,7 @@ impl RemoteService {
         let (key_id, key) = self.keys.mint(label, true, Some(&expires_at))?;
         self.changed();
         self.sweep_links();
-        let url = format!("{}/link#{}", *CLOUD_URL, link_fragment(&device_id, &key_id, &key));
+        let url = format!("{}/link#{}", self.cloud_url, link_fragment(&device_id, &key_id, &key));
         Ok(json!({ "url": url, "keyId": key_id, "expiresIn": LINK_TTL.as_secs() }))
     }
 
@@ -516,7 +550,7 @@ impl RemoteService {
     }
 
     async fn relay_session(self: &Arc<Self>, token: &str, cancel: &CancellationToken) -> Closed {
-        let url = format!("{}/api/device/connect", CLOUD_URL.replacen("http", "ws", 1));
+        let url = format!("{}/api/device/connect", self.cloud_url.replacen("http", "ws", 1));
         let Ok(mut request) = url.into_client_request() else { return Closed::Dropped { opened: false } };
         // A header, so the token never appears in a URL or a log line.
         let headers = request.headers_mut();
@@ -702,14 +736,14 @@ impl RemoteService {
     /// A call to the Worker's HTTP API. Errors carry the Worker's message, fit to show.
     async fn cloud(&self, method: &str, path: &str, body: Option<Value>, bearer: Option<&str>) -> ApiResult<Value> {
         let method = reqwest::Method::from_bytes(method.as_bytes()).expect("HTTP method");
-        let mut request = self.http.request(method, format!("{}{path}", *CLOUD_URL)).timeout(CLOUD_TIMEOUT);
+        let mut request = self.http.request(method, format!("{}{path}", self.cloud_url)).timeout(CLOUD_TIMEOUT);
         if let Some(body) = body {
             request = request.json(&body);
         }
         if let Some(token) = bearer {
             request = request.bearer_auth(token);
         }
-        let host = url::Url::parse(&CLOUD_URL).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
+        let host = url::Url::parse(&self.cloud_url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
         let response =
             request.send().await.map_err(|_| ApiError::bad(format!("Could not reach {host}. Check the internet connection.")))?;
         let status = response.status();
@@ -755,21 +789,187 @@ mod tests {
     use crate::events::Event;
     use tokio::sync::broadcast;
 
-    fn linked_service() -> (Arc<RemoteService>, tempfile::TempDir) {
+    /// A service talking to the Worker at `cloud_url`, linked to no account.
+    fn service_at(cloud_url: &str) -> (RemoteService, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let db = Db::open(&dir.path().join("magnetar.db")).unwrap();
         let sealer = Arc::new(SecretBox::open(&dir.path().join("secret.key")).unwrap());
-        let kv = KeyValue(db.clone());
-        kv.set("remote.deviceId", Some("dev_1"));
-        let service = RemoteService::new(
-            kv,
+        let mut service = RemoteService::new(
+            KeyValue(db.clone()),
             Arc::new(SecretStore::new(db.clone(), sealer.clone())),
             BrowserKeyStore::new(db, sealer),
             EventBus::default(),
             reqwest::Client::new(),
             Weak::new(),
         );
+        service.cloud_url = cloud_url.to_owned();
+        (service, dir)
+    }
+
+    fn linked_service() -> (Arc<RemoteService>, tempfile::TempDir) {
+        let (service, dir) = service_at(&CLOUD_URL);
+        service.kv.set("remote.deviceId", Some("dev_1"));
         (Arc::new(service), dir)
+    }
+
+    /// A Worker that answers each pairing poll with the next of `polls` (status, body), pending once they run out, and
+    /// each confirmation with `ack_status`. `requests` lists what reached it: the path and the body.
+    #[derive(Clone)]
+    struct FakeCloud {
+        url: String,
+        requests: Arc<Mutex<Vec<(String, Value)>>>,
+        polls: Arc<Mutex<std::collections::VecDeque<(u16, Value)>>>,
+        ack_status: u16,
+    }
+
+    async fn fake_cloud(polls: Vec<(u16, Value)>, ack_status: u16) -> FakeCloud {
+        use axum::extract::{Json, State};
+        use axum::http::{StatusCode, Uri};
+
+        async fn answer(State(cloud): State<FakeCloud>, uri: Uri, Json(body): Json<Value>) -> (StatusCode, Json<Value>) {
+            cloud.requests.lock().unwrap().push((uri.path().to_owned(), body));
+            let (status, answer) = if uri.path() == "/api/pair/ack" {
+                (cloud.ack_status, json!({ "ok": true }))
+            } else {
+                cloud.polls.lock().unwrap().pop_front().unwrap_or((200, json!({ "state": "pending" })))
+            };
+            (StatusCode::from_u16(status).unwrap(), Json(answer))
+        }
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let cloud = FakeCloud {
+            url: format!("http://{}", listener.local_addr().unwrap()),
+            requests: Arc::default(),
+            polls: Arc::new(Mutex::new(polls.into())),
+            ack_status,
+        };
+        let app = axum::Router::new()
+            .route("/api/pair/poll", axum::routing::post(answer))
+            .route("/api/pair/ack", axum::routing::post(answer))
+            .with_state(cloud.clone());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        cloud
+    }
+
+    /// A pairing waiting for approval that ends `minutes` from now; the key of the browser that will approve it.
+    fn pending_pairing(service: &RemoteService, minutes: i64) -> String {
+        let (key_id, _) = service.keys.mint("Browser used for pairing", false, None).unwrap();
+        service.state().pairing = Some(Pairing {
+            pairing_id: "p_1".into(),
+            poll_secret: "secret".into(),
+            key_id: key_id.clone(),
+            url: String::new(),
+            expires_at: iso(chrono::Utc::now() + chrono::Duration::minutes(minutes)),
+            cancel: CancellationToken::new(),
+        });
+        key_id
+    }
+
+    fn approved() -> (u16, Value) {
+        let body = json!({
+            "state": "approved", "deviceId": "d_1", "deviceToken": "token-1", "deviceName": "Studio-Mac-2", "accountEmail": "ada@example.com",
+        });
+        (200, body)
+    }
+
+    /// What the app sends to poll for, and to confirm, the pairing `pending_pairing` made.
+    fn poll_body() -> Value {
+        json!({ "pairingId": "p_1", "pollSecret": "secret" })
+    }
+
+    #[tokio::test]
+    async fn an_approval_whose_answer_was_lost_is_collected_on_the_next_poll_and_confirmed() {
+        let cloud = fake_cloud(vec![(502, json!({ "error": "Bad gateway" })), approved()], 200).await;
+        let (service, _dir) = service_at(&cloud.url);
+        let service = Arc::new(service);
+        let key_id = pending_pairing(&service, 5);
+        let cancel = CancellationToken::new();
+
+        assert!(!service.poll_pairing_once(&cancel).await, "a failed poll keeps the pairing");
+        assert!(service.state().pairing.is_some());
+        assert_eq!(service.device_id(), None);
+
+        assert!(service.poll_pairing_once(&cancel).await);
+        assert_eq!(service.device_id().as_deref(), Some("d_1"));
+        assert_eq!(service.secrets.get(SecretName::DeviceToken), "token-1");
+        assert_eq!(service.device_name(), "Studio-Mac-2");
+        assert_eq!(service.kv.get("remote.accountEmail").as_deref(), Some("ada@example.com"));
+        assert!(service.keys.lookup(&key_id).is_some(), "the approving browser's key works now");
+        assert!(service.state().pairing.is_none());
+        assert_eq!(service.state().last_error, None);
+        let requests = cloud.requests.lock().unwrap().clone();
+        assert_eq!(
+            requests,
+            [
+                ("/api/pair/poll".to_owned(), poll_body()),
+                ("/api/pair/poll".to_owned(), poll_body()),
+                ("/api/pair/ack".to_owned(), poll_body())
+            ]
+        );
+        service.stop();
+    }
+
+    #[tokio::test]
+    async fn a_worker_that_cannot_take_the_confirmation_still_pairs() {
+        // A Worker from before /api/pair/ack answers 404; the approval stands.
+        let cloud = fake_cloud(vec![approved()], 404).await;
+        let (service, _dir) = service_at(&cloud.url);
+        let service = Arc::new(service);
+        pending_pairing(&service, 5);
+
+        assert!(service.poll_pairing_once(&CancellationToken::new()).await);
+        assert_eq!(service.device_id().as_deref(), Some("d_1"));
+        assert_eq!(service.secrets.get(SecretName::DeviceToken), "token-1");
+        assert_eq!(service.state().last_error, None);
+        assert_eq!(cloud.requests.lock().unwrap().last().map(|r| r.0.clone()).as_deref(), Some("/api/pair/ack"));
+        service.stop();
+    }
+
+    #[tokio::test]
+    async fn past_its_end_a_pairing_is_polled_until_the_handoff_ends_unless_the_worker_says_it_expired() {
+        let cloud = fake_cloud(vec![(200, json!({ "state": "pending" })), (502, json!({})), (503, json!({}))], 200).await;
+        let (service, _dir) = service_at(&cloud.url);
+        let service = Arc::new(service);
+        let cancel = CancellationToken::new();
+        // Ended a minute ago by this computer's clock: the Worker's says pending, then it cannot be reached.
+        pending_pairing(&service, -1);
+        assert!(!service.poll_pairing_once(&cancel).await);
+        assert!(!service.poll_pairing_once(&cancel).await);
+        assert!(service.state().pairing.is_some());
+        assert_eq!(service.state().last_error, None);
+
+        // Unreachable until the handoff ended: given up.
+        pending_pairing(&service, -11);
+        assert!(service.poll_pairing_once(&cancel).await);
+        assert!(service.state().pairing.is_none());
+        assert_eq!(service.state().last_error.as_deref(), Some("The pairing link expired. Start again."));
+        assert_eq!(service.device_id(), None);
+    }
+
+    #[tokio::test]
+    async fn the_worker_saying_expired_ends_the_pairing_at_once() {
+        let cloud = fake_cloud(vec![(200, json!({ "state": "expired" }))], 200).await;
+        let (service, _dir) = service_at(&cloud.url);
+        let service = Arc::new(service);
+        let key_id = pending_pairing(&service, 5);
+        assert!(service.poll_pairing_once(&CancellationToken::new()).await);
+        assert!(service.state().pairing.is_none());
+        assert_eq!(service.state().last_error.as_deref(), Some("The pairing link expired. Start again."));
+        assert!(service.keys.lookup(&key_id).is_none());
+        assert_eq!(cloud.requests.lock().unwrap().len(), 1, "nothing to confirm");
+    }
+
+    #[tokio::test]
+    async fn an_approval_arriving_after_the_pairing_was_cancelled_is_not_taken() {
+        let cloud = fake_cloud(vec![approved()], 200).await;
+        let (service, _dir) = service_at(&cloud.url);
+        let service = Arc::new(service);
+        pending_pairing(&service, 5);
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        assert!(service.poll_pairing_once(&cancel).await);
+        assert_eq!(service.device_id(), None);
+        assert!(service.secrets.get(SecretName::DeviceToken).is_empty());
     }
 
     /// The browsers the last `remote.changed` waiting on `events` listed, as (key id, last used).
