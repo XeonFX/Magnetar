@@ -271,6 +271,12 @@ pub struct WatchDto {
     pub download_id: Option<i64>,
 }
 
+/// The longest a series rule or a watch waits between checks: a week. Also as `MAX_CHECK_INTERVAL_MINUTES`
+/// in `packages/protocol/src/model.ts`.
+pub const MAX_CHECK_INTERVAL_MINUTES: i64 = 10_080;
+/// The shortest a watch waits between checks; a series rule may check every minute.
+pub const MIN_WATCH_INTERVAL_MINUTES: i64 = 15;
+
 fn default_watch_interval() -> i64 {
     360
 }
@@ -334,7 +340,7 @@ impl WatchInput {
         if self.query.chars().count() < 2 || self.query.chars().count() > 200 {
             problems.push("query: 2 to 200 characters.");
         }
-        if !(15..=10_080).contains(&self.check_interval_minutes) {
+        if !(MIN_WATCH_INTERVAL_MINUTES..=MAX_CHECK_INTERVAL_MINUTES).contains(&self.check_interval_minutes) {
             problems.push("checkIntervalMinutes must be 15 minutes to a week.");
         }
         quality_problems(
@@ -743,8 +749,8 @@ impl SeriesTaskInput {
         if self.start_episode < 1 || self.end_episode.is_some_and(|e| e < 1) {
             problems.push("Episodes are numbered from 1.");
         }
-        if self.check_interval_minutes < 1 {
-            problems.push("checkIntervalMinutes must be at least 1.");
+        if !(1..=MAX_CHECK_INTERVAL_MINUTES).contains(&self.check_interval_minutes) {
+            problems.push("checkIntervalMinutes must be 1 minute to a week (10080).");
         }
         if self.end_episode.is_some_and(|end| end < self.start_episode) {
             problems.push("endEpisode cannot be before startEpisode.");

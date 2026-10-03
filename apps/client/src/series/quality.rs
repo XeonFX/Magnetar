@@ -49,7 +49,7 @@ impl QualityRule {
         Self {
             resolution: resolution.map(str::to_owned),
             min_seeders: min_seeders.clamp(1, u32::MAX as i64) as u32,
-            max_size_bytes: max_size_mb.map(|mb| mb.max(1) as u64 * 1024 * 1024),
+            max_size_bytes: max_size_mb.map(|mb| (mb.max(1) as u64).saturating_mul(1024 * 1024)),
             prefer: words(prefer_words),
             exclude: words(exclude_words),
         }
