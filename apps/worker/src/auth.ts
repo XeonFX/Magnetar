@@ -48,7 +48,7 @@ async function renewSession(request: Request, env: Env, session: { tokenHash: st
   return serializeCookie(SESSION_COOKIE, getCookie(request, SESSION_COOKIE)!, { maxAge: SESSION_DAYS * 86_400 })
 }
 
-export async function requireUser(request: Request, env: Env): Promise<UserRow> {
+export async function requireUser(request: Request, env: Env): Promise<UserRow & { tokenHash: string }> {
   const user = await currentUser(request, env)
   if (!user) throw new HttpError(401, 'Sign in first')
   return user
