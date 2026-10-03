@@ -184,7 +184,8 @@ builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the ser
   device over the encrypted channel (`push_subscriptions`, removed with the browser's key). Each notification is
   sealed on the device for that subscription (RFC 8291, `protocol/webpush.rs`) and posted to the Worker, which adds
   the VAPID signature and forwards the ciphertext to the push service (`@codefusion-cc/web-push`). Both only send to the browsers' push
-  services. A 404 or 410 drops the subscription.
+  services. A 404 or 410 drops the subscription. The device's sealing, the Worker package's and a browser's
+  decryption are all held to `packages/protocol/src/webpush-vector.json`.
 - **Adding .torrent files from the dashboard**: a call may be at most 1 MiB on either transport (the relay's frame,
   `MAX_RELAY_FRAME`; the app's own socket takes the same), and the dashboard refuses a larger one before sending it.
   A .torrent file of up to 512 KiB goes whole in `downloads.start`; a larger one, up to the 4 MiB limit, in 512 KiB
@@ -196,7 +197,12 @@ builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the ser
   Services; Windows registers per-user classes, Linux a desktop entry set with xdg-mime (`system/handlers.rs`). The
   app, or the running instance, opens the dashboard at `/?add=…` or `/?torrent=…`, which fills in the add dialog.
 - **Storage**: SQLite (`rusqlite`, bundled) with numbered migrations (`db.rs`); settings as one JSON row, so a new
-  setting needs no migration; secrets sealed with AES-256-GCM under a key file beside the database.
+  setting needs no migration; secrets sealed with AES-256-GCM under a key file beside the database. A change is
+  saved before anyone is told of it: settings and the secrets a patch carries go in one transaction, one change at
+  a time, and a failed write is an error for the caller with nothing changed.
+- **One instance**: the app holds an exclusive OS lock on `instance.lock` in the data folder while it runs
+  (`instance.rs`), released by the system however the process ends; `instance.json` says where its dashboard is. A
+  second start opens that dashboard, and never takes the lock from a live process.
 - **Server**: `axum` on localhost (IPv4 and IPv6) serves the dashboard, its WebSocket, the agent REST API
   (`http/rest.rs`) and a stateless MCP endpoint (`http/mcp.rs`, JSON-RPC over Streamable HTTP). `magnetar mcp`
   (`bridge.rs`) is the same server on stdio for agents that only start local servers: it reads the running app's
