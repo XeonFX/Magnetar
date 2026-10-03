@@ -136,4 +136,24 @@ mod tests {
         assert!(encrypt(&SubscriptionKeys { p256dh: &p256dh, auth: "AAAA" }, b"x").is_err());
         assert!(encrypt(&SubscriptionKeys { p256dh: "not base64!", auth: &good_auth }, b"x").is_err());
     }
+
+    /// The vector the browser side's tests decrypt with `@codefusion-cc/web-push/testing` and the TypeScript sender
+    /// must produce too (`apps/web/src/lib/webPushVector.test.ts`): both implementations are held to this one file.
+    /// Made by this code from fixed keys and salt; replace it only together with that test.
+    #[test]
+    fn matches_the_shared_vector() {
+        let vector: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../packages/protocol/src/webpush-vector.json")).unwrap();
+        let field = |name: &str| vector[name].as_str().unwrap();
+        let bytes = |name: &str| from_base64url(field(name)).unwrap();
+        let receiver = SecretKey::from_slice(&bytes("receiverPrivateKey")).unwrap();
+        let sender = SecretKey::from_slice(&bytes("senderPrivateKey")).unwrap();
+        assert_eq!(to_base64url(receiver.public_key().to_encoded_point(false).as_bytes()), field("p256dh"));
+        assert_eq!(to_base64url(sender.public_key().to_encoded_point(false).as_bytes()), field("senderPublicKey"));
+        let keys = SubscriptionKeys { p256dh: field("p256dh"), auth: field("auth") };
+        let salt: [u8; 16] = bytes("salt").try_into().unwrap();
+        let body = encrypt_with(&keys, field("plaintext").as_bytes(), &sender, &salt).unwrap();
+        assert_eq!(to_base64url(&body), field("body"));
+        assert_eq!(decrypt(&body, &receiver, &bytes("auth")), field("plaintext").as_bytes());
+    }
 }

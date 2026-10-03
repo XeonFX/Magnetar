@@ -2,6 +2,7 @@
 //! Errors are also handed to the error sink (telemetry), except those the computer's surroundings caused
 //! (`SURROUNDINGS`), which are logged as warnings. Other crates only log warnings and up.
 
+use std::cell::Cell;
 use std::fmt::Write as _;
 use std::fs::{File, OpenOptions};
 use std::io::{self, ErrorKind, Write as _};
@@ -132,7 +133,12 @@ impl<S: Subscriber> Layer<S> for FileLayer {
         if level == Level::ERROR
             && let Some(sink) = ERROR_SINK.get()
         {
-            sink(scope, &message);
+            // An error while reporting one is not reported in turn.
+            thread_local!(static REPORTING: Cell<bool> = const { Cell::new(false) });
+            if !REPORTING.replace(true) {
+                sink(scope, &message);
+                REPORTING.set(false);
+            }
         }
     }
 }

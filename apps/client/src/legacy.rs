@@ -11,7 +11,7 @@ use crate::db::{Db, KeyValue};
 use crate::error::{ApiError, ApiResult};
 use crate::protocol::encoding::{iso, now_iso};
 use crate::protocol::{LegacyImportResultDto, LegacyImportStatusDto, PostDownloadAction};
-use crate::settings::SettingsService;
+use crate::settings::{AppSettings, SettingsService, saving_failed};
 
 const IMPORTED_KEY: &str = "legacy.importedAt";
 
@@ -93,39 +93,61 @@ impl LegacyImporter {
                 if !text("TelegramBotToken").is_empty() {
                     secrets_to_reenter.push("Telegram bot token".to_owned());
                 }
-                let mut s = self.settings.get();
-                s.download_folder = text("DownloadFolder");
-                s.notify_on_start = flag("NotifyOnStart");
-                s.notify_on_complete = flag("NotifyOnComplete");
-                s.email_enabled = flag("EmailEnabled");
-                s.smtp_host = text("SmtpHost");
-                s.smtp_port = opt::<i64>(row, "SmtpPort").and_then(|p| u16::try_from(p).ok()).unwrap_or(587);
-                s.smtp_use_ssl = flag("SmtpUseSsl");
-                s.smtp_username = text("SmtpUsername");
-                s.email_from = text("EmailFrom");
-                s.email_to = text("EmailTo");
-                s.desktop_enabled = flag("DesktopEnabled");
-                s.push_enabled = flag("PushEnabled");
-                s.ntfy_server = text("NtfyServer");
-                s.ntfy_topic = text("NtfyTopic");
-                s.telegram_enabled = flag("TelegramEnabled");
-                s.telegram_chat_id = text("TelegramChatId");
-                s.post_download_action =
+                let download_folder = text("DownloadFolder");
+                let notify_on_start = flag("NotifyOnStart");
+                let notify_on_complete = flag("NotifyOnComplete");
+                let email_enabled = flag("EmailEnabled");
+                let smtp_host = text("SmtpHost");
+                let smtp_port = opt::<i64>(row, "SmtpPort").and_then(|p| u16::try_from(p).ok()).unwrap_or(587);
+                let smtp_use_ssl = flag("SmtpUseSsl");
+                let smtp_username = text("SmtpUsername");
+                let email_from = text("EmailFrom");
+                let email_to = text("EmailTo");
+                let desktop_enabled = flag("DesktopEnabled");
+                let push_enabled = flag("PushEnabled");
+                let ntfy_server = text("NtfyServer");
+                let ntfy_topic = text("NtfyTopic");
+                let telegram_enabled = flag("TelegramEnabled");
+                let telegram_chat_id = text("TelegramChatId");
+                let post_download_action =
                     if flag("PostDownloadAction") { PostDownloadAction::KeepSeeding } else { PostDownloadAction::StopSeeding };
-                s.disabled_providers = text("DisabledProviders")
+                let disabled_providers = text("DisabledProviders")
                     .split(',')
                     .map(|p| p.trim().to_owned())
                     .filter(|p| !p.is_empty() && p != "PTE")
-                    .collect();
-                s.language = Some(text("Language")).filter(|l| !l.is_empty()).unwrap_or_else(|| "en".into());
-                s.agent_api_enabled = flag("AgentApiEnabled");
-                s.agent_api_allow_remote = flag("AgentApiAllowRemote");
-                Ok(s)
+                    .collect::<Vec<_>>();
+                let language = Some(text("Language")).filter(|l| !l.is_empty()).unwrap_or_else(|| "en".into());
+                let agent_api_enabled = flag("AgentApiEnabled");
+                let agent_api_allow_remote = flag("AgentApiAllowRemote");
+                // Applied to the settings as they are when saved, so nothing changed meanwhile is lost.
+                Ok(move |s: &mut AppSettings| {
+                    s.download_folder = download_folder;
+                    s.notify_on_start = notify_on_start;
+                    s.notify_on_complete = notify_on_complete;
+                    s.email_enabled = email_enabled;
+                    s.smtp_host = smtp_host;
+                    s.smtp_port = smtp_port;
+                    s.smtp_use_ssl = smtp_use_ssl;
+                    s.smtp_username = smtp_username;
+                    s.email_from = email_from;
+                    s.email_to = email_to;
+                    s.desktop_enabled = desktop_enabled;
+                    s.push_enabled = push_enabled;
+                    s.ntfy_server = ntfy_server;
+                    s.ntfy_topic = ntfy_topic;
+                    s.telegram_enabled = telegram_enabled;
+                    s.telegram_chat_id = telegram_chat_id;
+                    s.post_download_action = post_download_action;
+                    s.disabled_providers = disabled_providers;
+                    s.language = language;
+                    s.agent_api_enabled = agent_api_enabled;
+                    s.agent_api_allow_remote = agent_api_allow_remote;
+                })
             })
             .optional()?;
         let settings_found = legacy_settings.is_some();
         if let Some(imported) = legacy_settings {
-            self.settings.update(move |s| *s = imported);
+            self.settings.update(imported).map_err(saving_failed)?;
         }
 
         let mut db = self.db.lock();

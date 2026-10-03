@@ -54,13 +54,17 @@ fn main() -> anyhow::Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     let handle = runtime.handle().clone();
     let (app, server, lock) = runtime.block_on(async {
-        let lock = match instance::acquire(paths.lock.clone()).await {
+        let lock = match instance::acquire(&paths).await? {
             Acquired::Owner(lock) => lock,
             Acquired::Running(dashboard_url) => {
                 // Already running: show that instance's dashboard instead of starting a second engine.
                 open_in_browser(&opened.as_ref().map_or_else(|| dashboard_url.clone(), |o| o.dashboard_link(&dashboard_url)));
                 tracing::info!("Another instance is running; opened its dashboard");
                 std::process::exit(0);
+            }
+            Acquired::Held => {
+                tracing::error!("Another Magnetar holds {} and does not answer; not starting a second one", paths.lock.display());
+                std::process::exit(1);
             }
         };
         let app = App::new(AppOptions::production(paths.clone()))?;

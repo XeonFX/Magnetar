@@ -135,7 +135,7 @@ impl RpcSession {
                 Ok(result) => json!({ "id": id, "result": result }),
                 Err(error) => {
                     if error.is_internal() {
-                        tracing::error!("{method} failed: {}", error.message);
+                        crate::log_failure!(&error, "{method} failed: {}", error.message);
                     }
                     json!({ "id": id, "error": { "code": error.code, "message": error.message } })
                 }
@@ -546,7 +546,7 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
             parse::<NoParams>(params)?;
             ok(app.settings.to_dto())
         }
-        "settings.update" => ok(app.settings.apply_patch(parse::<SettingsPatch>(params)?.validated()?)),
+        "settings.update" => ok(app.settings.apply_patch(parse::<SettingsPatch>(params)?.validated()?)?),
         "notifications.test" => {
             parse::<NoParams>(params)?;
             let event = NotificationEvent {
@@ -640,11 +640,11 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
         }
         "agent.set" => {
             let AgentSet { enabled, allow_remote } = parse(params)?;
-            ok(app.agent.set(enabled, allow_remote))
+            ok(app.agent.set(enabled, allow_remote)?)
         }
         "agent.regenerateToken" => {
             parse::<NoParams>(params)?;
-            ok(app.agent.regenerate())
+            ok(app.agent.regenerate()?)
         }
         "agent.clients" => {
             parse::<NoParams>(params)?;
@@ -657,7 +657,7 @@ async fn dispatch(app: &Arc<App>, session: &Arc<SessionInner>, method: &str, par
             let mcp_url = app.agent.status().mcp_url;
             system::agents::connect(client, &mcp_url, &env).await?;
             // An agent that can reach the server but not use it would only fail later.
-            let agent = app.agent.set(Some(true), None);
+            let agent = app.agent.set(Some(true), None)?;
             let clients = describe_agents(mcp_url, env).await;
             ok(AgentConnectResultDto { agent, clients })
         }

@@ -16,7 +16,8 @@ See docs/ARCHITECTURE.md before touching the relay, pairing or either `e2e` impl
   imports with their `.ts` extension.
 - The wire contract lives twice: zod schemas and types in `packages/protocol/src/{model,rpc}.ts`, serde types in
   `apps/client/src/protocol/model.rs`. Change both together. The E2E handshake is also implemented twice and both
-  must keep matching `packages/protocol/src/e2e-vector.json`.
+  must keep matching `packages/protocol/src/e2e-vector.json`; Web Push encryption, Rust and the TypeScript package,
+  `packages/protocol/src/webpush-vector.json`.
 - A new RPC method: schema and result type in `packages/protocol/src/rpc.ts`, handler in `apps/client/src/rpc.rs`.
   Anything an agent can do also goes through `apps/client/src/api/actions.rs` so REST, MCP and the dashboard agree.
 - New settings: add to `AppSettings` in `apps/client/src/settings.rs` (settings are one JSON row, no migration),

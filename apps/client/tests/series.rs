@@ -64,7 +64,7 @@ fn app(aired: i64) -> (Arc<App>, Arc<Releases>, tempfile::TempDir) {
         show_lookups: false,
     })
     .unwrap();
-    app.settings.update(|s| s.download_folder = dir.path().join("dl").display().to_string());
+    app.settings.update(|s| s.download_folder = dir.path().join("dl").display().to_string()).unwrap();
     (app, source, dir)
 }
 
@@ -144,7 +144,7 @@ async fn a_release_nobody_seeds_is_replaced_by_the_next_best() {
         .unwrap()
     };
     let app = make();
-    app.settings.update(|s| s.download_folder = dir.path().join("dl").display().to_string());
+    app.settings.update(|s| s.download_folder = dir.path().join("dl").display().to_string()).unwrap();
     let task = app
         .actions
         .create_series(SeriesTaskInput { resolution: Some("1080p".into()), ..input(StartFrom::Episode) })

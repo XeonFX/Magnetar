@@ -318,7 +318,9 @@ impl RemoteService {
                         self.kv.set("remote.deviceName", Some(name));
                     }
                     self.kv.set("remote.accountEmail", Some(&account_email));
-                    self.secrets.set(SecretName::DeviceToken, &device_token);
+                    if let Err(error) = self.secrets.set(SecretName::DeviceToken, &device_token) {
+                        crate::log_failure!(&error, "Could not save the device token: {error}");
+                    }
                     self.keys.activate(&key_id);
                     self.state().pairing = None;
                     tracing::info!("Paired with {account_email} as device {device_id}");
@@ -446,7 +448,10 @@ impl RemoteService {
     fn forget(&self) {
         self.kv.set("remote.deviceId", None);
         self.kv.set("remote.accountEmail", None);
-        self.secrets.set(SecretName::DeviceToken, "");
+        // Without its id the token is never used again; a copy left in a database that refused the write is harmless.
+        if let Err(error) = self.secrets.set(SecretName::DeviceToken, "") {
+            crate::log_failure!(&error, "Could not delete the device token: {error}");
+        }
         self.keys.revoke_all();
         {
             let mut state = self.state();
