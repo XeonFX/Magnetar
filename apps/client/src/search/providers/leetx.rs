@@ -134,11 +134,13 @@ pub fn parse_date(text: &str) -> Option<DateTime<Utc>> {
 /// Magnet (rebuilt from its hash with our own trackers) and description from a detail page.
 pub fn parse_detail_page(html: &str, title: &str) -> TorrentDetails {
     let document = Html::parse_document(html);
-    let hash =
-        document.select(&selector("a[href^='magnet:']")).next().and_then(|a| a.value().attr("href")).and_then(extract_info_hash);
+    let magnet = (document.select(&selector("a[href^='magnet:']")).next())
+        .and_then(|a| a.value().attr("href"))
+        .and_then(extract_info_hash)
+        .and_then(|hash| build_magnet(&hash, title, &DEFAULT_TRACKERS));
     TorrentDetails {
-        magnet_uri: hash.as_deref().map(|h| build_magnet(h, title, &DEFAULT_TRACKERS)),
         description: document.select(&selector("#description")).next().and_then(|d| html_to_plain_text(&d.inner_html())),
-        info_hash: hash,
+        info_hash: magnet.as_ref().map(|m| m.info_hash.clone()),
+        magnet_uri: magnet.map(|m| m.uri),
     }
 }
