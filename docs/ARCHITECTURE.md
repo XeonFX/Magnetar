@@ -213,5 +213,6 @@ builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the ser
   the app swapped. The next start resumes exactly those, or this one does if the swap fails.
 - **Telemetry**: logged errors are scrubbed (quoted text, paths, URLs, addresses, hashes, tokens) and sent, at most
   10 an hour, to the Worker, which forwards them to CodeFusion Console. Off in development; switchable in Settings.
-  Errors that describe the computer's surroundings rather than a fault (a dropped or refused connection, a full or
-  read-only disk: `log::describes_environment`) are logged as warnings and not sent.
+  Errors that describe the computer's surroundings rather than a fault (a dropped or refused connection, a full disk,
+  a read-only one under librqbit's writes: `log::describes_environment`; every I/O error a message names must be one)
+  are logged as warnings and not sent.

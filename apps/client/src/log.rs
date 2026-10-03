@@ -115,7 +115,8 @@ impl<S: Subscriber> Layer<S> for FileLayer {
         event.record(&mut fields);
         let scope = scope(meta.target());
         let message = format!("{}{}", fields.message, fields.rest);
-        let level = if level == Level::ERROR && describes_environment(&message) { Level::WARN } else { level };
+        let origin = if target.starts_with(OWN_CRATE) { Origin::Magnetar } else { Origin::Library };
+        let level = if level == Level::ERROR && describes_environment(&message, origin) { Level::WARN } else { level };
         let line = format!(
             "{} {:<5} [{scope}] {message}",
             chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
@@ -135,26 +136,41 @@ impl<S: Subscriber> Layer<S> for FileLayer {
     }
 }
 
-/// An error describes the computer's surroundings, not a fault in Magnetar: a peer or the network dropping a
-/// connection, a full or read-only disk. The user may want to know; there is nothing for us to fix.
-pub fn describes_environment(message: &str) -> bool {
-    describes_environment_on(message, Os::CURRENT)
+/// Whose code logged an error.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Origin {
+    Magnetar,
+    /// Another crate: librqbit, writing where the user pointed it and talking to whoever it found.
+    Library,
 }
 
-/// The `std::io::ErrorKind`s of such errors, as an I/O error's `{:?}` spells them.
-const ENVIRONMENT_KINDS: [&str; 11] = [
-    "ConnectionReset",
-    "ConnectionAborted",
-    "ConnectionRefused",
-    "BrokenPipe",
-    "TimedOut",
-    "NetworkUnreachable",
-    "HostUnreachable",
-    "NetworkDown",
-    "StorageFull",
-    "QuotaExceeded",
-    "ReadOnlyFilesystem",
-];
+/// An error describes the computer's surroundings, not a fault in Magnetar: a peer or the network dropping a
+/// connection, a full disk, or a read-only one under a library's writes. The user may want to know; there is nothing
+/// for us to fix. Every I/O error the message names must be one: a fault with a dropped connection in its chain stays
+/// a fault. Magnetar's own writes go where Magnetar chose (an update over an app on a read-only volume), so a
+/// read-only file system there stays a fault too.
+pub fn describes_environment(message: &str, origin: Origin) -> bool {
+    describes_environment_on(message, Os::CURRENT, origin)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Cause {
+    Connection,
+    FullDisk,
+    ReadOnly,
+    Fault,
+}
+
+/// What an `std::io::ErrorKind`, as an I/O error's `{:?}` spells it, says about the cause.
+fn kind_cause(kind: &str) -> Cause {
+    match kind {
+        "ConnectionReset" | "ConnectionAborted" | "ConnectionRefused" | "BrokenPipe" | "TimedOut" | "NetworkUnreachable"
+        | "HostUnreachable" | "NetworkDown" => Cause::Connection,
+        "StorageFull" | "QuotaExceeded" => Cause::FullDisk,
+        "ReadOnlyFilesystem" => Cause::ReadOnly,
+        _ => Cause::Fault,
+    }
+}
 
 /// SQLite's words for a full disk, and rusqlite's when SQLite gave none (`SQLITE_FULL` is 13).
 const DISK_FULL_TEXT: [&str; 2] = ["database or disk is full", "Error code 13: "];
@@ -175,34 +191,71 @@ impl Os {
         Os::Linux
     };
 
-    /// The OS error codes of `ENVIRONMENT_KINDS`. The same number means something else on another system (28 is
-    /// ENOSPC on Unix, ERROR_OUT_OF_PAPER on Windows), and the client only reads its own.
-    fn environment_codes(self) -> &'static [i64] {
+    /// The OS error codes that are not faults. The same number means something else on another system (28 is ENOSPC
+    /// on Unix, ERROR_OUT_OF_PAPER on Windows), and the client only reads its own.
+    fn codes(self) -> &'static [(i64, Cause)] {
+        use Cause::{Connection as C, FullDisk as F, ReadOnly as R};
         match self {
-            // ECONNRESET, ECONNABORTED, ECONNREFUSED, EPIPE, ETIMEDOUT, ENETUNREACH, EHOSTUNREACH, ENETDOWN, ENOSPC,
-            // EDQUOT, EROFS
-            Os::Linux => &[104, 103, 111, 32, 110, 101, 113, 100, 28, 122, 30],
-            Os::Mac => &[54, 53, 61, 32, 60, 51, 65, 50, 28, 69, 30],
+            // ECONNRESET, ECONNABORTED, ECONNREFUSED, EPIPE, ETIMEDOUT, ENETUNREACH, EHOSTUNREACH, ENETDOWN; ENOSPC,
+            // EDQUOT; EROFS
+            Os::Linux => {
+                &[(104, C), (103, C), (111, C), (32, C), (110, C), (101, C), (113, C), (100, C), (28, F), (122, F), (30, R)]
+            }
+            Os::Mac => &[(54, C), (53, C), (61, C), (32, C), (60, C), (51, C), (65, C), (50, C), (28, F), (69, F), (30, R)],
             // WSAECONNRESET, WSAECONNABORTED, WSAECONNREFUSED, WSAETIMEDOUT, WSAENETUNREACH, WSAEHOSTUNREACH,
-            // WSAENETDOWN, ERROR_BROKEN_PIPE, ERROR_NO_DATA (a pipe being closed), ERROR_DISK_FULL,
-            // ERROR_HANDLE_DISK_FULL, ERROR_DISK_QUOTA_EXCEEDED, ERROR_WRITE_PROTECT
-            Os::Windows => &[10054, 10053, 10061, 10060, 10051, 10065, 10050, 109, 232, 112, 39, 1295, 19],
+            // WSAENETDOWN, ERROR_NETWORK_UNREACHABLE, ERROR_HOST_UNREACHABLE, ERROR_BROKEN_PIPE, ERROR_NO_DATA (a pipe
+            // being closed); ERROR_DISK_FULL, ERROR_HANDLE_DISK_FULL, ERROR_DISK_QUOTA_EXCEEDED; ERROR_WRITE_PROTECT
+            Os::Windows => &[
+                (10054, C),
+                (10053, C),
+                (10061, C),
+                (10060, C),
+                (10051, C),
+                (10065, C),
+                (10050, C),
+                (1231, C),
+                (1232, C),
+                (109, C),
+                (232, C),
+                (112, F),
+                (39, F),
+                (1295, F),
+                (19, R),
+            ],
         }
+    }
+
+    fn code_cause(self, code: &str) -> Cause {
+        let code: Option<i64> = code.parse().ok();
+        self.codes().iter().find(|(known, _)| Some(*known) == code).map_or(Cause::Fault, |(_, cause)| *cause)
     }
 }
 
-/// An I/O error as `{}` (`… (os error 28)`) and `{:?}` (`Os { code: 10054, kind: ConnectionReset, … }`,
-/// `Kind(TimedOut)`, `Custom { kind: StorageFull, … }`) write it.
-static IO_ERROR: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?:\(os error |\bOs \{ code: )(-?\d+)|\b(?:kind: |Kind\()(\w+)").unwrap());
+/// An I/O error as `{:?}` (`Os { code: 10054, kind: ConnectionReset, … }`, where the kind decides; `Kind(TimedOut)`,
+/// `Custom { kind: StorageFull, … }`) and `{}` (`… (os error 28)`) write it.
+static IO_ERROR: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?-u:\b)Os \{ code: -?[0-9]+, kind: ([A-Za-z]+)|\(os error (-?[0-9]+)|(?-u:\b)(?:kind: |Kind\()([A-Za-z]+)")
+        .unwrap()
+});
 
-fn describes_environment_on(message: &str, os: Os) -> bool {
-    DISK_FULL_TEXT.iter().any(|text| message.contains(text))
-        || IO_ERROR.captures_iter(message).any(|caps| match (caps.get(1), caps.get(2)) {
-            (Some(code), _) => code.as_str().parse().is_ok_and(|code: i64| os.environment_codes().contains(&code)),
-            (_, Some(kind)) => ENVIRONMENT_KINDS.contains(&kind.as_str()),
-            _ => false,
+fn describes_environment_on(message: &str, os: Os, origin: Origin) -> bool {
+    let causes = IO_ERROR
+        .captures_iter(message)
+        .map(|caps| match (caps.get(1).or(caps.get(3)), caps.get(2)) {
+            (Some(kind), _) => kind_cause(kind.as_str()),
+            (_, Some(code)) => os.code_cause(code.as_str()),
+            _ => Cause::Fault,
         })
+        .chain(DISK_FULL_TEXT.iter().filter(|text| message.contains(*text)).map(|_| Cause::FullDisk));
+    let mut any = false;
+    for cause in causes {
+        match cause {
+            Cause::Connection | Cause::FullDisk => any = true,
+            Cause::ReadOnly if origin == Origin::Library => any = true,
+            _ => return false,
+        }
+    }
+    any
 }
 
 /// Installs the logger. `logs` is None in tests, which only log to the console.
@@ -221,12 +274,13 @@ mod tests {
 
     use proptest::prelude::*;
 
-    use super::{FileLayer, Os, describes_environment_on};
+    use super::{FileLayer, Origin, Os, describes_environment_on};
 
     const ALL: [Os; 3] = [Os::Linux, Os::Mac, Os::Windows];
 
+    /// As another crate's error.
     fn environment(message: &str, os: Os) -> bool {
-        describes_environment_on(message, os)
+        describes_environment_on(message, os, Origin::Library)
     }
 
     #[test]
@@ -248,7 +302,7 @@ mod tests {
 
     #[test]
     fn dropped_connections_on_each_system() {
-        let cases: [(&str, Os); 14] = [
+        let cases: [(&str, Os); 16] = [
             ("Connection reset by peer (os error 104)", Os::Linux),
             ("Connection reset by peer (os error 54)", Os::Mac),
             ("An existing connection was forcibly closed by the remote host. (os error 10054)", Os::Windows),
@@ -262,6 +316,8 @@ mod tests {
             ("No route to host (os error 65)", Os::Mac),
             ("A socket operation was attempted to an unreachable host. (os error 10065)", Os::Windows),
             ("A socket operation was attempted to an unreachable network. (os error 10051)", Os::Windows),
+            ("The remote network is not reachable by the transport. (os error 1231)", Os::Windows),
+            ("The remote system is not reachable by the transport. (os error 1232)", Os::Windows),
             ("Connection refused (os error 111)", Os::Linux),
         ];
         for (message, os) in cases {
@@ -300,6 +356,41 @@ mod tests {
                 assert!(environment(message, os), "{message}");
             }
         }
+    }
+
+    #[test]
+    fn a_read_only_disk_under_our_own_writes_is_a_fault() {
+        for (message, os) in [
+            ("Update install failed: Read-only file system (os error 30)", Os::Mac),
+            ("Update install failed: The media is write protected. (os error 19)", Os::Windows),
+            ("Custom { kind: ReadOnlyFilesystem, error: \"x\" }", Os::Linux),
+        ] {
+            assert!(environment(message, os), "{message}");
+            assert!(!describes_environment_on(message, os, Origin::Magnetar), "{message}");
+        }
+        // Our own full disk and dropped connections are still the surroundings.
+        assert!(describes_environment_on("Could not save downloads: database or disk is full", Os::Mac, Origin::Magnetar));
+        assert!(describes_environment_on("No space left on device (os error 28)", Os::Linux, Origin::Magnetar));
+        assert!(describes_environment_on(
+            "Update download failed: Connection reset by peer (os error 54)",
+            Os::Mac,
+            Origin::Magnetar
+        ));
+    }
+
+    #[test]
+    fn every_io_error_named_must_be_the_surroundings() {
+        // A fault whose chain also mentions a dropped connection or a full disk stays a fault.
+        assert!(!environment(
+            "rename failed: Invalid cross-device link (os error 18); cleanup: Broken pipe (os error 32)",
+            Os::Linux
+        ));
+        assert!(!environment("Broken pipe (os error 32), then No such file or directory (os error 2)", Os::Mac));
+        assert!(!environment("database or disk is full; Os { code: 2, kind: NotFound, message: \"x\" }", Os::Windows));
+        // Several that all are, are.
+        assert!(environment("send failed: Broken pipe (os error 32); retry: Connection reset by peer (os error 104)", Os::Linux));
+        // The kind of the debug form decides, whatever its code.
+        assert!(environment("Os { code: 10054, kind: ConnectionReset, message: \"x\" }", Os::Mac));
     }
 
     #[test]
@@ -356,7 +447,7 @@ mod tests {
             os in prop::sample::select(ALL.to_vec()),
             pick in any::<prop::sample::Index>(),
         ) {
-            let code = *pick.get(os.environment_codes());
+            let (code, _) = *pick.get(os.codes());
             let message = format!("{context}: {context} (os error {code})");
             prop_assert!(environment(&message, os));
         }
@@ -368,7 +459,7 @@ mod tests {
         }
     }
 
-    /// What the error sink was handed, from every test of this module (the sink can be set once).
+    /// What the error sink was handed (the sink can be set once per process).
     static REPORTED: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
 
     #[test]
@@ -383,6 +474,8 @@ mod tests {
             tracing::error!(target: "magnetar::downloads::manager", "Could not save downloads: database or disk is full");
             tracing::error!(target: "librqbit_core::spawn_utils", "session finished with error: invalid bencode at 7");
             tracing::error!(target: "magnetar::settings", "Could not save settings: no such table: settings");
+            tracing::error!(target: "librqbit::session", "error writing piece: Read-only file system (os error 30)");
+            tracing::error!(target: "magnetar::updates", "Update install failed: Read-only file system (os error 30)");
         });
 
         let reported: Vec<_> = REPORTED.lock().unwrap().clone();
@@ -391,14 +484,15 @@ mod tests {
             [
                 ("librqbit_core".to_owned(), "session finished with error: invalid bencode at 7".to_owned()),
                 ("settings".to_owned(), "Could not save settings: no such table: settings".to_owned()),
+                ("updates".to_owned(), "Update install failed: Read-only file system (os error 30)".to_owned()),
             ]
         );
-        let log = std::fs::read_dir(dir.path())
-            .unwrap()
-            .map(|e| std::fs::read_to_string(e.unwrap().path()).unwrap())
-            .collect::<String>();
+        // Sorted, so a run across midnight UTC (two daily files) still reads the lines in order.
+        let mut files: Vec<_> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().path()).collect();
+        files.sort();
+        let log = files.iter().map(|path| std::fs::read_to_string(path).unwrap()).collect::<String>();
         let levels: Vec<_> = log.lines().map(|line| line.split_whitespace().nth(1).unwrap()).collect();
-        assert_eq!(levels, ["WARN", "WARN", "WARN", "ERROR", "ERROR"], "{log}");
+        assert_eq!(levels, ["WARN", "WARN", "WARN", "ERROR", "ERROR", "WARN", "ERROR"], "{log}");
         assert!(log.contains("[librqbit_dht] error dumping DHT"), "{log}");
         assert!(log.contains("filename=\"/tmp/dht.json\""), "{log}");
     }
