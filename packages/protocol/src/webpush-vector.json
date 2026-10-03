@@ -1,0 +1,10 @@
+{
+  "receiverPrivateKey": "TRCqhbx8DQB08HIosO3TQc3rguUn1pgAe45lZudp66I",
+  "p256dh": "BN9S8Z_mvuDTUZohEAl_xQTTasYSGQrbsrWGIhVZ-YRnGuhse6nj3DGDhS21oFRlT_1LztKKj1Yd74im7OPVfbM",
+  "auth": "J-WLAAoSptNQPYXMuzOU-A",
+  "senderPrivateKey": "YPDl-2WHQJ0lMLuwyy7szjKUlNo1-3kC749hPGAESfk",
+  "senderPublicKey": "BO9wafpwvjGZcRYpZ-SCLbLSMJs70jctBJkMfeKDmYmV6rLDIw8SC5FAQfrJCoLYX3kSwaYYt9_cW67xMbAuRrM",
+  "salt": "SAVEPxJ-YUFzUusiaaFnoQ",
+  "plaintext": "{\"title\":\"Download finished\",\"body\":\"Ünïcødé ✓ 🎉\",\"kind\":\"completed\",\"url\":\"/my-mac\"}",
+  "body": "SAVEPxJ-YUFzUusiaaFnoQAAEABBBO9wafpwvjGZcRYpZ-SCLbLSMJs70jctBJkMfeKDmYmV6rLDIw8SC5FAQfrJCoLYX3kSwaYYt9_cW67xMbAuRrO4M1275dWAfbV7Ol5t-Y9BIuH3GwSXsK7WBpQRhGr7RxiTQJCHPeCPom4YAG-VK7g-24a36GqSgQRdlDRMEtwjgOp-UjJRZxAzKqj1u_PKAAQ1_Oz_Hh2GHcOFJ-flBV2uVr2XxTOuF3_YwzaNmMY"
+}
