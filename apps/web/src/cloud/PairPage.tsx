@@ -1,4 +1,4 @@
-import type { PairingInfoDto } from '@magnetar/protocol/cloud'
+import type { PairApproveResponse, PairingInfoDto } from '@magnetar/protocol/cloud'
 import { base64UrlToBytes } from '@codefusion-cc/workers-crypto'
 import { Check, Laptop, Link2, ShieldCheck } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -6,7 +6,7 @@ import { Navigate, useNavigate, useParams } from 'react-router'
 import { cloud } from '../lib/cloudApi.ts'
 import { errorMessage } from '../lib/errors.ts'
 import { useT } from '../lib/i18n.tsx'
-import { clearParkedKey, parkKey, parkedKey, saveDeviceKey } from '../lib/keyStore.ts'
+import { adoptParkedKey, parkKey, parkedKey } from '../lib/keyStore.ts'
 import { useAccount } from './CloudApp.tsx'
 import { CloudFrame } from './CloudFrame.tsx'
 import { devicePath } from './devicePaths.ts'
@@ -40,6 +40,8 @@ export function PairPage() {
   const [info, setInfo] = useState<PairingInfoDto | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Approved, but the key not stored yet: trying again stores it rather than approving a second time.
+  const [approved, setApproved] = useState<PairApproveResponse | null>(null)
 
   useEffect(() => {
     if (!account || !captured) return
@@ -52,11 +54,10 @@ export function PairPage() {
     setBusy(true)
     setError(null)
     try {
-      const { deviceId, deviceName } = await cloud.approvePairing(pairingId)
-      const parked = parkedKey('pair', pairingId)
-      if (parked) await saveDeviceKey(deviceId, parked.keyId, parked.key)
-      clearParkedKey()
-      navigate(devicePath(deviceName), { replace: true })
+      const pairing = approved ?? await cloud.approvePairing(pairingId)
+      setApproved(pairing)
+      await adoptParkedKey('pair', pairingId, pairing.deviceId)
+      navigate(devicePath(pairing.deviceName), { replace: true })
     } catch (e) {
       setError(errorMessage(e))
       setBusy(false)
