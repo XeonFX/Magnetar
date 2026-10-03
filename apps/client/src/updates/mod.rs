@@ -598,12 +598,8 @@ impl UpdateService {
 /// `name` if it is a bare file name, the same on every system: no folders, `..`, drive or other punctuation.
 fn plain_file_name(name: &str) -> Option<&str> {
     // Windows' device names stay devices whatever the extension: `NUL.exe` is the null device.
-    let stem = name.split('.').next().unwrap_or_default().to_ascii_uppercase();
-    let device = ["CON", "PRN", "AUX", "NUL"].contains(&stem.as_str())
-        || (stem.len() == 4 && (stem.starts_with("COM") || stem.starts_with("LPT")) && stem.as_bytes()[3].is_ascii_digit());
     let plain = !name.is_empty()
-        && !name.ends_with('.')
-        && !device
+        && crate::system::folders::windows_plain(name)
         && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._+-".contains(&b));
     plain.then_some(name)
 }

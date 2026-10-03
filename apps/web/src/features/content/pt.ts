@@ -141,6 +141,17 @@ export const content: FeaturesContent = {
             'A partir de um telemóvel ou de outro navegador, até quatro vídeos em simultâneo',
           ],
         },
+        browse: {
+          title: 'As suas transferências, pasta a pasta',
+          gain: 'Veja o que chegou onde, reproduza-o ou escolha uma nova pasta de transferência, no computador ou no telemóvel.',
+          text: 'Ficheiros mostra a pasta de transferência e qualquer pasta adicionada no computador que executa o Magnetar: primeiro as pastas, depois os ficheiros, com tamanho e data. Os ficheiros de uma transferência podem ser reproduzidos ou abertos nos seus detalhes.',
+          points: [
+            'Ordenados como se leem os nomes: o episódio 2 antes do 10',
+            'Crie uma pasta ou use a que está no ecrã como pasta de transferência',
+            'Pelo site só se veem estas pastas, pelo mesmo canal cifrado; ficheiros ocultos e ligações que saem delas ficam de fora',
+            'As pastas só se adicionam no próprio computador, nunca a partir de outro dispositivo',
+          ],
+        },
         speed: {
           title: 'Limites que acompanham o seu dia',
           gain: 'Transferências que não ocupam a ligação toda enquanto trabalha, e velocidade máxima à noite.',

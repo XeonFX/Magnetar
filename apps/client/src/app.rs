@@ -58,8 +58,10 @@ pub struct App {
     pub downloads: Arc<DownloadManager>,
     pub series: Arc<SeriesStore>,
     pub monitor: Arc<SeriesMonitor>,
-    /// For the dashboard.
+    /// For the dashboard on this computer.
     pub actions: Actions,
+    /// For dashboards through the relay: the folders they choose stay inside the ones they may browse.
+    pub remote_actions: Actions,
     /// For REST and MCP: rate limited and confined to the download folder.
     pub agent_actions: Actions,
     pub updates: Arc<UpdateService>,
@@ -109,6 +111,7 @@ impl App {
             caller: Caller::User,
         };
         let agent_actions = actions.as_caller(Caller::Agent);
+        let remote_actions = actions.as_caller(Caller::Remote);
         let updates =
             Arc::new(UpdateService::new(events.clone(), notifications.clone(), downloads.clone(), http.clone(), kv.clone()));
         let agent = AgentAccess::new(settings.clone(), secrets.clone(), paths.clone());
@@ -134,6 +137,7 @@ impl App {
                 series,
                 monitor,
                 actions,
+                remote_actions,
                 agent_actions,
                 updates,
                 agent,

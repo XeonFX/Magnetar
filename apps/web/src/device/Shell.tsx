@@ -1,4 +1,4 @@
-import { Check, ChevronsUpDown, CloudOff, Download, ExternalLink, Loader, Search, Settings, ShieldAlert, Tv, WifiOff } from 'lucide-react'
+import { Check, ChevronsUpDown, CloudOff, Download, ExternalLink, FolderOpen, Loader, Search, Settings, ShieldAlert, Tv, WifiOff } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet } from 'react-router'
 import { useT } from '../lib/i18n.tsx'
@@ -31,6 +31,7 @@ export function Shell({ headerStart, headerEnd, deviceMenu }: { headerStart?: Re
     { to: basePath || '/', end: true, icon: Download, label: t('nav.downloads'), badge: active },
     { to: searchLink, end: false, icon: Search, label: t('nav.search') },
     { to: `${basePath}/series`, end: false, icon: Tv, label: t('nav.series') },
+    { to: `${basePath}/files`, end: false, icon: FolderOpen, label: t('nav.files') },
     { to: `${basePath}/settings`, end: false, icon: Settings, label: t('nav.settings') },
   ]
 
@@ -69,7 +70,7 @@ export function Shell({ headerStart, headerEnd, deviceMenu }: { headerStart?: Re
           {connectionState.status === 'open' || info ? <Outlet /> : <Loading />}
         </main>
         <nav aria-label={t('nav.menu')}
-          className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-base-300 bg-base-100/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
+          className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-base-300 bg-base-100/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
           {nav.map(item => (
             <NavLink key={item.to} to={item.to} end={item.end}
               className={({ isActive: current }) => `relative flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium ${current ? 'text-primary' : 'muted'}`}>
