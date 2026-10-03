@@ -1,7 +1,9 @@
 import { CircleAlert } from 'lucide-react'
 import { useEffect } from 'react'
+import { fileBrowserNotice } from '../../lib/buildVersion.ts'
 import { isWithin, separatorOf } from '../../lib/folderPaths.ts'
 import { useT } from '../../lib/i18n.tsx'
+import { BUILD } from '../../lib/updates.ts'
 import { Loading } from '../../ui/Loading.tsx'
 import { useDevice } from '../DeviceContext.tsx'
 import { FolderPanel, RootList, useRoots } from './files.tsx'
@@ -12,7 +14,7 @@ import { FolderPanel, RootList, useRoots } from './files.tsx'
  */
 export function Chooser({ start, path, onPath }: { start: string; path: string | null | undefined; onPath: (path: string | null) => void }) {
   const t = useT()
-  const { connection, deviceName } = useDevice()
+  const { connection, info } = useDevice()
   const { supported, roots, error, setRoots } = useRoots()
   useEffect(() => {
     if (path !== undefined || !roots) return
@@ -23,7 +25,7 @@ export function Chooser({ start, path, onPath }: { start: string; path: string |
   if (!supported) {
     return (
       <p className="flex items-start gap-2 text-sm"><CircleAlert size={16} className="mt-0.5 shrink-0 text-warning" aria-hidden />
-        {t(connection.kind === 'local' ? 'files.updateLocal' : 'files.updateRemote', deviceName)}</p>
+        {t(connection.kind === 'local' ? 'files.updateLocal' : fileBrowserNotice(info?.version ?? '', BUILD.version), info?.version ?? '')}</p>
     )
   }
   if (error && !roots) return <p role="alert" className="text-sm text-error">{error}</p>

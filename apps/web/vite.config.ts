@@ -1,10 +1,12 @@
 import { buildIdentity, privateSourceMaps, versionFile } from '@codefusion-cc/console/vite'
 import { prePaintTheme } from '@codefusion-cc/theme/vite'
 import { serviceWorker } from '@codefusion-cc/web-push/vite'
+import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
+import { websiteVersion } from './src/lib/buildVersion.ts'
 import { themeConfig } from './src/ui/themeConfig.ts'
 
 /**
@@ -12,9 +14,18 @@ import { themeConfig } from './src/ui/themeConfig.ts'
  * MAGNETAR_CLIENT_PORT) or to the Worker (port 8790); MAGNETAR_WEB_TARGET picks which one Vite proxies to.
  */
 const repo = join(import.meta.dirname, '../..')
-// The packaging script names the version it builds; a plain build (the Worker's deploy) takes the repo's.
+// The packaging script names the version it builds; a plain build (the Worker's deploy) takes the repo's, as a
+// development build unless this commit is the one the release tag names.
 const build = buildIdentity(repo)
-process.env.VITE_APP_VERSION ??= build.version
+function tagsAtCommit(): string[] {
+  const tag = process.env.GITHUB_REF_TYPE === 'tag' && process.env.GITHUB_REF_NAME ? [process.env.GITHUB_REF_NAME] : []
+  try {
+    return [...tag, ...execFileSync('git', ['tag', '--points-at', 'HEAD'], { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split('\n')]
+  } catch {
+    return tag
+  }
+}
+process.env.VITE_APP_VERSION ??= websiteVersion(build.version, tagsAtCommit())
 
 const target = process.env.MAGNETAR_WEB_TARGET === 'cloud' ? 'http://localhost:8790' : `http://localhost:${process.env.MAGNETAR_CLIENT_PORT ?? 47820}`
 

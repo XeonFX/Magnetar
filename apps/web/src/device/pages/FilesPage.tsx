@@ -2,8 +2,10 @@ import type { FolderEntryDto, FolderPageDto, FolderRootDto } from '@magnetar/pro
 import { CircleAlert, Download, FolderSearch } from 'lucide-react'
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
+import { fileBrowserNotice } from '../../lib/buildVersion.ts'
 import { baseName, samePath } from '../../lib/folderPaths.ts'
 import { useT } from '../../lib/i18n.tsx'
+import { BUILD } from '../../lib/updates.ts'
 import { PageHeader } from '../../ui/controls.tsx'
 import { Empty } from '../../ui/Empty.tsx'
 import { Loading } from '../../ui/Loading.tsx'
@@ -28,7 +30,7 @@ export function FilesPage() {
   const t = useT()
   const navigate = useNavigate()
   const location = useLocation()
-  const { info, deviceName, connection, settings } = useDevice()
+  const { info, connection, settings } = useDevice()
   const { supported, roots, error, reload, setRoots } = useRoots()
   const path = (location.state as FilesLocation | null)?.path ?? null
   const open = (next: string | null) => navigate(location.pathname, { state: next === null ? null : { path: next } satisfies FilesLocation })
@@ -39,7 +41,7 @@ export function FilesPage() {
       <>
         <PageHeader title={t('files.title')} />
         <Empty icon={<FolderSearch size={40} className="text-primary" />} title={t('files.updateTitle')}
-          text={t(connection.kind === 'local' ? 'files.updateLocal' : 'files.updateRemote', deviceName)} />
+          text={t(connection.kind === 'local' ? 'files.updateLocal' : fileBrowserNotice(info?.version ?? '', BUILD.version), info?.version ?? '')} />
       </>
     )
   }
