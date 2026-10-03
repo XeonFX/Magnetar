@@ -38,7 +38,7 @@ Design and security are in [ARCHITECTURE.md](ARCHITECTURE.md), deploy and signin
 
 ## Gotchas
 
-- The contract exists twice (zod in `packages/protocol`, serde in `apps/client/src/protocol`) the E2E handshake and the error scrubber twice; change both and keep the vector files passing.
+- The contract exists twice (zod in `packages/protocol`, serde in `apps/client/src/protocol`), the E2E handshake and the error scrubber twice; change both and keep the vector files passing.
 - Never share one `CARGO_TARGET_DIR` between worktrees. Dev ports: app 47820, Vite 5173, Worker 8790.
 - Test runs of the app need `MAGNETAR_DATA_DIRECTORY` and `MAGNETAR_DOWNLOAD_FOLDER`, or they touch the real folders.
 - Never delete torrent files through librqbit; use `downloads::engine::delete_files`.
