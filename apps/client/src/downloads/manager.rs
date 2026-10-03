@@ -321,14 +321,12 @@ impl DownloadManager {
                 items.insert(item.id, item);
             }
         }
-        if !matches!(self.source, EngineSource::Off) {
-            self.drop_unsafe_torrents();
-        }
         let manager = self.clone();
         tokio::spawn(async move { manager.publish_changes().await });
         match &self.source {
             EngineSource::Off => {}
             EngineSource::Fixed(engine) => {
+                self.drop_unsafe_torrents();
                 self.engage_all(engine.clone());
                 self.spawn_tick_loop();
             }
@@ -369,6 +367,8 @@ impl DownloadManager {
             }
         }
         self.save(failed.iter().filter_map(|id| items.get(id)));
+        drop(items);
+        self.changed();
     }
 
     fn spawn_tick_loop(self: &Arc<Self>) {
@@ -421,6 +421,9 @@ impl DownloadManager {
     /// while it exists (a VPN kill switch), restarted when the interface or the choice changes,
     /// with the speed caps of the moment. Retries a failed start.
     async fn supervise_engine(self: Arc<Self>, paths: Paths) {
+        // Before the first engine reads its session; many files maybe, so off the async workers.
+        let manager = self.clone();
+        let _ = tokio::task::spawn_blocking(move || manager.drop_unsafe_torrents()).await;
         const CHECK: Duration = Duration::from_secs(5);
         const RETRY: Duration = Duration::from_secs(30);
         // An error naming a full disk shows the notice this long (errors recur while it is full), or until room is made.

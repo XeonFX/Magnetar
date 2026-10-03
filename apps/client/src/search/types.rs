@@ -42,7 +42,7 @@ pub struct TorrentDetails {
 }
 
 pub fn is_real_info_hash(hash: &str) -> bool {
-    matches!(hash.len(), 40 | 64) && hash.bytes().all(|b| b.is_ascii_hexdigit())
+    hash.len() == 40 && hash.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 /// A torrent site. Add one by implementing this and listing it in `providers::all`; it then

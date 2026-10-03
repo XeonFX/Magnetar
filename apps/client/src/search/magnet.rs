@@ -1,7 +1,3 @@
-use std::sync::LazyLock;
-
-use regex::Regex;
-
 use crate::protocol::encoding::encode_uri_component;
 
 /// A broad set of well-known public trackers. Providers rebuild magnets with these rather than
@@ -36,10 +32,13 @@ pub fn build_magnet(info_hash: &str, name: &str, trackers: &[&str]) -> Option<Ma
     Some(Magnet { info_hash, uri })
 }
 
-static BTIH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)xt=urn:btih:([0-9A-Za-z]+)").unwrap());
-
+/// The hash of a magnet's first `xt=urn:btih:` parameter, as written (`normalize_info_hash` checks it): the one the
+/// engine fetches, wherever else the text appears in the link.
 pub fn extract_info_hash(magnet_uri: &str) -> Option<String> {
-    BTIH.captures(magnet_uri).map(|c| c[1].to_owned())
+    let query = magnet_uri.split_once('?').map_or(magnet_uri, |(_, q)| q);
+    url::form_urlencoded::parse(query.as_bytes())
+        .filter(|(key, _)| key == "xt")
+        .find_map(|(_, value)| value.get(..9).filter(|p| p.eq_ignore_ascii_case("urn:btih:")).map(|_| value[9..].to_owned()))
 }
 
 /// The `dn` display name of a magnet, if it has one.
@@ -99,6 +98,12 @@ mod tests {
         assert_eq!(extract_info_hash(&magnet.uri).as_deref(), Some(HEX));
         assert_eq!(magnet_name(&magnet.uri).as_deref(), Some("Some Name"));
         assert_eq!(magnet_name("magnet:?xt=urn:btih:x&dn=Some+Name").as_deref(), Some("Some Name"));
+        // The hash the engine fetches: the first real `xt`, not text that looks like one elsewhere.
+        let decoy = format!("magnet:?dn=xt%3Durn%3Abtih%3A{}&xt=urn:btih:{HEX}&xt=urn:btih:{}", "1".repeat(40), "2".repeat(40));
+        assert_eq!(extract_info_hash(&decoy).as_deref(), Some(HEX));
+        assert_eq!(extract_info_hash(&format!("magnet:?dn=x&xt=URN:BTIH:{HEX}")).as_deref(), Some(HEX));
+        assert_eq!(extract_info_hash("magnet:?xt=urn:btmh:1220abcd&dn=x"), None);
+        assert_eq!(extract_info_hash("magnet:?dn=x"), None);
         // The base32 form of the same 20 bytes, in either case.
         assert_eq!(normalize_info_hash("VPG66AJDIVTYTK6N54ASGRLHRGV433YB").as_deref(), Some(HEX));
         assert_eq!(normalize_info_hash("vpg66ajdivtytk6n54asgrlhrgv433yb").as_deref(), Some(HEX));

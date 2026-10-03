@@ -2,7 +2,7 @@
 //! metadata, run a torrent into a folder, read its progress, pause it, and remove it.
 
 use std::collections::{HashMap, HashSet};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::path::{Component, Path, PathBuf};
@@ -110,14 +110,22 @@ pub fn bytes_in_pieces(have: &[u8], piece_length: u64, file_sizes: &[u64]) -> Ve
         .collect()
 }
 
-/// `bencode::check` on a saved .torrent file, reading no more of it than the check allows. A file
-/// that can't be read passes: nothing parses it either.
+/// `bencode::check` on a saved .torrent file, reading no more of it than the check allows. A file that is not there,
+/// or still can't be read on a second try, passes: the engine can't read it either.
 pub fn check_torrent_file(path: &Path) -> Result<(), Refused> {
-    let mut bytes = Vec::new();
-    match std::fs::File::open(path).and_then(|file| file.take(MAX_TORRENT_BYTES as u64 + 1).read_to_end(&mut bytes)) {
-        Ok(_) => bencode::check(&bytes, MAX_TORRENT_BYTES),
-        Err(_) => Ok(()),
-    }
+    let read = || {
+        let mut bytes = Vec::new();
+        std::fs::File::open(path).and_then(|file| file.take(MAX_TORRENT_BYTES as u64 + 1).read_to_end(&mut bytes)).map(|_| bytes)
+    };
+    // A virus scanner may hold a file for a moment.
+    let bytes = read().or_else(|error| match error.kind() {
+        std::io::ErrorKind::NotFound => Err(error),
+        _ => {
+            std::thread::sleep(Duration::from_millis(200));
+            read()
+        }
+    });
+    bytes.map_or(Ok(()), |bytes| bencode::check(&bytes, MAX_TORRENT_BYTES))
 }
 
 /// Takes the torrents saved in the engine's `session` folder that fail `bencode::check` out of it,
@@ -149,8 +157,11 @@ pub fn drop_unsafe_session_torrents(session: &Path) -> Vec<(String, Refused)> {
                 !dropped.iter().any(|(_, dropped, _)| dropped.eq_ignore_ascii_case(hash))
             });
         }
+        // On disk before it replaces the list: a crash in between leaves one list or the other, never an empty one.
         let temporary = session.join("session.json.magnetar");
-        std::fs::write(&temporary, serde_json::to_vec(&saved)?)?;
+        let mut file = std::fs::File::create(&temporary)?;
+        file.write_all(&serde_json::to_vec(&saved)?)?;
+        file.sync_all()?;
         Ok(std::fs::rename(temporary, &list)?)
     });
     if let Err(error) = edited {
@@ -561,6 +572,51 @@ fn remove_empty_tree(root: &Dir, folder: &Path, save_path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::bytes_in_pieces;
+    use super::{Refused, drop_unsafe_session_torrents};
+
+    #[test]
+    fn unusable_torrents_leave_the_engines_session_and_the_rest_stay() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = dir.path();
+        let (crafted, fine) = ("ab".repeat(20), "cd".repeat(20));
+        let deep = [vec![b'l'; 1000], vec![b'e'; 1000]].concat();
+        for (hash, torrent) in [(&crafted, &deep[..]), (&fine, &b"d4:infod4:name1:aee"[..])] {
+            std::fs::write(session.join(format!("{hash}.torrent")), torrent).unwrap();
+            std::fs::write(session.join(format!("{hash}.bitv")), [0]).unwrap();
+        }
+        // The engine's list, the crafted one's hash in capitals.
+        let entry = |hash: &str| serde_json::json!({ "info_hash": hash, "trackers": [], "output_folder": "/x", "only_files": null, "is_paused": false });
+        let list = serde_json::json!({ "torrents": { "0": entry(&crafted.to_uppercase()), "1": entry(&fine) } });
+        std::fs::write(session.join("session.json"), list.to_string()).unwrap();
+
+        assert_eq!(drop_unsafe_session_torrents(session), [(crafted.clone(), Refused::TooDeep)]);
+        for extension in ["torrent", "bitv"] {
+            assert!(!session.join(format!("{crafted}.{extension}")).exists());
+            assert!(session.join(format!("{fine}.{extension}")).exists());
+        }
+        let left: serde_json::Value = serde_json::from_slice(&std::fs::read(session.join("session.json")).unwrap()).unwrap();
+        assert_eq!(left, serde_json::json!({ "torrents": { "1": entry(&fine) } }));
+        assert!(!session.join("session.json.magnetar").exists());
+
+        // Nothing to drop: the list is left as it is.
+        assert_eq!(drop_unsafe_session_torrents(session), []);
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&std::fs::read(session.join("session.json")).unwrap()).unwrap(),
+            left
+        );
+
+        // Without a list, or with one the engine couldn't read either, the files still go.
+        for list in [None, Some("{ not json")] {
+            std::fs::write(session.join(format!("{crafted}.torrent")), &deep).unwrap();
+            let _ = std::fs::remove_file(session.join("session.json"));
+            if let Some(list) = list {
+                std::fs::write(session.join("session.json"), list).unwrap();
+            }
+            assert_eq!(drop_unsafe_session_torrents(session), [(crafted.clone(), Refused::TooDeep)]);
+            assert!(!session.join(format!("{crafted}.torrent")).exists());
+        }
+        assert_eq!(drop_unsafe_session_torrents(&session.join("missing")), []);
+    }
 
     #[test]
     fn a_file_counts_only_its_share_of_the_pieces_there() {

@@ -366,7 +366,9 @@ async fn a_crafted_torrent_left_queued_is_dropped_on_start_with_the_reason() {
         |engine| AppOptions { paths: paths.clone(), engine, providers: Vec::new(), legacy_database: None, show_lookups: false };
     let fine = bounded!(seed_file(&folder, &paths));
     let crafted = "0123456789abcdef0123456789abcdef01234567";
-    let (fine_id, crafted_id) = {
+    // Another one, only in the cache: its metadata was fetched, the engine never got it.
+    let cached = "fedcba9876543210fedcba9876543210fedcba98";
+    let (fine_id, crafted_id, cached_id) = {
         let app = App::new(options(EngineSource::Off)).unwrap();
         // Loopback only: nothing of this test leaves the machine.
         let loopback = if cfg!(target_os = "macos") { "lo0" } else { "lo" };
@@ -374,13 +376,17 @@ async fn a_crafted_torrent_left_queued_is_dropped_on_start_with_the_reason() {
         app.start();
         let fine = app.downloads.add(magnet(&fine, &folder)).unwrap().id;
         let crafted = app.downloads.add(magnet(crafted, &folder)).unwrap().id;
+        let cached = app.downloads.add(magnet(cached, &folder)).unwrap().id;
         bounded!(app.stop());
-        (fine, crafted)
+        (fine, crafted, cached)
     };
     let bytes = crafted_torrent(100_000);
     std::fs::create_dir_all(&paths.torrent_session).unwrap();
-    let saved =
-        [paths.torrent_files.join(format!("{crafted}.torrent")), paths.torrent_session.join(format!("{crafted}.torrent"))];
+    let saved = [
+        paths.torrent_files.join(format!("{crafted}.torrent")),
+        paths.torrent_session.join(format!("{crafted}.torrent")),
+        paths.torrent_files.join(format!("{cached}.torrent")),
+    ];
     for file in &saved {
         std::fs::write(file, &bytes).unwrap();
     }
@@ -393,9 +399,11 @@ async fn a_crafted_torrent_left_queued_is_dropped_on_start_with_the_reason() {
 
     let app = App::new(options(EngineSource::Managed(paths.clone()))).unwrap();
     app.start();
-    let failed = app.downloads.get(crafted_id).unwrap();
-    assert_eq!(failed.status, DownloadStatus::Error);
-    assert_eq!(failed.error.as_deref(), Some("This torrent can't be used: its data is nested more than 128 levels deep."));
+    for id in [crafted_id, cached_id] {
+        wait_for(&app, id, DownloadStatus::Error).await;
+        let failed = app.downloads.get(id).unwrap();
+        assert_eq!(failed.error.as_deref(), Some("This torrent can't be used: its data is nested more than 128 levels deep."));
+    }
     for gone in saved.iter().chain([&bitv]) {
         assert!(!gone.exists(), "{} is left", gone.display());
     }
@@ -410,6 +418,8 @@ async fn a_crafted_torrent_left_queued_is_dropped_on_start_with_the_reason() {
     }
     assert_eq!(app.downloads.transfer_status().engine, EngineState::Running);
     wait_for(&app, fine_id, DownloadStatus::Completed).await;
-    assert_eq!(app.downloads.get(crafted_id).unwrap().status, DownloadStatus::Error, "it stays out of the engine");
+    for id in [crafted_id, cached_id] {
+        assert_eq!(app.downloads.get(id).unwrap().status, DownloadStatus::Error, "it stays out of the engine");
+    }
     bounded!(app.stop());
 }
