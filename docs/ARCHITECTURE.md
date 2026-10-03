@@ -39,9 +39,13 @@ changes, desktop notifications). The dashboard's side is typed with zod; the app
    Approving creates the device in D1 with a fresh random token, stored only as a hash, under a name unique on the
    account (`MacBook-Pro`, else `MacBook-Pro-2`): the name is the device's address, `/<name>/…`
    (`packages/protocol/src/deviceName.ts`, a unique index in D1).
-3. The app polls `POST /api/pair/poll` with the poll secret, collects the token (handed over once, then deleted) and
-   its name, activates the pending key and connects to the relay. The browser stores its key under the new device id,
-   so a rename never unlinks it.
+3. The app polls `POST /api/pair/poll` with the poll secret and collects the token and its name, activates the pending
+   key, connects to the relay and confirms it has the token (`POST /api/pair/ack`), which deletes it from D1. Until then
+   every poll gets the same answer, so an answer lost on the way does not lose the device. The device's first relay
+   connection deletes it too (apps from before the confirmation never send it); a token nobody confirms or connects
+   with is no longer handed over ten minutes after the pairing ends, and the app keeps polling a Worker it cannot reach
+   until then. The browser stores its key under the new device id, so a rename never unlinks it. An account holds 20
+   devices; the check is part of the approval's D1 batch, so approvals at once can't pass it together.
 
 Anyone who got hold of the pairing link before you could approve it into their own account. That is why the app shows
 which account it was connected to, and you can disconnect it at any time.
@@ -239,4 +243,7 @@ builds (debug builds read `apps/web/dist` from disk). `src/app.rs` wires the ser
 - **Telemetry**: logged errors are scrubbed (quoted text, paths, URLs, addresses, hashes, tokens) and sent, at most
   10 an hour, to the Worker, which forwards them to CodeFusion Console. Off in development; switchable in Settings.
   What the computer's surroundings cause (`log::SURROUNDINGS`: dropped connections, full disks) is logged as a warning
-  and not sent: Magnetar's own errors through `log_failure!`, by their type; librqbit's by their text.
+  and not sent: Magnetar's own errors through `log_failure!`, by their type; librqbit's by their text. A full disk
+  among them also raises `TransferStatusDto.diskFull` (`downloads::transfer::disk_full_notice`: the folder with least
+  room of the download folder and the app's data, until it has a gigabyte free), which the Downloads page shows as
+  "Disk full: free space on <drive> to keep downloading".

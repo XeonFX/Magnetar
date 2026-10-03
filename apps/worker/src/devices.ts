@@ -1,6 +1,6 @@
 import { randomId } from '@codefusion-cc/base58'
 import { clientNetwork, json, jsonError, rateLimit, readJson, requireSameOrigin, sha256 } from '@codefusion-cc/workers-http'
-import type { CloudDeviceDto, PairApproveResponse, PairingInfoDto, PairPollResponse, PairStartRequest, PairStartResponse } from '@magnetar/protocol/cloud'
+import type { CloudDeviceDto, PairApproveResponse, PairingInfoDto, PairPollRequest, PairPollResponse, PairStartRequest, PairStartResponse } from '@magnetar/protocol/cloud'
 import { randomToken } from '@codefusion-cc/workers-crypto'
 import { toDeviceName, uniqueDeviceName } from '@magnetar/protocol/device-name'
 import { RELAY_CLOSE } from '@magnetar/protocol/relay'
@@ -8,7 +8,13 @@ import { currentUser, liveSessions, requireUser } from './auth.ts'
 import { allowedOrigins, marks, MAX_BODY, type Env } from './env.ts'
 
 const PAIRING_MS = 10 * 60_000
+/**
+ * How long after its pairing ends an approved device's token still waits for the app to collect it, unless the app
+ * confirms it has it first. Then the pairing leaves the database.
+ */
+const HANDOFF_MS = PAIRING_MS
 const MAX_DEVICES_PER_USER = 20
+const FULL = 'Remove a device before adding another'
 
 interface DeviceRow {
   id: string
@@ -88,6 +94,26 @@ async function connectDashboard(request: Request, env: Env, deviceId: string): P
   return response
 }
 
+interface DevicePairingRow {
+  id: string
+  expires_at: number
+  device_id: string | null
+  device_token: string | null
+  /** The approved device's name; null before approval, or when the device was removed since. */
+  device_name: string | null
+  account_email: string | null
+}
+
+/** The pairing the app polling for it names, with what the approval made; null without its poll secret. */
+async function pairingOfDevice(request: Request, env: Env): Promise<DevicePairingRow | null> {
+  const body = await readJson<Partial<PairPollRequest>>(request, { maxBytes: MAX_BODY })
+  const row = await env.DB.prepare(`SELECT p.id, p.poll_secret_hash, p.expires_at, p.device_id, p.device_token, d.name AS device_name, u.email AS account_email
+    FROM pairings p LEFT JOIN devices d ON d.id = p.device_id LEFT JOIN users u ON u.id = p.approved_by WHERE p.id = ?`)
+    .bind(String(body.pairingId ?? '')).first<DevicePairingRow & { poll_secret_hash: string }>()
+  if (!row || row.poll_secret_hash !== (await sha256(String(body.pollSecret ?? ''), 'base64url'))) return null
+  return row
+}
+
 /** Unpairs a device: its token stops working and its open connections close with "device removed". */
 export async function removeDevice(env: Env, deviceId: string): Promise<void> {
   await env.DB.prepare('DELETE FROM devices WHERE id = ?').bind(deviceId).run()
@@ -111,27 +137,34 @@ export async function handleDevices(request: Request, env: Env, path: string): P
     const now = Date.now()
     await env.DB.prepare('INSERT INTO pairings (id, poll_secret_hash, name, platform, version, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .bind(pairingId, await sha256(pollSecret, 'base64url'), name, platform, version, now, now + PAIRING_MS).run()
-    await env.DB.prepare('DELETE FROM pairings WHERE rowid IN (SELECT rowid FROM pairings WHERE expires_at < ? LIMIT 50)').bind(now - PAIRING_MS).run()
+    await env.DB.prepare('DELETE FROM pairings WHERE rowid IN (SELECT rowid FROM pairings WHERE expires_at < ? LIMIT 50)').bind(now - HANDOFF_MS).run()
     return json({ pairingId, pollSecret, expiresAt: new Date(now + PAIRING_MS).toISOString() } satisfies PairStartResponse)
   }
 
   if (path === '/api/pair/poll' && method === 'POST') {
-    const body = await readJson<{ pairingId?: string; pollSecret?: string }>(request, { maxBytes: MAX_BODY })
-    const row = await env.DB.prepare('SELECT * FROM pairings WHERE id = ?').bind(String(body.pairingId ?? '')).first<{
-      poll_secret_hash: string; name: string; expires_at: number; device_id: string | null; device_token: string | null; approved_by: string | null
-    }>()
-    if (!row || row.poll_secret_hash !== (await sha256(String(body.pollSecret ?? ''), 'base64url'))) return jsonError(404, 'Unknown pairing')
-    if (row.device_id && row.device_token) {
-      // Handed over exactly once: the plaintext token leaves the database with this answer.
-      const account = await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(row.approved_by).first<{ email: string }>()
-      const device = await env.DB.prepare('SELECT name FROM devices WHERE id = ?').bind(row.device_id).first<{ name: string }>()
-      await env.DB.prepare('UPDATE pairings SET device_token = NULL WHERE id = ?').bind(body.pairingId).run()
+    const row = await pairingOfDevice(request, env)
+    if (!row) return jsonError(404, 'Unknown pairing')
+    const now = Date.now()
+    if (row.device_token && row.device_name !== null && now < row.expires_at + HANDOFF_MS) {
+      // The same answer to every poll until the app confirms it (/api/pair/ack): an answer lost on the way is not
+      // the end of the pairing, and two polls at once get one token.
       return json({
-        state: 'approved', deviceId: row.device_id, deviceToken: row.device_token, deviceName: device?.name ?? row.name, accountEmail: account?.email ?? '',
+        state: 'approved', deviceId: row.device_id!, deviceToken: row.device_token, deviceName: row.device_name, accountEmail: row.account_email ?? '',
       } satisfies PairPollResponse)
     }
-    if (row.device_id || row.expires_at < Date.now()) return json({ state: 'expired' } satisfies PairPollResponse)
+    // A token past its handoff, or of a device removed meanwhile, leaves the database unused.
+    if (row.device_token) await env.DB.prepare('UPDATE pairings SET device_token = NULL WHERE id = ?').bind(row.id).run()
+    if (row.device_id || row.expires_at < now) return json({ state: 'expired' } satisfies PairPollResponse)
     return json({ state: 'pending' } satisfies PairPollResponse)
+  }
+
+  if (path === '/api/pair/ack' && method === 'POST') {
+    const row = await pairingOfDevice(request, env)
+    if (!row) return jsonError(404, 'Unknown pairing')
+    if (!row.device_id) return jsonError(409, 'This pairing is not approved')
+    // The app has its token: the plaintext leaves the database.
+    await env.DB.prepare('UPDATE pairings SET device_token = NULL WHERE id = ?').bind(row.id).run()
+    return json({ ok: true })
   }
 
   const pairing = /^\/api\/pair\/([A-Za-z0-9_-]{10,40})(\/approve)?$/.exec(path)
@@ -148,28 +181,33 @@ export async function handleDevices(request: Request, env: Env, path: string): P
     if (pairing[2] && method === 'POST') {
       requireSameOrigin(request, allowedOrigins(env))
       if (state !== 'pending') return jsonError(409, state === 'expired' ? 'This pairing link has expired' : 'This device is already connected')
-      const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM devices WHERE user_id = ?').bind(user.id).first<{ n: number }>()
-      if ((count?.n ?? 0) >= MAX_DEVICES_PER_USER) return jsonError(409, 'Remove a device before adding another')
       const deviceId = `d_${randomId(12)}`
       const token = randomToken(32)
       const tokenHash = await sha256(token, 'base64url')
-      // The claim and the device go in together. Only the first approval of a pairing claims it, even if two
-      // tabs approve at once; a name another approval took meanwhile undoes both, and the next free one is tried.
-      // Each lost try means another device joined the account, so an account's limit bounds the tries.
+      // The claim and the device go in together, and only while the account has room: two approvals at once can't
+      // both take its last place, and the one that finds it full leaves its pairing pending. Only the first approval
+      // of a pairing claims it, even if two tabs approve at once; a name another approval took meanwhile undoes both,
+      // and the next free one is tried. Each lost try means another device joined the account, so an account's
+      // limit bounds the tries.
       for (let attempt = 1; ; attempt++) {
         const taken = await env.DB.prepare('SELECT name FROM devices WHERE user_id = ?').bind(user.id).all<{ name: string }>()
+        if (taken.results.length >= MAX_DEVICES_PER_USER) return jsonError(409, FULL)
         const name = uniqueDeviceName(toDeviceName(row.name), taken.results.map(d => d.name))
         const now = Date.now()
         try {
           const [claimed] = await env.DB.batch([
-            env.DB.prepare('UPDATE pairings SET approved_by = ?, device_id = ?, device_token = ? WHERE id = ? AND device_id IS NULL AND expires_at > ?')
-              .bind(user.id, deviceId, token, row.id, now),
+            env.DB.prepare(`UPDATE pairings SET approved_by = ?, device_id = ?, device_token = ? WHERE id = ? AND device_id IS NULL AND expires_at > ?
+              AND (SELECT COUNT(*) FROM devices WHERE user_id = ?) < ?`)
+              .bind(user.id, deviceId, token, row.id, now, user.id, MAX_DEVICES_PER_USER),
             env.DB.prepare(`INSERT INTO devices (id, user_id, name, platform, version, token_hash, created_at)
               SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM pairings WHERE id = ? AND device_id = ?)`)
               .bind(deviceId, user.id, name, row.platform, row.version, tokenHash, now, row.id, deviceId),
           ])
-          if (!claimed!.meta.changes) return jsonError(409, 'This device is already connected')
-          return json({ deviceId, deviceName: name } satisfies PairApproveResponse)
+          if (claimed!.meta.changes) return json({ deviceId, deviceName: name } satisfies PairApproveResponse)
+          // Not claimed: another approval took the pairing, it expired, or the account filled up meanwhile.
+          const current = await env.DB.prepare('SELECT device_id, expires_at FROM pairings WHERE id = ?').bind(row.id).first<{ device_id: string | null; expires_at: number }>()
+          if (!current || current.device_id) return jsonError(409, 'This device is already connected')
+          return jsonError(409, current.expires_at <= now ? 'This pairing link has expired' : FULL)
         } catch (e) {
           if (!nameTaken(e) || attempt > MAX_DEVICES_PER_USER) throw e
         }
@@ -186,6 +224,11 @@ export async function handleDevices(request: Request, env: Env, path: string): P
     // A 401 on the upgrade looks like any network failure to the device, which would retry
     // forever; closing with 4001 tells it the pairing is gone.
     if (!device) return closedSocket(RELAY_CLOSE.deviceRemoved, 'Device removed from the account')
+    // Connecting proves the app has its token, also an app from before /api/pair/ack: the plaintext leaves the database.
+    // Only a device paired within its pairing's lifetime and handoff can still have one waiting.
+    if (device.created_at > Date.now() - PAIRING_MS - HANDOFF_MS) {
+      await env.DB.prepare('UPDATE pairings SET device_token = NULL WHERE device_id = ? AND device_token IS NOT NULL').bind(device.id).run()
+    }
     return relay(env, device.id).fetch(new Request('https://relay/device', { headers: { upgrade: 'websocket', 'x-device-id': device.id } }))
   }
 

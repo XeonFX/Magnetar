@@ -7,7 +7,9 @@ use std::fmt::Write as _;
 use std::fs::{File, OpenOptions};
 use std::io::{self, ErrorKind, Write as _};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex, OnceLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use regex::Regex;
 use tracing::field::{Field, Visit};
@@ -23,6 +25,22 @@ static ERROR_SINK: OnceLock<ErrorSink> = OnceLock::new();
 /// Errors logged anywhere are also handed to this sink as (scope, message).
 pub fn set_error_sink(sink: impl Fn(&str, &str) + Send + Sync + 'static) {
     let _ = ERROR_SINK.set(Box::new(sink));
+}
+
+/// When (unix milliseconds) a full disk was last named by an error, 0 for never.
+static DISK_FULL_AT: AtomicU64 = AtomicU64::new(0);
+
+fn note_disk_full() {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+    DISK_FULL_AT.store(now.max(1), Ordering::Relaxed);
+}
+
+/// Whether an error logged in the last `window` was a full disk. Such errors are not reported (they are warnings),
+/// so this is how the dashboard hears of them (`downloads::transfer::disk_full_notice`).
+pub fn disk_full_within(window: Duration) -> bool {
+    let at = DISK_FULL_AT.load(Ordering::Relaxed);
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+    at != 0 && now.saturating_sub(at) <= window.as_millis() as u64
 }
 
 struct FileLayer {
@@ -119,6 +137,9 @@ impl<S: Subscriber> Layer<S> for FileLayer {
         let message = format!("{}{}", fields.message, fields.rest);
         // Our own code decides with the error's type (`log_failure!`); another crate's error reaches us only as text.
         let level = if level == Level::ERROR && !own && library_error_from_surroundings(&message) { Level::WARN } else { level };
+        if level <= Level::WARN && names_full_disk(&message) {
+            note_disk_full();
+        }
         let line = format!(
             "{} {:<5} [{scope}] {message}",
             chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
@@ -158,21 +179,42 @@ const SURROUNDINGS: [ErrorKind; 10] = [
     ErrorKind::QuotaExceeded,
 ];
 
-/// Whether `error`, or what caused it, is the computer's surroundings: an I/O error of `SURROUNDINGS`, or SQLite
-/// finding the disk full. A read-only file system is not: Magnetar's own writes go where Magnetar chose.
-pub fn caused_by_surroundings(error: &(dyn std::error::Error + 'static)) -> bool {
+/// The kinds of I/O error that mean there is no room to write.
+const FULL_DISK: [ErrorKind; 2] = [ErrorKind::StorageFull, ErrorKind::QuotaExceeded];
+
+/// Notes a full disk (`disk_full_within`) when `error` is one.
+pub fn note_if_full_disk(error: &(dyn std::error::Error + 'static)) {
+    if caused_by_full_disk(error) {
+        note_disk_full();
+    }
+}
+
+/// Whether `error`, or what caused it, is an I/O error of one of `kinds`, or SQLite finding the disk full.
+fn caused_by(error: &(dyn std::error::Error + 'static), kinds: &[ErrorKind]) -> bool {
     std::iter::successors(Some(error), |error| error.source()).any(|error| {
-        error.downcast_ref::<io::Error>().is_some_and(|error| SURROUNDINGS.contains(&error.kind()))
+        error.downcast_ref::<io::Error>().is_some_and(|error| kinds.contains(&error.kind()))
             || matches!(error.downcast_ref(), Some(rusqlite::Error::SqliteFailure(error, _)) if error.code == rusqlite::ErrorCode::DiskFull)
     })
 }
 
+/// Whether `error`, or what caused it, is the computer's surroundings: an I/O error of `SURROUNDINGS`, or SQLite
+/// finding the disk full. A read-only file system is not: Magnetar's own writes go where Magnetar chose.
+pub fn caused_by_surroundings(error: &(dyn std::error::Error + 'static)) -> bool {
+    caused_by(error, &SURROUNDINGS)
+}
+
+/// Whether `error`, or what caused it, is a full disk or an exhausted quota.
+pub fn caused_by_full_disk(error: &(dyn std::error::Error + 'static)) -> bool {
+    caused_by(error, &FULL_DISK)
+}
+
 /// `tracing::error!`, or `warn!` when `$error` was caused by the computer's surroundings (`caused_by_surroundings`):
-/// a warning stays in the log and is not reported.
+/// a warning stays in the log and is not reported. A full disk is also noted, for the dashboard's notice.
 #[macro_export]
 macro_rules! log_failure {
     ($error:expr, $($message:tt)+) => {
         if $crate::log::caused_by_surroundings($error) {
+            $crate::log::note_if_full_disk($error);
             tracing::warn!($($message)+)
         } else {
             tracing::error!($($message)+)
@@ -184,6 +226,15 @@ macro_rules! log_failure {
 /// `Kind(TimedOut)`, `Custom { kind: StorageFull, … }`) write it.
 static IO_ERROR: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\(os error (-?[0-9]+)|(?-u:\b)(?:kind: |Kind\()([A-Za-z]+)").unwrap());
+
+/// Whether a message, by its text, names a full disk: an I/O error of `FULL_DISK`, read as `library_error_from_surroundings` does.
+fn names_full_disk(message: &str) -> bool {
+    IO_ERROR.captures_iter(message).any(|caps| match (caps.get(1), caps.get(2)) {
+        (Some(code), _) => code.as_str().parse().is_ok_and(|code| FULL_DISK.contains(&io::Error::from_raw_os_error(code).kind())),
+        (_, Some(name)) => FULL_DISK.iter().any(|kind| format!("{kind:?}") == name.as_str()),
+        _ => false,
+    })
+}
 
 /// Whether another crate's error, by its text, is the computer's surroundings: every I/O error it names is one of
 /// `SURROUNDINGS` (a fault with a dropped connection in its chain stays a fault), or a read-only file system, as
@@ -221,7 +272,10 @@ mod tests {
     use anyhow::Context as _;
     use proptest::prelude::*;
 
-    use super::{FileLayer, SURROUNDINGS, caused_by_surroundings, library_error_from_surroundings as surroundings};
+    use super::{
+        FileLayer, SURROUNDINGS, caused_by_full_disk, caused_by_surroundings, disk_full_within,
+        library_error_from_surroundings as surroundings, names_full_disk,
+    };
 
     /// `error`'s `{}`, as an anyhow chain writes it.
     fn os_error(code: i32) -> String {
@@ -348,6 +402,38 @@ mod tests {
         assert!(!caused_by_surroundings(anyhow::anyhow!("No space left on device (os error 28)").as_ref()));
     }
 
+    #[test]
+    fn a_full_disk_is_told_from_the_rest_of_the_surroundings() {
+        let reported_full = "error dumping DHT: error opening \"…\": No space left on device (os error 28) filename=\"…\"";
+        // 28 is ENOSPC on Unix only; the kind's name is the same everywhere.
+        assert_eq!(names_full_disk(reported_full), cfg!(unix));
+        for named in [
+            "Custom { kind: StorageFull, error: \"x\" }",
+            "Kind(QuotaExceeded)",
+            "write failed: Kind(StorageFull); retry: Kind(BrokenPipe)",
+        ] {
+            assert!(names_full_disk(named), "{named}");
+        }
+        for other in [
+            "",
+            "dht finished with error: framer failed: Recv(Os { code: 10054, kind: ConnectionReset, message: \"x\" })",
+            "Kind(ReadOnlyFilesystem)",
+            "Kind(StorageFullish)",
+            "No space left in the queue",
+            "Value too large (os error 99999999999999999999999)",
+        ] {
+            assert!(!names_full_disk(other), "{other}");
+        }
+        assert!(caused_by_full_disk(&io::Error::from(ErrorKind::StorageFull)));
+        assert!(caused_by_full_disk(&io::Error::from(ErrorKind::QuotaExceeded)));
+        let full = rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(13), Some("database or disk is full".into()));
+        assert!(caused_by_full_disk(&full));
+        let staged = Err::<(), _>(io::Error::from(ErrorKind::StorageFull)).context("staging the update").unwrap_err();
+        assert!(caused_by_full_disk(staged.as_ref()));
+        assert!(!caused_by_full_disk(&io::Error::from(ErrorKind::ConnectionReset)));
+        assert!(!caused_by_full_disk(&io::Error::from(ErrorKind::ReadOnlyFilesystem)));
+    }
+
     proptest! {
         #[test]
         fn any_context_around_a_surroundings_error_is_the_surroundings(
@@ -374,8 +460,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let layer = FileLayer { dir: Some(dir.path().to_path_buf()), min_level: tracing::Level::INFO, file: Mutex::default() };
         let subscriber = tracing_subscriber::layer::SubscriberExt::with(tracing_subscriber::registry(), layer);
+        super::DISK_FULL_AT.store(0, std::sync::atomic::Ordering::Relaxed);
         tracing::subscriber::with_default(subscriber, || {
+            // A dropped connection says nothing about the disk.
+            tracing::error!(target: "librqbit_core::spawn_utils", "dht finished with error: framer failed: Recv(Os {{ code: 10054, kind: ConnectionReset, message: \"x\" }})");
+            assert!(!disk_full_within(std::time::Duration::from_secs(60)));
             tracing::error!(target: "librqbit_dht::persistence", filename = ?"/tmp/dht.json", "error dumping DHT: Kind(StorageFull)");
+            // The dashboard's notice is raised, though nothing is reported.
+            assert!(disk_full_within(std::time::Duration::from_secs(60)));
             tracing::error!(target: "librqbit_core::spawn_utils", "dht finished with error: framer failed: Recv(Os {{ code: 10054, kind: ConnectionReset, message: \"x\" }})");
             tracing::error!(target: "librqbit::session", "error writing piece: Kind(ReadOnlyFilesystem)");
             tracing::error!(target: "librqbit_core::spawn_utils", "session finished with error: invalid bencode at 7");
@@ -400,7 +492,7 @@ mod tests {
         files.sort();
         let log: String = files.iter().map(|path| std::fs::read_to_string(path).unwrap()).collect();
         let levels: Vec<_> = log.lines().map(|line| line.split_whitespace().nth(1).unwrap()).collect();
-        assert_eq!(levels, ["WARN", "WARN", "WARN", "ERROR", "ERROR", "WARN", "ERROR"], "{log}");
+        assert_eq!(levels, ["WARN", "WARN", "WARN", "WARN", "ERROR", "ERROR", "WARN", "ERROR"], "{log}");
         assert!(log.contains("[librqbit_dht] error dumping DHT"), "{log}");
         assert!(log.contains("filename=\"/tmp/dht.json\""), "{log}");
         assert!(log.contains("[downloads] Could not save downloads"), "{log}");

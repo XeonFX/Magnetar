@@ -81,6 +81,16 @@ pub struct TransferStatusDto {
     pub upload_limit: u64,
     /// Free space where new downloads go.
     pub free_bytes: Option<u64>,
+    /// Set while a disk Magnetar writes to is full.
+    pub disk_full: Option<DiskFullDto>,
+}
+
+/// A disk with no room left for what Magnetar writes.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DiskFullDto {
+    /// What to free space on, when it has a name: "C:", "/Volumes/Media".
+    pub drive: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]

@@ -27,6 +27,14 @@ export interface TransferStatusDto {
   uploadLimit: number
   /** Free space where new downloads go. */
   freeBytes: number | null
+  /** Set while a disk Magnetar writes to is full. */
+  diskFull: DiskFullDto | null
+}
+
+/** A disk with no room left for what Magnetar writes. */
+export interface DiskFullDto {
+  /** What to free space on, when it has a name: "C:", "/Volumes/Media". */
+  drive: string | null
 }
 
 export interface NetworkInterfaceDto {
